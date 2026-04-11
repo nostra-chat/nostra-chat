@@ -1,5 +1,6 @@
 import {JSX, For} from 'solid-js';
 import classNames from '@helpers/string/classNames';
+import appSidebarLeft from '@components/sidebarLeft';
 
 export interface RelayStateInfo {
   url: string;
@@ -70,6 +71,17 @@ export default function TorStatus(props: {
             onClick={() => props.onClose()}
           >
             Chiudi
+          </button>
+          <button
+            class="tor-popup__btn tor-popup__btn--link"
+            onClick={() => {
+              props.onClose();
+              import('@components/sidebarLeft/tabs/nostraTorDashboard').then(({default: AppNostraTorDashboardTab}) => {
+                appSidebarLeft.createTab(AppNostraTorDashboardTab).open();
+              });
+            }}
+          >
+            View circuit details
           </button>
         </div>
       </div>

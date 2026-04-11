@@ -521,6 +521,9 @@
 
 @import "partials/passcodeLockScreen";
 
+@import "nostra/tor-dashboard";
+@import "nostra/mesh-indicators";
+
 html,
 body {
   height: 100%;

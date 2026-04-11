@@ -10,6 +10,7 @@ import Row from '@components/row';
 import rootScope from '@lib/rootScope';
 import CheckboxField from '@components/checkboxField';
 import AppNostraSecurityTab from '@components/sidebarLeft/tabs/nostraSecurity';
+import {PrivacyTransport} from '@lib/nostra/privacy-transport';
 
 export default class AppPrivacyAndSecurityTab extends SliderSuperTab {
   public static getInitArgs(fromTab: SliderSuperTab) {
@@ -19,6 +20,99 @@ export default class AppPrivacyAndSecurityTab extends SliderSuperTab {
   public async init(_p?: any) {
     this.container.classList.add('privacy-container');
     this.setTitle('PrivacySettings');
+
+    // --- Tor section ---
+    const torSection = new SettingSection({name: 'Tor Network' as any});
+
+    const torEnabled = PrivacyTransport.isTorEnabled();
+    const torCheckbox = new CheckboxField({
+      toggle: true,
+      checked: torEnabled
+    });
+
+    const torRow = new Row({
+      title: 'Route traffic through Tor',
+      subtitle: torEnabled ?
+        'Your IP is hidden from relays' :
+        'Direct connection — your IP is visible to relays',
+      checkboxField: torCheckbox,
+      clickable: true
+    });
+
+    const torStatusSubtitle = torRow.subtitle;
+
+    torCheckbox.input.addEventListener('change', async() => {
+      const enabled = torCheckbox.checked;
+      if(!enabled) {
+        const [{default: TorFallbackConfirm}, {render}] = await Promise.all([
+          import('@components/popups/torFallbackConfirm'),
+          import('solid-js/web')
+        ]);
+        const overlay = document.createElement('div');
+        document.body.append(overlay);
+        const dispose = render(() => TorFallbackConfirm({
+          onRetry: () => {
+            torCheckbox.setValueSilently(true);
+            const transport = (window as any).__nostraPrivacyTransport;
+            if(transport) transport.setTorEnabled(true);
+          },
+          onConfirmDirect: () => {
+            const transport = (window as any).__nostraPrivacyTransport;
+            if(transport) transport.setTorEnabled(false);
+            torStatusSubtitle.textContent = 'Direct connection — your IP is visible to relays';
+            torStatusSubtitle.classList.add('danger');
+          },
+          onClose: () => {
+            dispose();
+            overlay.remove();
+          }
+        }), overlay);
+      } else {
+        const transport = (window as any).__nostraPrivacyTransport;
+        if(transport) transport.setTorEnabled(true);
+        torStatusSubtitle.textContent = 'Connecting to Tor...';
+        torStatusSubtitle.classList.remove('danger');
+      }
+    });
+
+    rootScope.addEventListener('nostra_tor_state', (e) => {
+      const state = e.state;
+      if(state === 'active') {
+        torStatusSubtitle.textContent = 'Connected via Tor';
+        torStatusSubtitle.classList.remove('danger');
+        torStatusSubtitle.classList.add('success');
+      } else if(state === 'bootstrapping') {
+        torStatusSubtitle.textContent = 'Connecting to Tor...';
+        torStatusSubtitle.classList.remove('danger', 'success');
+      } else if(state === 'failed') {
+        torStatusSubtitle.textContent = 'Tor connection failed';
+        torStatusSubtitle.classList.add('danger');
+        torStatusSubtitle.classList.remove('success');
+      } else if(state === 'direct') {
+        torStatusSubtitle.textContent = 'Direct connection — your IP is visible to relays';
+        torStatusSubtitle.classList.add('danger');
+        torStatusSubtitle.classList.remove('success');
+      }
+    });
+
+    torSection.content.append(torRow.container);
+
+    // --- Mesh Network section ---
+    const meshSection = new SettingSection({name: 'Mesh Network' as any});
+
+    const meshRow = new Row({
+      title: 'P2P Mesh Settings',
+      subtitle: 'Direct connections between contacts',
+      icon: 'network' as any,
+      clickable: async() => {
+        const {default: AppNostraMeshSettingsTab} = await import('@components/sidebarLeft/tabs/nostraMeshSettings');
+        const tab = new AppNostraMeshSettingsTab(this.slider);
+        tab.open();
+      },
+      listenerSetter: this.listenerSetter
+    });
+
+    meshSection.content.append(meshRow.container);
 
     // Section 1: Key Security
     const securitySection = new SettingSection({
@@ -110,6 +204,8 @@ export default class AppPrivacyAndSecurityTab extends SliderSuperTab {
     dangerSection.content.append(deleteAccountRow.container);
 
     this.scrollable.append(
+      torSection.container,
+      meshSection.container,
       securitySection.container,
       privacySection.container,
       dangerSection.container

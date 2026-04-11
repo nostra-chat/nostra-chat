@@ -13,6 +13,10 @@ import {initVirtualPeersDB, storeMapping, getPubkey, getAllMappings} from './vir
 import {NostrRelayPool, DEFAULT_RELAYS} from './nostr-relay-pool';
 import {OfflineQueue} from './offline-queue';
 import {PrivacyTransport} from './privacy-transport';
+import {MeshManager} from '@lib/nostra/mesh-manager';
+import {MessageRouter} from '@lib/nostra/message-router';
+import {isSignalKind} from '@lib/nostra/mesh-signaling';
+import rootScope from '@lib/rootScope';
 
 // Virtual ID ranges — all use BigInt to avoid floating-point precision loss
 export const VIRTUAL_PEER_BASE = BigInt(10 ** 15);
@@ -141,6 +145,96 @@ export class NostraBridge {
     }).catch(() => {
       // Pool init failure — transport stays offline
     });
+
+    // Initialize mini-relay worker
+    if(typeof window !== 'undefined') {
+      const miniRelayWorker = new Worker(
+        new URL('./mini-relay.worker.ts', import.meta.url),
+        {type: 'module'}
+      );
+
+      miniRelayWorker.postMessage({
+        type: 'init',
+        contactPubkeys: []
+      });
+
+      miniRelayWorker.onmessage = (e: MessageEvent) => {
+        const msg = e.data;
+        if(msg.type === 'send') {
+          console.log('[MiniRelay] outgoing message to', msg.peerId);
+        }
+      };
+
+      (window as any).__nostraMiniRelayWorker = miniRelayWorker;
+
+      rootScope.addEventListener('nostra_contact_accepted', () => {
+        const contacts = (window as any).__nostraContacts || [];
+        miniRelayWorker.postMessage({type: 'update-contacts', contactPubkeys: contacts});
+      });
+
+      // Initialize mesh manager
+      const meshManager = new MeshManager({
+        sendSignal: async(recipientPubkey, signal) => {
+          const chatAPI = (window as any).__nostraChatAPI;
+          if(chatAPI) {
+            await chatAPI.publishSignal?.(recipientPubkey, signal.content);
+          }
+        },
+        onPeerMessage: (pubkey, message) => {
+          miniRelayWorker.postMessage({type: 'peer-message', peerId: pubkey, data: message});
+        },
+        onPeerConnected: (pubkey) => {
+          miniRelayWorker.postMessage({type: 'peer-connected', peerId: pubkey, pubkey});
+          rootScope.dispatchEvent('nostra_mesh_peer_connected', {pubkey, latency: -1});
+        },
+        onPeerDisconnected: (pubkey) => {
+          miniRelayWorker.postMessage({type: 'peer-disconnected', peerId: pubkey});
+          rootScope.dispatchEvent('nostra_mesh_peer_disconnected', {pubkey});
+        }
+      });
+
+      // Initialize message router
+      const messageRouter = new MessageRouter({
+        meshManager,
+        relayPublish: async(event) => {
+          const pool = (window as any).__nostraPool;
+          if(pool) {
+            try {
+              await pool.publish(event);
+              return true;
+            } catch{
+              return false;
+            }
+          }
+          return false;
+        },
+        getContactsForPeer: (_pubkey) => {
+          return (window as any).__nostraContacts || [];
+        }
+      });
+
+      // Expose for debugging
+      (window as any).__nostraMeshManager = meshManager;
+      (window as any).__nostraMessageRouter = messageRouter;
+
+      // Handle incoming signals from gift-wrap messages
+      rootScope.addEventListener('nostra_new_message', (e) => {
+        const msg = e.message as any;
+        if(msg?.rumorKind && isSignalKind(msg.rumorKind)) {
+          meshManager.handleSignal(e.senderPubkey, msg.content);
+        }
+      });
+
+      // Auto-connect to contacts after backfill
+      rootScope.addEventListener('nostra_backfill_complete', () => {
+        const contacts = (window as any).__nostraContacts || [];
+        for(const pubkey of contacts) {
+          setTimeout(() => {
+            meshManager.connect(pubkey).catch(() => {});
+          }, Math.random() * 5000);
+        }
+      });
+    }
   }
 
   /**

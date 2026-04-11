@@ -136,6 +136,8 @@ export class NostrRelay {
   private mode: 'websocket' | 'http-polling' = 'websocket';
   private torFetchFn?: (url: string) => Promise<string>;
   private latencyMs: number = -1;
+  public directLatencyMs: number = -1;
+  public torLatencyMs: number = -1;
   private pollingInterval: ReturnType<typeof setInterval> | null = null;
   private lastPolled: number = 0;
 
@@ -508,6 +510,8 @@ export class NostrRelay {
     if(this.connectionState === 'connected' || this.connectionState === 'connecting') {
       this.startHttpPolling();
     }
+
+    setTimeout(() => this.measureLatency(), 1000);
   }
 
   /**
@@ -524,6 +528,8 @@ export class NostrRelay {
       this.connectionState = 'disconnected';
       this.connect();
     }
+
+    setTimeout(() => this.measureLatency(), 1000);
   }
 
   /**
@@ -539,6 +545,7 @@ export class NostrRelay {
         const httpsUrl = this.relayUrl.replace('wss://', 'https://').replace('ws://', 'https://');
         await this.torFetchFn(`${httpsUrl}/`);
         this.latencyMs = Math.round(performance.now() - start);
+        this.torLatencyMs = this.latencyMs;
         return this.latencyMs;
       } catch{
         this.latencyMs = -1;
@@ -568,6 +575,7 @@ export class NostrRelay {
             clearTimeout(timeout);
             this.ws!.onmessage = origHandler;
             this.latencyMs = Math.round(performance.now() - start);
+            this.directLatencyMs = this.latencyMs;
             resolve(this.latencyMs);
             return;
           }

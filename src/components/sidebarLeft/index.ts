@@ -1092,8 +1092,7 @@ export class AppSidebarLeft extends SidebarSlider {
 
       render(() => SearchBarStatusIcons({
         onTorClick: () => {
-          // Open Status tab
-          this.openStatusTab?.();
+          this.openTorStatusPopup();
         },
         onRelayClick: () => {
           this.openStatusTab?.();
@@ -1101,6 +1100,63 @@ export class AppSidebarLeft extends SidebarSlider {
       }), mountEl);
     }).catch((err) => {
       console.warn('[AppSidebarLeft] status icons mount failed:', err);
+    });
+  }
+
+  private openTorStatusPopup(): void {
+    Promise.all([
+      import('@components/popups/torStatus'),
+      import('solid-js/web')
+    ]).then(([{default: TorStatus}, {render}]) => {
+      // Gather relay states from pool
+      const pool = (window as any).__nostraPool;
+      const relayStates: any[] = [];
+      try {
+        const entries = pool?.getRelayEntries?.();
+        if(entries) {
+          const iter = typeof entries.entries === 'function' ? entries.entries() :
+            typeof entries[Symbol.iterator] === 'function' ? entries :
+              Object.entries(entries);
+          for(const item of iter) {
+            const entry = Array.isArray(item) ? item[1] || item[0] : item;
+            const inst = entry?.instance;
+            relayStates.push({
+              url: entry?.url || '',
+              connected: inst?.isConnected?.() ?? false,
+              latencyMs: inst?.getLatency?.() ?? -1,
+              read: entry?.read ?? true,
+              write: entry?.write ?? true
+            });
+          }
+        }
+      } catch(e) {
+        console.warn('[TorStatusPopup] failed to gather relay states:', e);
+      }
+
+      // Get Tor state
+      const transport = (window as any).__nostraPrivacyTransport;
+      const torState = transport?.getState?.() ?? 'direct';
+      const torStateMap: Record<string, string> = {
+        active: 'active',
+        bootstrapping: 'bootstrapping',
+        direct: 'direct',
+        failed: 'failed',
+        offline: 'failed'
+      };
+
+      // Mount popup overlay
+      const overlayEl = document.createElement('div');
+      document.body.append(overlayEl);
+
+      const cleanup = render(() => TorStatus({
+        relayStates,
+        torState: (torStateMap[torState] || 'direct') as any,
+        onClose: () => {
+          overlayEl.remove();
+        }
+      }), overlayEl);
+    }).catch((err) => {
+      console.warn('[AppSidebarLeft] tor status popup failed:', err);
     });
   }
 

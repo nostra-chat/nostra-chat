@@ -45,9 +45,38 @@ export class PrivacyTransport {
     this.offlineQueue = offlineQueue;
     this.webtorClient = webtorClient || new WebtorClient();
 
+    // Wire circuit change callback to dispatch rootScope event
+    if(this.webtorClient) {
+      const origEvents = (this.webtorClient as any)._events || {};
+      (this.webtorClient as any)._events = {
+        ...origEvents,
+        onCircuitChange: () => {
+          const details = this.webtorClient?.getCircuitDetails?.();
+          if(details) {
+            rootScope.dispatchEvent('nostra_tor_circuit_update', details);
+          }
+        }
+      };
+    }
+
     // Expose for debug inspection
     if(typeof window !== 'undefined') {
       (window as any).__nostraPrivacyTransport = this;
+    }
+  }
+
+  static isTorEnabled(): boolean {
+    const stored = localStorage.getItem('nostra-tor-enabled');
+    return stored !== 'false'; // default true
+  }
+
+  async setTorEnabled(enabled: boolean) {
+    localStorage.setItem('nostra-tor-enabled', String(enabled));
+
+    if(enabled) {
+      await this.retryTor();
+    } else {
+      this.confirmDirectFallback();
     }
   }
 

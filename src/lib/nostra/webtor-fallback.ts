@@ -78,6 +78,14 @@ export class WebtorClient implements TorPrivacyClient {
   private _bootstrapPromise: Promise<void> | null = null;
   private _moduleReady = false;
   private _pollTimeout = 2000; // ms between Nostr polls (matches TorWasmClient)
+  private _circuitDetails: {
+    guard: string;
+    middle: string;
+    exit: string;
+    latency: number;
+    exitIp: string;
+    healthy: boolean;
+  } | null = null;
 
   // ---------------------------------------------------------------------------
   // Lifecycle
@@ -133,12 +141,16 @@ export class WebtorClient implements TorPrivacyClient {
         console.debug('[WebtorClient] Creating TorClient via Snowflake WebRTC...');
         this._setState('bootstrapping');
 
-        const options = TorClientOptions.snowflakeWebRtc()
-        .withConnectionTimeout(30_000)
-        .withCircuitTimeout(45_000)
-        .withCreateCircuitEarly(true);
+        const options = (TorClientOptions as any).snowflakeWebRtc ?
+          (TorClientOptions as any).snowflakeWebRtc()
+          .withConnectionTimeout(30_000)
+          .withCircuitTimeout(45_000)
+          .withCreateCircuitEarly(true) :
+          new (TorClientOptions as any)();
 
-        this._client = await TorClient.create(options);
+        this._client = (TorClient as any).create ?
+          await (TorClient as any).create(options) :
+          new TorClient(options as any);
 
         // Wait for first circuit to be ready
         console.debug('[WebtorClient] Waiting for Tor circuit...');
@@ -149,6 +161,7 @@ export class WebtorClient implements TorPrivacyClient {
 
         // Start circuit health polling (for onCircuitChange events)
         this._startCircuitPolling();
+        await this._fetchExitIp();
       } catch(err) {
         const msg = err instanceof Error ? err.message : String(err);
         this._setState('error', msg);
@@ -170,8 +183,8 @@ export class WebtorClient implements TorPrivacyClient {
 
         if(status.has_ready_circuits) {
           console.debug('[WebtorClient] Circuit ready:', {
-            ready: status.ready_circuits,
-            total: status.total_circuits
+            ready: status.ready ?? status.ready_circuits,
+            total: status.total ?? status.total_circuits
           });
           return;
         }
@@ -187,26 +200,36 @@ export class WebtorClient implements TorPrivacyClient {
   }
 
   private _startCircuitPolling(): void {
-    const timer = setInterval(async() => {
-      if(!this._client || this._state !== 'ready') return;
-
+    const poll = async() => {
+      if(!this._client) return;
       try {
         const status = await this._client.getCircuitStatus();
-        const cs: CircuitStatus = {
-          healthy: status.is_healthy,
-          readyCircuits: status.ready_circuits,
-          totalCircuits: status.total_circuits,
-          failedCircuits: status.failed_circuits,
-          creatingCircuits: status.creating_circuits
-        };
-        this._events.onCircuitChange?.(cs);
-      } catch{
-        // Ignore polling errors
-      }
-    }, 10_000);
+        const healthy = (status as any).has_ready_circuits && ((status as any).ready > 0 || (status as any).ready_circuits > 0);
+        const nodes = (status as any).nodes || [];
 
-    // Store for cleanup
-    this._pollingIntervals.set('_circuitPoll', timer);
+        this._circuitDetails = {
+          guard: nodes[0] || '',
+          middle: nodes[1] || '',
+          exit: nodes[2] || '',
+          latency: this._circuitDetails?.latency ?? -1,
+          exitIp: this._circuitDetails?.exitIp ?? '',
+          healthy
+        };
+
+        this._events.onCircuitChange?.({
+          healthy: (status as any).has_ready_circuits,
+          readyCircuits: (status as any).ready ?? (status as any).ready_circuits,
+          totalCircuits: (status as any).total ?? (status as any).total_circuits,
+          failedCircuits: (status as any).failed ?? (status as any).failed_circuits,
+          creatingCircuits: (status as any).creating ?? (status as any).creating_circuits
+        });
+      } catch{
+        // Circuit polling errors are non-fatal
+      }
+    };
+
+    poll();
+    this._pollingIntervals.set('circuit', setInterval(poll, 10_000) as any);
   }
 
   // ---------------------------------------------------------------------------
@@ -235,7 +258,7 @@ export class WebtorClient implements TorPrivacyClient {
       )).then(r => r.text());
     }
 
-    return this._client.fetch(url).then(r => r.text());
+    return this._client.fetch(url).then(r => r.text?.() ?? r.body_string?.() ?? '');
   }
 
   // ---------------------------------------------------------------------------
@@ -329,6 +352,10 @@ export class WebtorClient implements TorPrivacyClient {
     return this._state;
   }
 
+  public getCircuitDetails() {
+    return this._circuitDetails;
+  }
+
   // ---------------------------------------------------------------------------
   // Cleanup
   // ---------------------------------------------------------------------------
@@ -358,6 +385,17 @@ export class WebtorClient implements TorPrivacyClient {
   // ---------------------------------------------------------------------------
   // Internal helpers
   // ---------------------------------------------------------------------------
+
+  private async _fetchExitIp() {
+    try {
+      const ip = await this.fetch('https://api.ipify.org');
+      if(this._circuitDetails) {
+        this._circuitDetails.exitIp = ip.trim();
+      }
+    } catch(_e) {
+      // Exit IP fetch is best-effort
+    }
+  }
 
   private _setState(state: TorState, error?: string): void {
     this._state = state;

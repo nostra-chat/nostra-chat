@@ -155,6 +155,8 @@ export default class AppNostraRelaySettingsTab extends SliderSuperTab {
     const relays: RelayConfig[] = this.relayPool?.getRelays() ?? [];
     const states = this.relayPool?.getRelayStates() ?? [];
     const stateMap = new Map(states.map(s => [s.url, s]));
+    const entries = this.relayPool?.getRelayEntries() ?? [];
+    const instanceMap = new Map(entries.map(e => [e.config.url, e.instance]));
 
     if(relays.length === 0) {
       const empty = document.createElement('div');
@@ -164,11 +166,34 @@ export default class AppNostraRelaySettingsTab extends SliderSuperTab {
       return;
     }
 
+    // Aggregate Tor overhead bar
+    let overheadSum = 0;
+    let overheadCount = 0;
+    for(const relay of relays) {
+      const instance = instanceMap.get(relay.url);
+      const torLat = instance?.torLatencyMs ?? -1;
+      const dirLat = instance?.directLatencyMs ?? -1;
+      if(torLat >= 0 && dirLat >= 0) {
+        overheadSum += torLat - dirLat;
+        overheadCount++;
+      }
+    }
+    if(overheadCount > 0) {
+      const avgOverhead = Math.round(overheadSum / overheadCount);
+      const aggEl = document.createElement('div');
+      aggEl.classList.add('relay-tor-aggregate');
+      aggEl.textContent = `Avg Tor overhead: +${avgOverhead}ms across ${overheadCount} relay${overheadCount > 1 ? 's' : ''}`;
+      container.append(aggEl);
+    }
+
     for(const relay of relays) {
       const st = stateMap.get(relay.url);
       const connected = st?.connected ?? false;
       const latencyMs = st?.latencyMs ?? -1;
       const enabled = st?.enabled ?? true;
+      const instance = instanceMap.get(relay.url);
+      const torLatency = instance?.torLatencyMs ?? -1;
+      const directLatency = instance?.directLatencyMs ?? -1;
 
       // Status dot color
       let dotColor: string;
@@ -196,10 +221,22 @@ export default class AppNostraRelaySettingsTab extends SliderSuperTab {
       urlEl.textContent = relay.url;
       rowEl.append(urlEl);
 
-      // Latency
+      // Latency (with optional Tor overhead)
       const latEl = document.createElement('span');
       latEl.classList.add('relay-latency');
-      latEl.textContent = latencyMs >= 0 ? `${latencyMs}ms` : '--';
+      if(latencyMs >= 0) {
+        if(torLatency >= 0 && directLatency >= 0) {
+          const overhead = torLatency - directLatency;
+          latEl.textContent = `${latencyMs}ms (Tor +${overhead}ms)`;
+          if(overhead < 200) latEl.classList.add('latency-good');
+          else if(overhead < 500) latEl.classList.add('latency-moderate');
+          else latEl.classList.add('latency-slow');
+        } else {
+          latEl.textContent = `${latencyMs}ms`;
+        }
+      } else {
+        latEl.textContent = '--';
+      }
       rowEl.append(latEl);
 
       // Read toggle

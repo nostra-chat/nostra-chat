@@ -252,6 +252,16 @@ export type BroadcastEvents = {
     state: 'bootstrapping' | 'active' | 'direct' | 'failed';
     error?: string;
   },
+  'nostra_tor_circuit_update': {
+    guard: string;
+    middle: string;
+    exit: string;
+    latency: number;
+    exitIp: string;
+    healthy: boolean;
+  },
+  'nostra_mesh_peer_connected': {pubkey: string; latency: number},
+  'nostra_mesh_peer_disconnected': {pubkey: string},
   'nostra_relay_state': {
     url: string;
     connected: boolean;
