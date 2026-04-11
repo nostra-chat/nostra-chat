@@ -1,10 +1,8 @@
-# CLAUDE.md — tweb (Nostra.chat (formerly tweb))
+# CLAUDE.md — Nostra.chat
 
 ## Project Overview
 
-**tweb** is a full-featured decentralized messaging client (https://nostra.chat/) built with Solid.js and TypeScript. It implements MTProto protocol directly in the browser (no third-party API wrappers). The codebase is large (~100k+ lines excluding vendor), mature, and highly performance-oriented.
-
-Author: Eduard Kuzmenko. License: GPL v3.
+**Nostra.chat** is a decentralized messaging client (https://nostra.chat/) built with Solid.js and TypeScript. Forked from Telegram Web K, it replaces the Telegram backend with peer-to-peer encrypted chat over Nostr relays. The codebase is large (~100k+ lines excluding vendor), mature, and highly performance-oriented. License: GPL v3.
 
 ## Tech Stack
 
@@ -16,7 +14,7 @@ Author: Eduard Kuzmenko. License: GPL v3.
 | CSS | SCSS (sass) |
 | Testing | Vitest |
 | Package Manager | pnpm 9 |
-| Protocol | MTProto (custom implementation) |
+| Protocol | Nostr (NIP-06, NIP-17, NIP-44, NIP-59, NIP-65) |
 | Storage | IndexedDB + CacheStorage + localStorage |
 | Workers | SharedWorker + ServiceWorker |
 
@@ -220,8 +218,8 @@ import {Message, Chat, User, InputPeer} from '@layer';
 | `src/lib/nostra/chat-api.ts` | ChatAPI — relay pool, gift-wrap, send/receive |
 | `src/lib/nostra/nostr-relay-pool.ts` | Multi-relay connection pool |
 | `src/lib/apiManagerProxy.ts` | Main-thread proxy to Worker managers |
-| `docs/CHECKLIST.md` | P2P feature status, bug reports, verification commands |
-| `docs/RALPH_PROMPT.md` | Automated bug fixing prompt for ralph-loop |
+| `docs/CHECKLIST_v2.md` | P2P feature status, bug reports, verification commands |
+| `docs/RALPH_PROMPT_v2.md` | Automated bug fixing prompt for ralph-loop |
 
 ## What NOT to Do
 
@@ -245,140 +243,6 @@ pnpm test src/tests/foo    # specific test file
 ```
 
 Vitest config: `threads: false`, `globals: true`, jsdom environment, setup in `src/tests/setup.ts`.
-
-<!-- rtk-instructions v2 -->
-# RTK (Rust Token Killer) - Token-Optimized Commands
-
-## Golden Rule
-
-**Always prefix commands with `rtk`**. If RTK has a dedicated filter, it uses it. If not, it passes through unchanged. This means RTK is always safe to use.
-
-**Important**: Even in command chains with `&&`, use `rtk`:
-```bash
-# ❌ Wrong
-git add . && git commit -m "msg" && git push
-
-# ✅ Correct
-rtk git add . && rtk git commit -m "msg" && rtk git push
-```
-
-## RTK Commands by Workflow
-
-### Build & Compile (80-90% savings)
-```bash
-rtk cargo build         # Cargo build output
-rtk cargo check         # Cargo check output
-rtk cargo clippy        # Clippy warnings grouped by file (80%)
-rtk tsc                 # TypeScript errors grouped by file/code (83%)
-rtk lint                # ESLint/Biome violations grouped (84%)
-rtk prettier --check    # Files needing format only (70%)
-rtk next build          # Next.js build with route metrics (87%)
-```
-
-### Test (90-99% savings)
-```bash
-rtk cargo test          # Cargo test failures only (90%)
-rtk vitest run          # Vitest failures only (99.5%)
-rtk playwright test     # Playwright failures only (94%)
-rtk test <cmd>          # Generic test wrapper - failures only
-```
-
-### Git (59-80% savings)
-```bash
-rtk git status          # Compact status
-rtk git log             # Compact log (works with all git flags)
-rtk git diff            # Compact diff (80%)
-rtk git show            # Compact show (80%)
-rtk git add             # Ultra-compact confirmations (59%)
-rtk git commit          # Ultra-compact confirmations (59%)
-rtk git push            # Ultra-compact confirmations
-rtk git pull            # Ultra-compact confirmations
-rtk git branch          # Compact branch list
-rtk git fetch           # Compact fetch
-rtk git stash           # Compact stash
-rtk git worktree        # Compact worktree
-```
-
-Note: Git passthrough works for ALL subcommands, even those not explicitly listed.
-
-### GitHub (26-87% savings)
-```bash
-rtk gh pr view <num>    # Compact PR view (87%)
-rtk gh pr checks        # Compact PR checks (79%)
-rtk gh run list         # Compact workflow runs (82%)
-rtk gh issue list       # Compact issue list (80%)
-rtk gh api              # Compact API responses (26%)
-```
-
-### JavaScript/TypeScript Tooling (70-90% savings)
-```bash
-rtk pnpm list           # Compact dependency tree (70%)
-rtk pnpm outdated       # Compact outdated packages (80%)
-rtk pnpm install        # Compact install output (90%)
-rtk npm run <script>    # Compact npm script output
-rtk npx <cmd>           # Compact npx command output
-rtk prisma              # Prisma without ASCII art (88%)
-```
-
-### Files & Search (60-75% savings)
-```bash
-rtk ls <path>           # Tree format, compact (65%)
-rtk read <file>         # Code reading with filtering (60%)
-rtk grep <pattern>      # Search grouped by file (75%)
-rtk find <pattern>      # Find grouped by directory (70%)
-```
-
-### Analysis & Debug (70-90% savings)
-```bash
-rtk err <cmd>           # Filter errors only from any command
-rtk log <file>          # Deduplicated logs with counts
-rtk json <file>         # JSON structure without values
-rtk deps                # Dependency overview
-rtk env                 # Environment variables compact
-rtk summary <cmd>       # Smart summary of command output
-rtk diff                # Ultra-compact diffs
-```
-
-### Infrastructure (85% savings)
-```bash
-rtk docker ps           # Compact container list
-rtk docker images       # Compact image list
-rtk docker logs <c>     # Deduplicated logs
-rtk kubectl get         # Compact resource list
-rtk kubectl logs        # Deduplicated pod logs
-```
-
-### Network (65-70% savings)
-```bash
-rtk curl <url>          # Compact HTTP responses (70%)
-rtk wget <url>          # Compact download output (65%)
-```
-
-### Meta Commands
-```bash
-rtk gain                # View token savings statistics
-rtk gain --history      # View command history with savings
-rtk discover            # Analyze Claude Code sessions for missed RTK usage
-rtk proxy <cmd>         # Run command without filtering (for debugging)
-rtk init                # Add RTK instructions to CLAUDE.md
-rtk init --global       # Add RTK to ~/.claude/CLAUDE.md
-```
-
-## Token Savings Overview
-
-| Category | Commands | Typical Savings |
-|----------|----------|-----------------|
-| Tests | vitest, playwright, cargo test | 90-99% |
-| Build | next, tsc, lint, prettier | 70-87% |
-| Git | status, log, diff, add, commit | 59-80% |
-| GitHub | gh pr, gh run, gh issue | 26-87% |
-| Package Managers | pnpm, npm, npx | 70-90% |
-| Files | ls, read, grep, find | 60-75% |
-| Infrastructure | docker, kubectl | 85% |
-| Network | curl, wget | 65-70% |
-
-Overall average: **60-90% token reduction** on common development operations.
-<!-- /rtk-instructions -->
 
 ## Nostra.chat Architecture Notes
 
@@ -419,7 +283,6 @@ Overall average: **60-90% token reduction** on common development operations.
 - At boot, `initGlobalSubscription()` in `chat-api.ts` subscribes to gift-wrap events (kind 1059) on all relays. Without this, only peers connected via `chatAPI.connect()` are heard.
 - Relay echo handling: own sent messages come back via relay subscription. `handleRelayMessage` checks `msg.from === this.ownId` early. Same-device echoes are skipped via `store.getByEventId()`. Cross-device echoes are saved as `isOutgoing: true` and fire `onMessage` for real-time bubble rendering. This is multi-device ready.
 - Full receive chain: relay WebSocket → `NostrRelay.handleEvent()` → gift-wrap decrypt → `RelayPool.handleIncomingMessage()` → `ChatAPI.handleRelayMessage()` → `NostraSync.onIncomingMessage()` → `message-store` → `nostra_new_message` event → `history_append` → bubble render.
-- `docs/SESSION-HANDOFF.md` contains detailed debugging guide for the receive pipeline.
 - `NostrRelay.handleDisconnect()` uses infinite backoff: fast burst (1s, 2s, 4s) then steady 10s retries. Only explicit `disconnect()` stops retries. A relay glitch should never permanently kill the subscription.
 
 ### Delivery Tracker & Receipts
@@ -498,6 +361,6 @@ Overall average: **60-90% token reduction** on common development operations.
 - For new dialogs from unknown senders, `dialogs_multiupdate` must be dispatched TWICE: first dispatch adds the dialog via `sortedList.add()` (returns early, skips `setLastMessageN`), second dispatch hits the "existing dialog" branch which renders the preview text. A single dispatch shows the peer title but no message preview.
 
 ### Ralph Loop Integration
-- `docs/RALPH_PROMPT.md` contains the master prompt for automated bug fixing via ralph-loop.
-- `docs/CHECKLIST.md` is the single source of truth for all P2P feature status, bug reports, file references, and verification commands.
+- `docs/RALPH_PROMPT_v2.md` contains the master prompt for automated bug fixing via ralph-loop.
+- `docs/CHECKLIST_v2.md` is the single source of truth for all P2P feature status, bug reports, file references, and verification commands.
 - Ralph-loop completion uses `<promise>TAG</promise>` exact string matching.
