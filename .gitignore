@@ -55,9 +55,6 @@ ignore
 .artifacts/
 .bg-shell/
 
-# Internal planning (private)
-.planning/
-
 # Development tooling
 .worktrees/
 .superpowers
