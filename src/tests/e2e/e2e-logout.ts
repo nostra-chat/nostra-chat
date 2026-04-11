@@ -12,6 +12,7 @@
  *   7. Verify: Nostra IndexedDB databases are gone
  */
 import {chromium, type Page} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 
 const APP_URL = 'http://localhost:8080';
 
@@ -65,7 +66,7 @@ async function openSettings(page: Page) {
 
 (async() => {
   console.log('\n=== E2E: Logout Flow ===\n');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
 
   try {
     const ctx = await browser.newContext();

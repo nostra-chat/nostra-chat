@@ -3,6 +3,7 @@
  * E2E Test: 6.16 Context menu on sent messages (with check mark)
  */
 import {chromium} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 
 const APP_URL = 'http://localhost:8080';
 
@@ -89,7 +90,7 @@ async function openChatByName(page, name) {
 
 async function main() {
   console.log('=== Test 6.16: Context menu on sent messages ===');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctxA = await browser.newContext({viewport: {width: 1920, height: 1080}});
   const pageA = await ctxA.newPage();
   const ctxB = await browser.newContext({viewport: {width: 1920, height: 1080}});

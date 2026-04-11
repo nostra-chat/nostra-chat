@@ -6,6 +6,7 @@
  * Uses TWO browser contexts for bidirectional verification.
  */
 import {chromium, type Page} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -85,7 +86,7 @@ async function waitForBubble(page: Page, text: string, timeout = 30000): Promise
 
 async function main() {
   console.log('E2E Cross-Browser Tests\n');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
 
   // === 6.15 + 6.8/6.9: Two-browser messaging + deletion ===
   console.log('--- Test 6.15: New message after chat deletion ---');

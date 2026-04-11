@@ -3,6 +3,7 @@
  * E2E Test: 11.1 Branding — Hamburger menu → More → "Nostra.chat v0.0.1"
  */
 import {chromium} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 
 const APP_URL = 'http://localhost:8080';
 
@@ -28,7 +29,7 @@ async function createId(page) {
 }
 
 async function main() {
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctx = await browser.newContext({viewport: {width: 1920, height: 1080}});
   const page = await ctx.newPage();
 

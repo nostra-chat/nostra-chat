@@ -3,6 +3,7 @@
  * E2E: 13.41 — deleted messages stay deleted after reload
  */
 import {chromium} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 const APP_URL = 'http://localhost:8080';
 
 async function dismiss(page) {
@@ -34,7 +35,7 @@ async function createId(page, name) {
 }
 
 async function main() {
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctxA = await browser.newContext({viewport: {width: 1920, height: 1080}});
   const pageA = await ctxA.newPage();
   const ctxB = await browser.newContext();

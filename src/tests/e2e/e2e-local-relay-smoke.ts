@@ -6,6 +6,7 @@
  */
 // @ts-nocheck
 import {chromium} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 import {LocalRelay} from './helpers/local-relay';
 
 const APP_URL = 'http://localhost:8080';
@@ -21,7 +22,7 @@ async function main() {
   if(!healthy) { await relay.stop(); process.exit(1); }
 
   console.log('\n=== Testing Playwright injection ===');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctx = await browser.newContext();
   await relay.injectInto(ctx);
   const page = await ctx.newPage();

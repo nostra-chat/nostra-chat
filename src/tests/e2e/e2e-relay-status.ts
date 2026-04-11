@@ -3,6 +3,7 @@
  * E2E Test: 10.12 Relay status shows real state, 10.13 Settings relay list
  */
 import {chromium} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 
 const APP_URL = 'http://localhost:8080';
 
@@ -87,7 +88,7 @@ async function clickRow(page, text) {
 // === 10.12: Status page shows relay connected/disconnected ===
 async function test10_12() {
   console.log('=== Test 10.12: Relay real status ===');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctx = await browser.newContext({viewport: {width: 1920, height: 1080}});
   const page = await ctx.newPage();
   await createId(page);
@@ -136,7 +137,7 @@ async function test10_12() {
 // === 10.13: Settings → Nostr Relays shows relay list ===
 async function test10_13() {
   console.log('=== Test 10.13: Settings relay list ===');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctx = await browser.newContext({viewport: {width: 1920, height: 1080}});
   const page = await ctx.newPage();
   await createId(page);

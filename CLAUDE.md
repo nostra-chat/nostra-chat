@@ -337,6 +337,8 @@ Vitest config: `threads: false`, `globals: true`, jsdom environment, setup in `s
 - Playwright console capture filter must exclude `MTPROTO`, `relay_state`, `nostra_relay_state` noise — Worker floods these on every relay state change. Include only explicit prefixes: `[ChatAPI]`, `[NostrRelay]`, `[NostraSync]`, `[NostraOnboarding`, `[VirtualMTProto`.
 
 ### E2E Testing (Playwright)
+- **Launch options:** All E2E tests use `launchOptions` from `helpers/launch-options.ts`. Env vars: `E2E_HEADED=1` (visible browser), `E2E_SLOWMO=N` (slow motion ms), `E2E_DEVTOOLS=1` (open DevTools, implies headed). Never hardcode `headless: true` in test files.
+- **Run all E2E:** `pnpm test:e2e:all` (bail on first failure), `pnpm test:e2e:all:no-bail` (run all). Single test: `pnpm test:e2e src/tests/e2e/e2e-foo.ts`. Debug: `pnpm test:e2e:debug src/tests/e2e/e2e-foo.ts`.
 - NEVER use `document.body.textContent.includes()` to check received messages — it matches chat list preview. Use `.bubble .message, .bubble .inner, .bubble-content` selectors.
 - Relay propagation needs 30s timeout (not 15s). damus.io and nos.lol are reliable; snort.social and nostr.band are frequently offline.
 - Two separate `browser.newContext()` for bidirectional tests (isolated IndexedDB/localStorage).

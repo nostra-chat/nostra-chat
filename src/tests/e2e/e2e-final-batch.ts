@@ -4,6 +4,7 @@
  * Focus on items that can be tested with available infrastructure
  */
 import {chromium, type Page} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -76,7 +77,7 @@ async function sendMsg(page: Page, text: string) {
 
 async function main() {
   console.log('E2E Final Batch\n');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
 
   // === 4.5/4.6/4.7: Message persistence after reload ===
   console.log('--- Test 4.5-4.7: Message persistence after reload ---');

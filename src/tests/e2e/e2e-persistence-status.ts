@@ -10,6 +10,7 @@
 
 // @ts-nocheck
 import {chromium, type BrowserContext, type Page} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 
 const APP_URL = 'http://localhost:8080';
 
@@ -217,7 +218,7 @@ async function getFailDiagnostics(page: Page, logs: string[]): Promise<string> {
 
 async function testMessagePersistence() {
   console.log('\n=== Test 5: Message Persistence ===');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
 
@@ -347,7 +348,7 @@ async function testMessagePersistence() {
 
 async function testDeliveryStatus() {
   console.log('\n=== Test 6: Delivery Status Indicators ===');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
 

@@ -4,6 +4,7 @@
  * Also covers 1.3 — Contact persists after reload
  */
 import {chromium} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 
 const APP_URL = 'http://localhost:8080';
 
@@ -96,7 +97,7 @@ async function getBubbles(page) {
 
 async function main() {
   console.log('=== Tests 4.4-4.7 + 1.3: Reload persistence ===');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctxA = await browser.newContext({viewport: {width: 1920, height: 1080}});
   const pageA = await ctxA.newPage();
   const ctxB = await browser.newContext();

@@ -4,6 +4,7 @@
  * Tests timestamp, reload persistence, no duplicates, ordering, preview
  */
 import {chromium, type Page} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -90,7 +91,7 @@ async function main() {
   console.log('E2E Stress Test 1:1 — items 4.4-4.10');
   console.log('======================================\n');
 
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctxA = await browser.newContext();
   const pageA = await ctxA.newPage();
 

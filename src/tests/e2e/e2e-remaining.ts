@@ -3,6 +3,7 @@
  * E2E tests for remaining items: emoji, search, chat deletion, privacy, message requests
  */
 import {chromium, type Page} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -55,7 +56,7 @@ async function addContact(page: Page, npub: string, nick: string) {
 
 async function main() {
   console.log('E2E Remaining Items Test\n');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
 
   // === 2.5: Emoji in input ===
   console.log('--- Test 2.5: Emoji in input ---');

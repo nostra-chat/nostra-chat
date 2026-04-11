@@ -3,6 +3,7 @@
  * E2E batch 2: 1.4, 1.7, 1.8, 2B.1, 4.5, 6.10, 6.12, 6.14, 9.1, 9.2
  */
 import {chromium, type Page} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -50,7 +51,7 @@ async function addContact(page: Page, npub: string, nick: string) {
 
 async function main() {
   console.log('E2E Batch 2 Test\n');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
 
   // === 1.7: Dicebear avatar in profile ===
   console.log('--- Test 1.7: Avatar in user profile ---');

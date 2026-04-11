@@ -1,5 +1,6 @@
 // @ts-nocheck
 import {chromium} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 
 const APP_URL = 'http://localhost:8080';
 
@@ -92,7 +93,7 @@ async function clickVisibleRow(page, titleText) {
 // === Test 12.1 ===
 async function test12_1() {
   console.log('=== Test 12.1: Full width ===');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctx = await browser.newContext({viewport: {width: 1920, height: 1080}});
   const page = await ctx.newPage();
   await createId(page, 'W');
@@ -105,7 +106,7 @@ async function test12_1() {
 // === Test 11.1 ===
 async function test11_1() {
   console.log('=== Test 11.1: Branding ===');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   await createId(page, 'B');
@@ -132,7 +133,7 @@ async function test11_1() {
 // === Test 1.9 ===
 async function test1_9() {
   console.log('=== Test 1.9: Not pinned ===');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   await createId(page, 'P');
@@ -150,7 +151,7 @@ async function test1_9() {
 // === Test 10.12 ===
 async function test10_12() {
   console.log('=== Test 10.12: Relay status ===');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   await createId(page, 'R');
@@ -188,7 +189,7 @@ async function test10_12() {
 // === Test 10.13 ===
 async function test10_13() {
   console.log('=== Test 10.13: Settings relays ===');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   await createId(page, 'S');

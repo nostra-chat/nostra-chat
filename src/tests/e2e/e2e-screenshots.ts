@@ -12,6 +12,7 @@
  *   /tmp/e2e-ui-add-contact.png               D.7 add contact dialog
  */
 import {chromium, type Page} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 
 const APP_URL = 'http://localhost:8080';
 
@@ -89,7 +90,7 @@ async function sendMessage(page: Page, text: string) {
 }
 
 async function main() {
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctxA = await browser.newContext({viewport: {width: 1400, height: 900}});
   const ctxB = await browser.newContext({viewport: {width: 1400, height: 900}});
   const pageA = await ctxA.newPage();

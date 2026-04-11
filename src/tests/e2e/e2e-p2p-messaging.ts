@@ -6,6 +6,7 @@
 
 // @ts-nocheck
 import {chromium, type Page} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 
 const APP_URL = 'http://localhost:8080';
 
@@ -98,7 +99,7 @@ async function waitForBubble(page: Page, text: string, timeoutMs = 30000): Promi
 }
 
 async function main() {
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const contextA = await browser.newContext();
   const contextB = await browser.newContext();
   const pageA = await contextA.newPage();

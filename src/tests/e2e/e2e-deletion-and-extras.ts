@@ -4,6 +4,7 @@
  * kind 0 display name (1.4), and relay delivery (10.10-10.11)
  */
 import {chromium, type Page} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -56,7 +57,7 @@ async function addContact(page: Page, npub: string, nick: string) {
 
 async function main() {
   console.log('E2E Deletion & Extras Test\n');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
 
   // === Test 1.4: Kind 0 display name update ===
   console.log('--- Test 1.4: Kind 0 display name ---');

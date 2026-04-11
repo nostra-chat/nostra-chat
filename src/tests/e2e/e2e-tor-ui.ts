@@ -6,6 +6,7 @@
  * Run: pnpm start (in another terminal), then: npx tsx src/tests/e2e/e2e-tor-ui.ts
  */
 import {chromium} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 
 const APP_URL = 'http://localhost:8080';
 
@@ -71,7 +72,7 @@ async function openSettings(page) {
 async function main() {
   console.log('E2E Tor UI Test\n');
 
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
 

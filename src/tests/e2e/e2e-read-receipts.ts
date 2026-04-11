@@ -11,6 +11,7 @@
 
 // @ts-nocheck
 import {chromium, type Page} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 
 const APP_URL = 'http://localhost:8080';
 const RELAY_PROPAGATION_MS = 90000;
@@ -96,7 +97,7 @@ async function main() {
   console.log('E2E: read receipt flow');
   console.log('========================\n');
 
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctxA = await browser.newContext();
   const ctxB = await browser.newContext();
   const pageA = await ctxA.newPage();

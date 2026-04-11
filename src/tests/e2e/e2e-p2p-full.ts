@@ -7,6 +7,7 @@
 
 // @ts-nocheck
 import {chromium, type BrowserContext, type Page} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 
 const APP_URL = 'http://localhost:8080';
 
@@ -192,7 +193,7 @@ function record(name: string, passed: boolean, detail?: string) {
 
 async function testDisplayNames() {
   console.log('\n=== Test A: Display Name verification ===');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctxA = await browser.newContext();
   const ctxB = await browser.newContext();
   const pageA = await ctxA.newPage();
@@ -257,7 +258,7 @@ async function testDisplayNames() {
 
 async function testMessageCheckmarks() {
   console.log('\n=== Test B: Message checkmark verification ===');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctxA = await browser.newContext();
   const ctxB = await browser.newContext();
   const pageA = await ctxA.newPage();
@@ -325,7 +326,7 @@ async function testMessageCheckmarks() {
 
 async function testBidirectionalMessaging() {
   console.log('\n=== Test C: Bidirectional messaging ===');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctxA = await browser.newContext();
   const ctxB = await browser.newContext();
   const pageA = await ctxA.newPage();
@@ -418,7 +419,7 @@ async function testBidirectionalMessaging() {
 
 async function testMessagePersistence() {
   console.log('\n=== Test D: Message persistence after reload ===');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctxA = await browser.newContext();
   const ctxB = await browser.newContext();
   const pageA = await ctxA.newPage();

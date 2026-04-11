@@ -16,6 +16,7 @@
 
 // @ts-nocheck
 import {chromium, type Page} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 import {LocalRelay} from './helpers/local-relay';
 
 const APP_URL = 'http://localhost:8080';
@@ -155,7 +156,7 @@ async function main() {
   const relay = new LocalRelay();
   await relay.start();
 
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctxA = await browser.newContext();
   const ctxB = await browser.newContext();
   await relay.injectInto(ctxA);

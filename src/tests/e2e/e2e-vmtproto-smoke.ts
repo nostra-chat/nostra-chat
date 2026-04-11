@@ -12,6 +12,7 @@
  * 7. Hamburger menu items work (Status, Settings)
  */
 import {chromium} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 
 const APP_URL = 'http://localhost:8080';
 
@@ -79,7 +80,7 @@ async function main() {
   try {
     // === Test 1: App loads and creates identity ===
     console.log('\n=== Test 1: App loads ===');
-    browser = await chromium.launch({headless: true});
+    browser = await chromium.launch(launchOptions);
     const ctx = await browser.newContext({viewport: {width: 1920, height: 1080}});
     const page = await ctx.newPage();
     const errors = collectErrors(page);

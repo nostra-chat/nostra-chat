@@ -6,6 +6,7 @@
 
 // @ts-nocheck
 import {chromium, type BrowserContext, type Page} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -161,7 +162,7 @@ function record(checklistId: string, name: string, passed: boolean, detail?: str
 
 async function test_1_1() {
   console.log('\n--- Test 1.1: Add contact with nickname ---');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   const ctx2 = await browser.newContext();
@@ -201,7 +202,7 @@ async function test_1_1() {
 
 async function test_1_2() {
   console.log('\n--- Test 1.2: Add contact without nickname ---');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   const ctx2 = await browser.newContext();
@@ -253,7 +254,7 @@ async function test_1_2() {
 
 async function test_1_3() {
   console.log('\n--- Test 1.3: Contact persists after reload ---');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   const ctx2 = await browser.newContext();
@@ -311,7 +312,7 @@ async function test_1_3() {
 
 async function test_1_5() {
   console.log('\n--- Test 1.5: Contact avatar shows Dicebear or initials ---');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   const ctx2 = await browser.newContext();
@@ -370,7 +371,7 @@ async function test_1_5() {
 
 async function test_2_1_to_2_4() {
   console.log('\n--- Tests 2.1-2.4: Message Sending ---');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctxA = await browser.newContext();
   const ctxB = await browser.newContext();
   const pageA = await ctxA.newPage();

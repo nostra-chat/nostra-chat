@@ -17,6 +17,7 @@
  * Run: npx tsx src/tests/e2e-avatar.ts
  */
 import {chromium, type Page} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 
 const APP_URL = 'http://localhost:8080';
 
@@ -136,7 +137,7 @@ function record(checklistId: string, name: string, passed: boolean, detail?: str
 
 async function test_1_5() {
   console.log('\n--- Test 1.5: Contact avatar shows Dicebear SVG ---');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctxA = await browser.newContext();
   const pageA = await ctxA.newPage();
   const ctxB = await browser.newContext();

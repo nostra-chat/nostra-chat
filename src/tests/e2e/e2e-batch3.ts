@@ -3,6 +3,7 @@
  * E2E batch 3: 1.4, 1.8, 2B.1-3, 4.5, 6.15, 7.1
  */
 import {chromium, type Page} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -50,7 +51,7 @@ async function addContact(page: Page, npub: string, nick: string) {
 
 async function main() {
   console.log('E2E Batch 3 Test\n');
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
 
   // === 1.4: Kind 0 profile (longer wait) ===
   console.log('--- Test 1.4: Kind 0 profile with 30s wait ---');

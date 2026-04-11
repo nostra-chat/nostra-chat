@@ -4,6 +4,7 @@
  * Tests search bar icons and Status page in hamburger menu
  */
 import {chromium} from 'playwright';
+import {launchOptions} from './helpers/launch-options';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -20,7 +21,7 @@ function record(id: string, name: string, passed: boolean, detail?: string) {
 async function main() {
   console.log('E2E Status UI Test — items 10.1-10.9\n');
 
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch(launchOptions);
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
 
