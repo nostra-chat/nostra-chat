@@ -231,6 +231,7 @@ import {Message, Chat, User, InputPeer} from '@layer';
 - Do not use relative `../../` imports when an alias exists
 - Do not use `var` — use `const`/`let`
 - Do not add trailing commas in arrays/objects
+- **Ternary operators**: `?` and `:` go at END of line, not start of next: `condition ?\n  value1 :\n  value2` not `condition\n  ? value1\n  : value2`
 - Do not save screenshots or images in the project root — use `/tmp/` for temporary test artifacts. The `.gitignore` blocks `*.png` at root level
 - Do not assume a component exists in the UI just because the file exists. Grep for the import: `grep -rn 'import.*MessageRequests' src/` — `MessageRequests.tsx` is written but never mounted, so routing messages there made them invisible.
 - Do not assume a `rootScope.dispatchEvent('foo')` call is wired to a listener. Grep for the listener: `grep -rn "addEventListener('foo'" src/` — `nostra_delivery_update` had dispatches but no production listeners.
@@ -327,6 +328,7 @@ Vitest config: `threads: false`, `globals: true`, jsdom environment, setup in `s
 - Always check TS errors with `npx tsc --noEmit 2>&1 | grep "error TS"` — Vite checker may show stale cached errors.
 - P2P unit tests: `npx vitest run src/tests/nostra/` — covers peer mapper, virtual MTProto server, sync, relay pool, crypto.
 - Worktrees need `pnpm install` before running tests. Expect ~30 pre-existing TS errors from `@vendor/emoji`, `@vendor/bezierEasing` (missing vendor builds).
+- When extracting files from a worktree/branch to main, use `git show <commit>:<path> > <path>` — never `cp` from a worktree directory, which may contain unresolved merge conflict markers from aborted merges.
 - Worktrees also need `.env.local.example` copied from main repo — Vite config copies it to `.env.local` on start and fails with ENOENT if missing.
 - Vitest runs with `isolate: false` + `threads: false` — all test files share one module registry. `vi.mock()` factories persist across files. Use `mockImplementation()` in `beforeEach` instead of relying on shared mock state. Tests may pass individually but fail in batch due to mock contamination.
 - When `vi.mock('@lib/rootScope')` is used in a test file, add `afterAll(() => { vi.unmock('@lib/rootScope'); vi.restoreAllMocks(); })` — without this, later test files in the shared registry get the mock instead of the real rootScope, causing cascading failures (e.g. `MTProtoMessagePort.getInstance().invokeVoid` undefined).
@@ -350,6 +352,8 @@ Vitest config: `threads: false`, `globals: true`, jsdom environment, setup in `s
 - **Local relay for E2E:** `LocalRelay` class in `src/tests/e2e/helpers/local-relay.ts` manages a strfry Docker container on `ws://localhost:7777`. Use `relay.injectInto(ctx)` to override `DEFAULT_RELAYS` via `window.__nostraTestRelays`. Requires Docker installed. Uses `--user $(id -u):$(id -g)` and `--tmpfs /app/strfry-db` — data files are owned by host user (no root cleanup issues) and stored in RAM (no stale data between runs).
 - `nostr-relay-pool.ts` checks `window.__nostraTestRelays` at module init — set it via Playwright `addInitScript` before page load. Production ignores the property.
 - `keyboard.press('Delete')` after `Control+A` can eat the first character of the NEXT `keyboard.type()` call. Use `Backspace` instead: `Control+A` → `Backspace` → `type(text)`.
+- E2E onboarding "Get Started" button may hang (profile publish to relays). Click the "SKIP" link below it as fallback: `page.getByText('SKIP').click()`.
+- Solid.js uses event delegation — `dispatchEvent(new MouseEvent('click'))` does NOT trigger Solid onClick handlers. Use `page.mouse.click(x, y)` with coordinates from `getBoundingClientRect()` for SVG/icon clicks in E2E tests.
 - To catch transient DOM elements in E2E (overlays, toasts that vanish on reload), register a `MutationObserver` via `page.evaluate()` BEFORE the triggering action, not after — otherwise the element may appear and disappear between the action and the check.
 
 ### Bubble Rendering
