@@ -1,0 +1,65 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+coverage/
+public/*.js
+public/*.js.map
+public/*.css
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# Environment
+.env
+.env.*
+!.env.example
+.env.local
+
+# Auto-generated local versions (template in .example.ts)
+src/langPackLocalVersion.ts
+
+test-results/
+
+# Misc
+vendor/
+!src/vendor/
+*.log
+.cache/
+tmp/
+stats.html
+stats.json
+*.png
+!public/**/*.png
+!src/**/*.png
+ssh.json
+yarn.lock
+todo.md
+
+# Throw files you don't need in this folder
+ignore
+
+# MCP browser testing artifacts
+.playwright-mcp/
+.artifacts/
+.bg-shell/
+
+# Internal planning (private)
+.planning/
+
+# Development tooling
+.worktrees/
+.superpowers
+.claude/ralph-loop.local.md
+.claude/worktrees

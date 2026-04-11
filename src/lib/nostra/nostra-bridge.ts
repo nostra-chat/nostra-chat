@@ -1,0 +1,309 @@
+/**
+ * Nostra.chat Bridge
+ *
+ * Singleton that provides bidirectional translation between Nostr pubkeys/eventIds
+ * and Telegram virtual peer IDs/message IDs.
+ *
+ * Forward mapping (pubkey → peerId, eventId → mid) is deterministic via SHA-256.
+ * Reverse mapping (peerId → pubkey) requires IndexedDB due to hash irreversibility.
+ */
+
+import type {User} from '@layer';
+import {initVirtualPeersDB, storeMapping, getPubkey, getAllMappings} from './virtual-peers-db';
+import {NostrRelayPool, DEFAULT_RELAYS} from './nostr-relay-pool';
+import {OfflineQueue} from './offline-queue';
+import {PrivacyTransport} from './privacy-transport';
+
+// Virtual ID ranges — all use BigInt to avoid floating-point precision loss
+export const VIRTUAL_PEER_BASE = BigInt(10 ** 15);
+export const VIRTUAL_PEER_RANGE = BigInt(9 * 10 ** 15);
+export const VIRTUAL_MID_BASE = BigInt(10 ** 12);
+export const VIRTUAL_MID_RANGE = BigInt(9 * 10 ** 15);
+
+/**
+ * Synchronous range check: returns true if peerId is in the virtual peer range.
+ * Does not require an async DB lookup.
+ */
+export function isVirtualPeerSync(peerId: number): boolean {
+  return peerId >= Number(VIRTUAL_PEER_BASE);
+}
+
+/**
+ * Extended User interface for P2P peers with Nostr pubkey and avatar data.
+ */
+export interface P2PUser extends User.user {
+  p2pPubkey: string;
+  p2pAvatar: string;
+}
+
+/**
+ * Convert a hex string to a Uint8Array.
+ */
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for(let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
+  }
+  return bytes;
+}
+
+/**
+ * Interpret the first 8 bytes of a Uint8Array as a big-endian unsigned 64-bit integer.
+ */
+function bigEndianUint64(bytes: Uint8Array): bigint {
+  let result = BigInt(0);
+  for(let i = 0; i < 8; i++) {
+    result = (result << BigInt(8)) | BigInt(bytes[i]);
+  }
+  return result;
+}
+
+export class NostraBridge {
+  private static _instance: NostraBridge | null = null;
+
+  private _initialized = false;
+  private _userPubkey: string | null = null;
+
+  /** In-memory cache: pubkey → peerId (avoid recomputing SHA-256 on repeated calls) */
+  private pubkeyCache = new Map<string, number>();
+
+  /** In-memory cache: eventId → mid */
+  private midCache = new Map<string, number>();
+
+  /** Relay pool, transport, and queue references */
+  private _relayPool: NostrRelayPool | null = null;
+  private _privacyTransport: PrivacyTransport | null = null;
+  private _offlineQueue: OfflineQueue | null = null;
+
+  private constructor() {}
+
+  static getInstance(): NostraBridge {
+    const win = typeof window !== 'undefined' ? window as any : null;
+    if(win?.__nostraBridgeInstance) {
+      NostraBridge._instance = win.__nostraBridgeInstance;
+      return NostraBridge._instance;
+    }
+    if(!NostraBridge._instance) {
+      NostraBridge._instance = new NostraBridge();
+      if(win) win.__nostraBridgeInstance = NostraBridge._instance;
+    }
+    return NostraBridge._instance;
+  }
+
+  /**
+   * Initialize the bridge with the current user's pubkey.
+   * Opens IndexedDB, pre-loads existing mappings, and bootstraps PrivacyTransport.
+   */
+  async init(userPubkey: string): Promise<void> {
+    this._userPubkey = userPubkey;
+    await initVirtualPeersDB();
+
+    // Pre-load all existing mappings into the pubkeyCache
+    const mappings = await getAllMappings();
+    for(const m of mappings) {
+      this.pubkeyCache.set(m.pubkey, m.peerId);
+    }
+
+    // Bootstrap relay pool + privacy transport
+    this.initTransport();
+
+    this._initialized = true;
+  }
+
+  /**
+   * Initialize NostrRelayPool, OfflineQueue, and PrivacyTransport.
+   * Bootstraps Tor in fire-and-forget mode (non-blocking).
+   */
+  private initTransport(): void {
+    const pool = new NostrRelayPool({
+      relays: [...DEFAULT_RELAYS],
+      onMessage: () => {
+        // Message routing is handled by Phase 4
+      }
+    });
+
+    const queue = new OfflineQueue(pool);
+    const transport = new PrivacyTransport(pool, queue);
+
+    this._relayPool = pool;
+    this._offlineQueue = queue;
+    this._privacyTransport = transport;
+
+    // Expose for topbar and debug
+    if(typeof window !== 'undefined') {
+      (window as any).__nostraPool = pool;
+      (window as any).__nostraTransport = transport;
+    }
+
+    // Initialize pool then bootstrap transport (fire-and-forget)
+    pool.initialize().then(() => {
+      transport.bootstrap();
+    }).catch(() => {
+      // Pool init failure — transport stays offline
+    });
+  }
+
+  /**
+   * Publish NIP-65 relay list at identity initialization.
+   * Call this after the keypair is created/loaded.
+   */
+  publishNip65(privateKey: Uint8Array): void {
+    if(this._relayPool) {
+      this._relayPool.publishNip65(privateKey);
+    }
+  }
+
+  /** Get the relay pool instance */
+  getRelayPool(): NostrRelayPool | null {
+    return this._relayPool;
+  }
+
+  /** Get the privacy transport instance */
+  getPrivacyTransport(): PrivacyTransport | null {
+    return this._privacyTransport;
+  }
+
+  isInitialized(): boolean {
+    return this._initialized;
+  }
+
+  /**
+   * Map a Nostr hex pubkey to a deterministic Telegram virtual peer ID.
+   *
+   * Algorithm:
+   * 1. Convert pubkey hex to bytes
+   * 2. Take first 8 bytes → SHA-256 digest → first 8 bytes of hash
+   * 3. Interpret as big-endian uint64 → BigInt
+   * 4. result = VIRTUAL_PEER_BASE + (hash_value % VIRTUAL_PEER_RANGE)
+   * 5. Convert to Number for tweb compatibility
+   */
+  async mapPubkeyToPeerId(pubkey: string): Promise<number> {
+    // Check cache first
+    if(this.pubkeyCache.has(pubkey)) {
+      return this.pubkeyCache.get(pubkey)!;
+    }
+
+    const pubkeyBytes = hexToBytes(pubkey);
+    // Hash the FULL pubkey bytes (not just first 8) for consistency
+    const hashBuffer = await crypto.subtle.digest('SHA-256', pubkeyBytes);
+    const hashBytes = new Uint8Array(hashBuffer);
+    const hashBigInt = bigEndianUint64(hashBytes);
+
+    const peerId = Number(VIRTUAL_PEER_BASE + (hashBigInt % VIRTUAL_PEER_RANGE));
+
+    // Store in cache for subsequent calls
+    this.pubkeyCache.set(pubkey, peerId);
+
+    return peerId;
+  }
+
+  /**
+   * Map a Nostr event ID (hex or text) to a deterministic virtual message ID.
+   * The mid encodes the timestamp in the high bits so that SlicedArray's
+   * descending numeric sort produces chronological order:
+   *   mid = timestamp * 1_000_000 + (hash % 1_000_000)
+   * The hash suffix disambiguates messages within the same second.
+   * Max value: ~1_712_345_678 * 1e6 + 999_999 ≈ 1.71e15 — within JS safe integer range (2^53-1 ≈ 9.0e15).
+   */
+  async mapEventIdToMid(eventId: string, timestamp: number): Promise<number> {
+    const cacheKey = `${eventId}:${timestamp}`;
+    if(this.midCache.has(cacheKey)) {
+      return this.midCache.get(cacheKey)!;
+    }
+
+    // Detect hex vs text: hex event IDs are 64 chars of [0-9a-f]
+    const isHex = /^[0-9a-f]+$/i.test(eventId) && eventId.length >= 8;
+    const eventBytes = isHex ?
+      hexToBytes(eventId) :
+      new TextEncoder().encode(eventId);
+    // Hash the FULL event ID (not just first 8 bytes — short text IDs like
+    // "chat-xxx-0" would collide since they share the same prefix)
+    const hashBuffer = await crypto.subtle.digest('SHA-256', eventBytes);
+    const hashBytes = new Uint8Array(hashBuffer);
+    const hashBigInt = bigEndianUint64(hashBytes);
+
+    const TIMESTAMP_MULTIPLIER = BigInt(1_000_000);
+    const ts = BigInt(Math.floor(timestamp));
+    const mid = Number(ts * TIMESTAMP_MULTIPLIER + (hashBigInt % TIMESTAMP_MULTIPLIER));
+
+    this.midCache.set(cacheKey, mid);
+
+    return mid;
+  }
+
+  /**
+   * Reverse lookup: given a virtual peer ID, return the associated Nostr pubkey.
+   * Delegates to IndexedDB — returns null if the peerId has not been stored.
+   */
+  async reverseLookup(peerId: number): Promise<string | null> {
+    return getPubkey(peerId);
+  }
+
+  /**
+   * Store a pubkey ↔ peerId mapping in IndexedDB and in-memory cache.
+   * Call this after deriving a peerId to persist the reverse lookup entry.
+   */
+  async storePeerMapping(
+    pubkey: string,
+    peerId: number,
+    displayName?: string
+  ): Promise<void> {
+    await storeMapping(pubkey, peerId, displayName);
+    // Ensure cache is also populated so future lookups hit memory
+    this.pubkeyCache.set(pubkey, peerId);
+  }
+
+  /**
+   * Derive a deterministic CSS gradient avatar from a Nostr pubkey.
+   * Uses the first 6 hex chars of SHA-256(pubkey) as the HSL hue.
+   * Returns a valid CSS linear-gradient string.
+   */
+  async deriveAvatarFromPubkey(pubkey: string): Promise<string> {
+    const pubkeyBytes = hexToBytes(pubkey);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', pubkeyBytes);
+    const hashBytes = new Uint8Array(hashBuffer);
+
+    // Use first 6 hex chars of the hash as hue (2 hex chars → 1 byte → 0-255 → 0-360)
+    const hue = Math.round((hashBytes[0] * 360) / 256);
+    const hue2 = (hue + 40) % 360;
+
+    return `linear-gradient(135deg, hsl(${hue}, 70%, 60%), hsl(${hue2}, 70%, 45%))`;
+  }
+
+  /**
+   * Synchronous avatar derivation using only the first 8 bytes of the pubkey.
+   * Faster for cases where async crypto.subtle is not acceptable.
+   */
+  deriveAvatarFromPubkeySync(pubkey: string): string {
+    const pubkeyBytes = hexToBytes(pubkey);
+    // Simple hash of the first 8 bytes using typed array methods
+    let hash = 0;
+    for(let i = 0; i < 8; i++) {
+      hash = ((hash << 5) - hash + pubkeyBytes[i]) | 0;
+    }
+    const hue = Math.abs(hash) % 360;
+    const hue2 = (hue + 40) % 360;
+    return `linear-gradient(135deg, hsl(${hue}, 70%, 60%), hsl(${hue2}, 70%, 45%))`;
+  }
+
+  /**
+   * Create a synthetic tweb User object for a P2P peer.
+   */
+  createSyntheticUser(
+    pubkey: string,
+    peerId: number,
+    displayName?: string
+  ): P2PUser {
+    const firstName = displayName ?? 'P2P User';
+    const avatar = this.deriveAvatarFromPubkeySync(pubkey);
+
+    return {
+      _: 'user',
+      id: peerId,
+      pFlags: {},
+      first_name: firstName,
+      p2pPubkey: pubkey,
+      p2pAvatar: avatar
+    };
+  }
+}

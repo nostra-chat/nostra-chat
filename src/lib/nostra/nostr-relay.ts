@@ -1,0 +1,909 @@
+/**
+ * Nostr Relay Storage - NIP-17 gift-wrapped message storage and retrieval
+ *
+ * Provides offline message storage via Nostr relays using kind 1059 gift-wrapped
+ * direct messages (NIP-17). Messages are encrypted with NIP-44 inside a
+ * rumor(14) -> seal(13) -> gift-wrap(1059) envelope for metadata privacy.
+ *
+ * Migration history:
+ * - Phase 2: NIP-04 removed, all encryption moved to NIP-44
+ * - Phase 4: Kind 4 removed, all messaging moved to NIP-17 gift-wrap (kind 1059)
+ */
+
+import {Logger, logger} from '@lib/logger';
+import * as secp256k1 from '@noble/secp256k1';
+import {wrapNip17Message, unwrapNip17Message} from './nostr-crypto';
+import {finalizeEvent} from 'nostr-tools/pure';
+import {loadEncryptedIdentity, loadBrowserKey, decryptKeys} from './key-storage';
+import {importFromMnemonic} from './nostr-identity';
+
+// Use the etc namespace for utility functions
+const {bytesToHex, hexToBytes} = secp256k1.etc;
+
+/**
+ * NIP-17 gift-wrap event kind (kind 1059)
+ */
+export const NOSTR_KIND_GIFTWRAP = 1059;
+
+/**
+ * Kind 0 metadata event
+ */
+export const NOSTR_KIND_METADATA = 0;
+
+/**
+ * Decrypted message structure returned by getMessages.
+ * After NIP-17 migration, includes rumor kind and tags for routing.
+ */
+export interface DecryptedMessage {
+  id: string;
+  from: string;
+  content: string;
+  timestamp: number;
+  /** Rumor kind: 14 = text DM, 15 = file message */
+  rumorKind?: number;
+  /** Rumor tags (e.g., receipt-type, file metadata) */
+  tags?: string[][];
+}
+
+/**
+ * Generic Nostr event
+ */
+export interface NostrEvent {
+  id?: string;
+  pubkey: string;
+  created_at: number;
+  kind: number;
+  tags: string[][];
+  content: string;
+  sig?: string;
+}
+
+/**
+ * Singleton relay instance for publishing events.
+ * Set by NostrRelay.initialize() when the relay connects.
+ */
+let activeRelay: NostrRelay | null = null;
+
+/**
+ * Publish a kind 0 metadata event to the active relay.
+ * Used by identity settings to update profile information.
+ */
+export async function publishKind0Metadata(metadata: {
+  name?: string;
+  display_name?: string;
+  nip05?: string;
+  about?: string;
+  picture?: string;
+}): Promise<string> {
+  if(!activeRelay) {
+    throw new Error('No active relay connection. Connect to a relay first.');
+  }
+
+  return activeRelay.publishMetadataEvent(metadata);
+}
+
+/**
+ * Publish a signed event to the active relay.
+ */
+export async function publishEvent(event: NostrEvent): Promise<void> {
+  if(!activeRelay) {
+    throw new Error('No active relay connection. Connect to a relay first.');
+  }
+
+  activeRelay.sendRawEvent(event);
+}
+
+/**
+ * NostrRelay - NIP-44 encrypted message storage and retrieval
+ *
+ * Stores encrypted direct messages on Nostr relays as kind 1059 gift-wrap events.
+ * When the recipient comes online, messages can be retrieved and unwrapped.
+ */
+export class NostrRelay {
+  private relayUrl: string;
+  private ws: WebSocket | null = null;
+  private connectionState: 'disconnected' | 'connecting' | 'connected' | 'reconnecting' = 'disconnected';
+  private log: Logger;
+
+  // Identity
+  private privateKey: Uint8Array = new Uint8Array();
+  private publicKey: string = '';
+  private ownId: string = '';
+
+  // Message handler
+  private onMessageHandler: ((message: DecryptedMessage) => void) | null = null;
+
+  // Receipt handler (delivery/read receipts)
+  private onReceiptHandler: ((receipt: {eventId: string; type: 'delivery' | 'read'; from: string}) => void) | null = null;
+
+  // State change callback — notifies pool when relay connects/disconnects
+  public onStateChange: ((state: 'disconnected' | 'connecting' | 'connected' | 'reconnecting') => void) | null = null;
+
+  // Subscription management
+  private subscriptionId: string = '';
+  private isSubscribed: boolean = false;
+  public pendingSubscribe: boolean = false;
+
+  // Reconnection — fast retries first, then persistent backoff.
+  // After the initial burst (1s, 2s, 4s), retries continue every 10s
+  // indefinitely. A relay glitch should not permanently kill the subscription.
+  private reconnectAttempts: number = 0;
+  private readonly reconnectBurstDelays: number[] = [1000, 2000, 4000];
+  private readonly reconnectBackoffMs: number = 10000;
+  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  // Dual-mode transport (Phase 3)
+  private mode: 'websocket' | 'http-polling' = 'websocket';
+  private torFetchFn?: (url: string) => Promise<string>;
+  private latencyMs: number = -1;
+  private pollingInterval: ReturnType<typeof setInterval> | null = null;
+  private lastPolled: number = 0;
+
+  /**
+   * Create a new NostrRelay
+   * @param relayUrl - WebSocket URL of the Nostr relay
+   */
+  constructor(relayUrl: string = 'wss://relay.damus.io') {
+    this.relayUrl = relayUrl;
+    this.log = logger('NostrRelay');
+    this.subscriptionId = `nostra-msgs-${Date.now()}`;
+
+    // Expose for debug inspection
+    if(typeof window !== 'undefined') {
+      (window as any).__nostraNostrRelay = this;
+    }
+  }
+
+  /**
+   * Initialize the relay with identity from IndexedDB
+   */
+  async initialize(): Promise<void> {
+    this.log('[NostrRelay] initializing with relay:', this.relayUrl);
+
+    try {
+      // Load from new encrypted identity store
+      const record = await loadEncryptedIdentity();
+      if(!record) {
+        throw new Error('No identity found. Please create or import an identity first.');
+      }
+
+      const browserKey = await loadBrowserKey();
+      if(!browserKey) {
+        throw new Error('Browser key missing — cannot decrypt identity.');
+      }
+
+      const {seed} = await decryptKeys(record.iv, record.encryptedKeys, browserKey);
+      const identity = importFromMnemonic(seed);
+
+      this.ownId = identity.npub;
+
+      // Convert hex private key to Uint8Array
+      this.privateKey = hexToBytes(identity.privateKey);
+
+      // Derive 32-byte x-only public key from private key
+      this.publicKey = identity.publicKey;
+
+      // Register as active relay for publishEvent/publishKind0Metadata
+      activeRelay = this;
+
+      this.log('[NostrRelay] initialized for npub:', this.ownId.slice(0, 12) + '...', 'pubkey:', this.publicKey.slice(0, 8) + '...');
+    } catch(err) {
+      this.log.error('[NostrRelay] initialization failed:', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Connect to the Nostr relay
+   */
+  connect(): void {
+    if(this.connectionState === 'connected' || this.connectionState === 'connecting') {
+      this.log('[NostrRelay] already connected or connecting');
+      return;
+    }
+
+    // In HTTP polling mode, start polling instead of WebSocket
+    if(this.mode === 'http-polling') {
+      this.startHttpPolling();
+      return;
+    }
+
+    this.log('[NostrRelay] connecting to relay:', this.relayUrl);
+    this.setConnectionState('connecting');
+
+    try {
+      this.ws = new WebSocket(this.relayUrl);
+
+      this.ws.onopen = () => {
+        this.log('[NostrRelay] connected to relay');
+        this.setConnectionState('connected');
+        this.reconnectAttempts = 0;
+
+        // Subscribe if we were subscribed before OR if pool wants subscription
+        if(this.isSubscribed || this.pendingSubscribe) {
+          this.pendingSubscribe = false;
+          this.subscribeMessages();
+        }
+      };
+
+      this.ws.onmessage = (event) => {
+        this.handleMessage(event.data);
+      };
+
+      this.ws.onerror = (error) => {
+        this.log.error('[NostrRelay] WebSocket error:', error);
+      };
+
+      this.ws.onclose = (event) => {
+        this.log('[NostrRelay] relay connection closed:', event.code, event.reason);
+        this.handleDisconnect();
+      };
+    } catch(err) {
+      this.log.error('[NostrRelay] failed to create WebSocket:', err);
+      this.handleDisconnect();
+    }
+  }
+
+  /**
+   * Disconnect from the relay
+   */
+  disconnect(): void {
+    this.log('[NostrRelay] disconnecting');
+
+    this.stopHttpPolling();
+
+    if(this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
+    if(this.ws) {
+      this.ws.onclose = null; // Prevent reconnection logic
+      this.ws.close();
+      this.ws = null;
+    }
+
+    this.setConnectionState('disconnected');
+    this.isSubscribed = false;
+
+    // Unregister as active relay
+    if(activeRelay === this) {
+      activeRelay = null;
+    }
+  }
+
+  /**
+   * Store an encrypted message on the relay via NIP-17 gift-wrap.
+   *
+   * Wraps the plaintext as kind 14 rumor -> kind 13 seal -> kind 1059 gift-wrap
+   * and publishes ALL resulting events (recipient wrap + self-send wrap).
+   *
+   * @param recipientPubkey - Recipient's hex public key (32-byte x-coordinate)
+   * @param plaintext - Message content to encrypt
+   * @returns Event ID of the recipient's gift-wrap event
+   */
+  async storeMessage(recipientPubkey: string, plaintext: string): Promise<string> {
+    if(this.connectionState !== 'connected') {
+      this.log.warn('[NostrRelay] cannot publish: not connected');
+      throw new Error('Not connected to relay');
+    }
+
+    this.log('[NostrRelay] storing gift-wrapped message for:', recipientPubkey.slice(0, 8) + '...');
+
+    try {
+      // Create NIP-17 gift-wrap events (recipient + self-send)
+      const wraps = wrapNip17Message(this.privateKey, recipientPubkey, plaintext);
+
+      // Publish ALL wraps to relay (self-send + recipient)
+      for(const wrap of wraps) {
+        this.ws?.send(JSON.stringify(['EVENT', wrap]));
+      }
+
+      // Return the first event ID (recipient wrap)
+      const eventId = wraps[0]?.id || '';
+      this.log('[NostrRelay] published', wraps.length, 'gift-wrap event(s), ID:', eventId.slice(0, 8) + '...');
+
+      return eventId;
+    } catch(err) {
+      this.log.error('[NostrRelay] failed to store message:', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Retrieve messages from the relay addressed to us
+   *
+   * Queries the relay for kind 1059 gift-wrap events where we're the recipient,
+   * decrypts each message, and returns them.
+   *
+   * @param since - Optional Unix timestamp to query messages after
+   * @returns Array of decrypted messages
+   */
+  async getMessages(since?: number): Promise<DecryptedMessage[]> {
+    if(this.connectionState !== 'connected') {
+      this.log.warn('[NostrRelay] cannot query: not connected');
+      return [];
+    }
+
+    this.log('[NostrRelay] querying messages', since ? `since ${since}` : '(all)');
+
+    // Build filter for kind 1059 gift-wrap events
+    const filter: Record<string, unknown> = {
+      'kinds': [NOSTR_KIND_GIFTWRAP],
+      '#p': [this.publicKey]
+    };
+
+    if(since) {
+      filter.since = since;
+    }
+
+    // Send query with a unique subscription ID
+    const queryId = `nostra-query-${Date.now()}`;
+    const collected: DecryptedMessage[] = [];
+
+    // Create a promise that resolves on EOSE or times out after 10s
+    const result = await new Promise<DecryptedMessage[]>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.log.warn('[NostrRelay] query timeout for:', queryId, 'returning', collected.length, 'partial results');
+        this.queryResolvers.delete(queryId);
+        this.ws?.send(JSON.stringify(['CLOSE', queryId]));
+        resolve(collected);
+      }, 10_000);
+
+      this.queryResolvers.set(queryId, {
+        events: collected,
+        resolve: (events) => {
+          clearTimeout(timeout);
+          resolve(events);
+        }
+      });
+
+      this.ws?.send(JSON.stringify(['REQ', queryId, filter]));
+    });
+
+    this.log('[NostrRelay] query complete:', result.length, 'messages');
+    return result;
+  }
+
+  /**
+   * Subscribe to incoming messages
+   *
+   * Sets up a subscription to receive kind 1059 gift-wrap events addressed to us
+   * in real-time as they arrive on the relay.
+   */
+  subscribeMessages(): void {
+    if(this.isSubscribed) {
+      this.log('[NostrRelay] already subscribed to messages');
+      return;
+    }
+
+    if(this.connectionState !== 'connected') {
+      this.log.warn('[NostrRelay] cannot subscribe: not connected');
+      return;
+    }
+
+    this.log('[NostrRelay] subscribing to messages');
+
+    const filter: Record<string, unknown> = {
+      'kinds': [NOSTR_KIND_GIFTWRAP],
+      '#p': [this.publicKey]
+    };
+
+    this.ws?.send(JSON.stringify(['REQ', this.subscriptionId, filter]));
+    this.isSubscribed = true;
+  }
+
+  /**
+   * Unsubscribe from messages
+   */
+  unsubscribeMessages(): void {
+    if(!this.isSubscribed) {
+      return;
+    }
+
+    this.log('[NostrRelay] unsubscribing from messages');
+
+    this.ws?.send(JSON.stringify(['CLOSE', this.subscriptionId]));
+    this.isSubscribed = false;
+  }
+
+  /**
+   * Register a handler for incoming messages
+   */
+  onMessage(handler: (message: DecryptedMessage) => void): void {
+    this.onMessageHandler = handler;
+  }
+
+  /**
+   * Register a handler for delivery/read receipts
+   */
+  onReceipt(handler: (receipt: {eventId: string; type: 'delivery' | 'read'; from: string}) => void): void {
+    this.onReceiptHandler = handler;
+  }
+
+  /**
+   * Publish a pre-built signed event to the relay.
+   * Used by relay pool to publish pre-wrapped gift-wrap events.
+   */
+  publishRawEvent(event: NostrEvent): void {
+    if(this.connectionState !== 'connected') {
+      throw new Error('Not connected to relay');
+    }
+
+    this.ws?.send(JSON.stringify(['EVENT', event]));
+  }
+
+  /**
+   * Get the current connection state
+   */
+  getState(): string {
+    return this.connectionState;
+  }
+
+  /**
+   * Get the public key being used
+   */
+  getPublicKey(): string {
+    return this.publicKey;
+  }
+
+  /**
+   * Publish a kind 0 metadata event
+   */
+  async publishMetadataEvent(metadata: Record<string, string | undefined>): Promise<string> {
+    if(this.connectionState !== 'connected') {
+      throw new Error('Not connected to relay');
+    }
+
+    // Clean undefined values
+    const cleanMeta: Record<string, string> = {};
+    for(const [k, v] of Object.entries(metadata)) {
+      if(v !== undefined) cleanMeta[k] = v;
+    }
+
+    const eventTemplate = {
+      kind: NOSTR_KIND_METADATA,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [] as string[][],
+      content: JSON.stringify(cleanMeta)
+    };
+
+    const signedEvent = finalizeEvent(eventTemplate, this.privateKey);
+    this.ws?.send(JSON.stringify(['EVENT', signedEvent]));
+
+    const eventId = (signedEvent as any).id || '';
+    this.log('[NostrRelay] published metadata event:', eventId.slice(0, 8) + '...');
+    return eventId;
+  }
+
+  /**
+   * Send a raw signed event to the relay
+   */
+  sendRawEvent(event: NostrEvent): void {
+    if(this.connectionState !== 'connected') {
+      throw new Error('Not connected to relay');
+    }
+
+    this.ws?.send(JSON.stringify(['EVENT', event]));
+  }
+
+  // ==================== Dual-Mode Transport (Phase 3) ====================
+
+  /**
+   * Switch to HTTP polling mode via Tor.
+   * Closes existing WebSocket, starts HTTP polling with the given fetch function.
+   */
+  setTorMode(fetchFn: (url: string) => Promise<string>): void {
+    this.mode = 'http-polling';
+    this.torFetchFn = fetchFn;
+
+    // Close existing WebSocket
+    if(this.ws) {
+      this.ws.onclose = null;
+      this.ws.close();
+      this.ws = null;
+    }
+
+    // Start HTTP polling if we were connected
+    if(this.connectionState === 'connected' || this.connectionState === 'connecting') {
+      this.startHttpPolling();
+    }
+  }
+
+  /**
+   * Switch back to direct WebSocket mode.
+   * Stops HTTP polling, clears torFetchFn, re-establishes WebSocket.
+   */
+  setDirectMode(): void {
+    this.mode = 'websocket';
+    this.torFetchFn = undefined;
+    this.stopHttpPolling();
+
+    // Re-establish WebSocket if we should be connected
+    if(this.connectionState === 'connected' || this.connectionState === 'connecting') {
+      this.connectionState = 'disconnected';
+      this.connect();
+    }
+  }
+
+  /**
+   * Measure relay latency.
+   * HTTP polling mode: time a Tor HTTP fetch.
+   * WebSocket mode: send REQ with limit:0, time EOSE response.
+   * @returns Latency in ms, or -1 if unreachable
+   */
+  async measureLatency(): Promise<number> {
+    if(this.mode === 'http-polling' && this.torFetchFn) {
+      const start = performance.now();
+      try {
+        const httpsUrl = this.relayUrl.replace('wss://', 'https://').replace('ws://', 'https://');
+        await this.torFetchFn(`${httpsUrl}/`);
+        this.latencyMs = Math.round(performance.now() - start);
+        return this.latencyMs;
+      } catch{
+        this.latencyMs = -1;
+        return -1;
+      }
+    }
+
+    if(this.connectionState !== 'connected' || !this.ws) {
+      this.latencyMs = -1;
+      return -1;
+    }
+
+    const start = performance.now();
+    const pingId = `ping-${Date.now()}`;
+
+    return new Promise<number>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.latencyMs = -1;
+        resolve(-1);
+      }, 5000);
+
+      const origHandler = this.ws!.onmessage;
+      this.ws!.onmessage = (event: MessageEvent) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if(msg[0] === 'EOSE' && msg[1] === pingId) {
+            clearTimeout(timeout);
+            this.ws!.onmessage = origHandler;
+            this.latencyMs = Math.round(performance.now() - start);
+            resolve(this.latencyMs);
+            return;
+          }
+        } catch{
+          // ignore parse errors
+        }
+        origHandler?.call(this.ws, event);
+      };
+
+      this.ws!.send(JSON.stringify(['REQ', pingId, {kinds: [0], limit: 0}]));
+    });
+  }
+
+  /**
+   * Get the last measured latency.
+   */
+  getLatency(): number {
+    return this.latencyMs;
+  }
+
+  isConnected(): boolean {
+    return this.connectionState === 'connected';
+  }
+
+  getConnectionState(): string {
+    return this.connectionState;
+  }
+
+  /**
+   * Get the current transport mode.
+   */
+  getMode(): 'websocket' | 'http-polling' {
+    return this.mode;
+  }
+
+  /**
+   * Start HTTP polling for events through Tor.
+   */
+  private startHttpPolling(): void {
+    this.stopHttpPolling();
+
+    if(!this.torFetchFn) return;
+
+    const httpsUrl = this.relayUrl
+    .replace('wss://', 'https://')
+    .replace('ws://', 'https://');
+
+    this.lastPolled = Math.floor(Date.now() / 1000) - 60;
+    this.setConnectionState('connected');
+
+    const poll = async() => {
+      if(this.mode !== 'http-polling' || !this.torFetchFn) return;
+
+      try {
+        const params = new URLSearchParams({
+          'kinds': '1059',
+          '#p': this.publicKey,
+          'since': String(this.lastPolled)
+        });
+        const url = `${httpsUrl}/?${params}`;
+        const body = await this.torFetchFn(url);
+
+        let events: NostrEvent[] = [];
+        try {
+          events = JSON.parse(body);
+        } catch{
+          // empty or invalid response
+        }
+
+        if(Array.isArray(events) && events.length > 0) {
+          this.lastPolled = Math.max(...events.map(e => e.created_at)) + 1;
+          for(const event of events) {
+            this.handleEvent(event);
+          }
+        }
+      } catch(err) {
+        this.log.warn('[NostrRelay] HTTP poll error:', err);
+      }
+    };
+
+    // Poll every 3 seconds (Pitfall 1: don't poll too aggressively)
+    this.pollingInterval = setInterval(() => {
+      void poll();
+    }, 3000);
+  }
+
+  /**
+   * Stop HTTP polling.
+   */
+  private stopHttpPolling(): void {
+    if(this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+      this.pollingInterval = null;
+    }
+  }
+
+  // ==================== Private Methods ====================
+
+  // Pending query resolvers: queryId -> {collected events, resolve fn}
+  private queryResolvers: Map<string, {
+    events: DecryptedMessage[];
+    resolve: (events: DecryptedMessage[]) => void;
+  }> = new Map();
+
+  /**
+   * Handle incoming WebSocket messages
+   */
+  private handleMessage(data: string): void {
+    try {
+      const message = JSON.parse(data);
+
+      if(!Array.isArray(message)) {
+        return;
+      }
+
+      const type = message[0];
+
+      switch(type) {
+        case 'EVENT': {
+          const [, subId, event] = message as [string, string, NostrEvent];
+          // Check if this event belongs to a pending query
+          const queryResolver = this.queryResolvers.get(subId);
+          if(queryResolver) {
+            this.collectQueryEvent(event, queryResolver.events);
+          } else {
+            this.handleEvent(event);
+          }
+          break;
+        }
+        case 'EOSE': {
+          const [, subId] = message as [string, string];
+          // Resolve any pending query for this subscription
+          const queryResolver = this.queryResolvers.get(subId);
+          if(queryResolver) {
+            this.log('[NostrRelay] EOSE received for query:', subId, 'with', queryResolver.events.length, 'events');
+            // Close the query subscription
+            this.ws?.send(JSON.stringify(['CLOSE', subId]));
+            this.queryResolvers.delete(subId);
+            queryResolver.resolve(queryResolver.events);
+          } else {
+            this.log.debug('[NostrRelay] EOSE received for subscription:', subId);
+          }
+          break;
+        }
+        case 'NOTICE': {
+          const [, notice] = message as [string, string];
+          this.log('[NostrRelay] relay notice:', notice);
+          break;
+        }
+        default:
+          this.log.debug('[NostrRelay] unknown message type:', type);
+      }
+    } catch(err) {
+      this.log.error('[NostrRelay] failed to parse message:', err);
+    }
+  }
+
+  /**
+   * Collect and unwrap a gift-wrap event into the query results array
+   */
+  private async collectQueryEvent(event: NostrEvent, collected: DecryptedMessage[]): Promise<void> {
+    if(!event.content || !event.pubkey || event.kind !== NOSTR_KIND_GIFTWRAP) {
+      return;
+    }
+
+    try {
+      const rumor = unwrapNip17Message(event as any, this.privateKey);
+
+      // Skip receipt messages for query results
+      const receiptTag = rumor.tags?.find((t: string[]) => t[0] === 'receipt-type');
+      if(receiptTag) return;
+
+      collected.push({
+        id: rumor.id || event.id || '',
+        from: rumor.pubkey,
+        content: rumor.content,
+        timestamp: rumor.created_at,
+        rumorKind: rumor.kind,
+        tags: rumor.tags
+      });
+    } catch(err) {
+      this.log.error('[NostrRelay] failed to unwrap query event:', err);
+    }
+  }
+
+  /**
+   * Handle incoming Nostr events - unwrap NIP-17 gift-wrap (kind 1059)
+   *
+   * Gift-wraps use ephemeral pubkeys, so we cannot filter by event.pubkey.
+   * Instead, we unwrap the event and check the rumor's pubkey to identify
+   * self-sent messages vs. messages from others.
+   */
+  private async handleEvent(event: NostrEvent): Promise<void> {
+    // Ignore events without required fields
+    if(!event.content || !event.pubkey) {
+      this.log.warn('[NostrRelay] received incomplete event');
+      return;
+    }
+
+    // Only process kind 1059 gift-wrap events
+    if(event.kind !== NOSTR_KIND_GIFTWRAP) {
+      this.log.debug('[NostrRelay] ignoring non-gift-wrap event kind:', event.kind);
+      return;
+    }
+
+    try {
+      // Unwrap NIP-17 gift-wrap to get the rumor
+      const rumor = unwrapNip17Message(event as any, this.privateKey);
+
+      // Check if this is a self-sent message (for multi-device sync)
+      const isSelfSent = rumor.pubkey === this.publicKey;
+
+      this.log('[NostrRelay] unwrapped gift-wrap, rumor kind:', rumor.kind,
+        'from:', rumor.pubkey.slice(0, 8) + '...',
+        isSelfSent ? '(self-sent)' : '');
+
+      // Route based on rumor kind and tags
+      const receiptTag = rumor.tags?.find((t: string[]) => t[0] === 'receipt-type');
+
+      if(receiptTag) {
+        // Receipt message (delivery or read confirmation)
+        const eTag = rumor.tags?.find((t: string[]) => t[0] === 'e');
+        if(eTag && this.onReceiptHandler) {
+          this.onReceiptHandler({
+            eventId: eTag[1],
+            type: receiptTag[1] as 'delivery' | 'read',
+            from: rumor.pubkey
+          });
+        }
+        return;
+      }
+
+      // Text message (kind 14) or file message (kind 15)
+      const decryptedMessage: DecryptedMessage = {
+        id: rumor.id || event.id || '',
+        from: rumor.pubkey,
+        content: rumor.content,
+        timestamp: rumor.created_at,
+        rumorKind: rumor.kind,
+        tags: rumor.tags
+      };
+
+      // Emit via handler
+      if(this.onMessageHandler) {
+        this.onMessageHandler(decryptedMessage);
+      }
+
+      // Emit debug signal if enabled
+      if(typeof window !== 'undefined' && localStorage.getItem('pg:transport:debug') === '1') {
+        (window as any).__nostraLastRelayMessage = {
+          id: decryptedMessage.id,
+          from: decryptedMessage.from.slice(0, 8) + '...',
+          timestamp: Date.now()
+        };
+      }
+    } catch(err) {
+      this.log.error('[NostrRelay] failed to unwrap gift-wrap:', err);
+      // Don't throw - just log the error and skip this message
+    }
+  }
+
+  /**
+   * Handle disconnection and initiate reconnection if needed
+   */
+  private handleDisconnect(): void {
+    if(this.connectionState === 'disconnected') {
+      return;
+    }
+
+    this.setConnectionState('reconnecting');
+
+    // Fast burst for the first few attempts, then steady backoff.
+    // Never give up — only an explicit disconnect() call stops retries.
+    const delay = this.reconnectAttempts < this.reconnectBurstDelays.length ?
+      this.reconnectBurstDelays[this.reconnectAttempts] :
+      this.reconnectBackoffMs;
+    this.reconnectAttempts++;
+
+    this.log('[NostrRelay] reconnecting in', delay, 'ms (attempt', this.reconnectAttempts + ')');
+
+    this.reconnectTimeout = setTimeout(() => {
+      this.connect();
+    }, delay);
+  }
+
+  /**
+   * Update connection state
+   */
+  private setConnectionState(state: 'disconnected' | 'connecting' | 'connected' | 'reconnecting'): void {
+    if(this.connectionState !== state) {
+      this.log('[NostrRelay] connection state:', state);
+      this.connectionState = state;
+      this.onStateChange?.(state);
+    }
+  }
+
+  /**
+   * SHA-256 hash using Web Crypto API
+   */
+  private async sha256(message: string): Promise<Uint8Array> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(message);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    return new Uint8Array(hashBuffer);
+  }
+}
+
+/**
+ * Create a NostrRelay instance
+ * @param relayUrl - WebSocket URL of the Nostr relay
+ */
+export function createNostrRelay(relayUrl?: string): NostrRelay {
+  return new NostrRelay(relayUrl);
+}
+
+// ==================== Utility Functions ====================
+
+/**
+ * Convert Uint8Array to base64 string
+ */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for(let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/**
+ * Convert base64 string to Uint8Array
+ */
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for(let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}

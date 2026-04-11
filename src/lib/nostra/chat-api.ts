@@ -1,0 +1,801 @@
+/**
+ * ChatAPI - High-level composition layer for Nostra.chat 1:1 chat
+ *
+ * Wires NostrRelayPool + OfflineQueue + MessageStore + identity into a single
+ * send/receive/history API for 1:1 text, image, video, and GIF messaging.
+ *
+ * All messaging goes through the Nostr relay pool using NIP-17 gift-wrap
+ * (kind 1059). No WebRTC in v1.
+ *
+ * Phase 4 changes:
+ * - Gift-wrap pipeline via NostrRelayPool.publish() (delegates wrapping)
+ * - IndexedDB message store for persistent chat history
+ * - Relay backfill on init/reconnect (MSG-02)
+ * - ChatMessageStatus includes 'read' state
+ */
+
+import {Logger, logger} from '@lib/logger';
+import {NostrRelayPool, PublishResult, DEFAULT_RELAYS} from './nostr-relay-pool';
+import {DecryptedMessage} from './nostr-relay';
+import {OfflineQueue} from './offline-queue';
+import {getMessageStore, StoredMessage} from './message-store';
+import {DeliveryTracker} from './delivery-tracker';
+import {getMessageRequestStore} from './message-requests';
+import {wrapNip17Message} from './nostr-crypto';
+import {isControlEvent, getGroupIdFromRumor} from './group-control-messages';
+import rootScope from '@lib/rootScope';
+import {handleRelayMessage as handleRelayMessageImpl} from './chat-api-receive';
+
+/**
+ * Message types supported in chat
+ */
+export type ChatMessageType = 'text' | 'image' | 'video' | 'gif' | 'file';
+
+/**
+ * Delivery status of a message
+ */
+export type ChatMessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+
+/**
+ * Chat message structure
+ */
+export interface ChatMessage {
+  /** Unique message identifier */
+  id: string;
+  /** Sender's public key */
+  from: string;
+  /** Recipient's public key */
+  to: string;
+  /** Message content type */
+  type: ChatMessageType;
+  /** Message content - plaintext for text, metadata JSON for file */
+  content: string;
+  /** Unix timestamp in milliseconds */
+  timestamp: number;
+  /** Current delivery status */
+  status: ChatMessageStatus;
+  /** Nostr relay event ID - set after successful relay publish */
+  relayEventId?: string;
+  /** File metadata for kind 15 (Blossom media) messages */
+  fileMetadata?: {
+    url: string;
+    sha256: string;
+    mimeType: string;
+    size: number;
+    width?: number;
+    height?: number;
+    keyHex: string;
+    ivHex: string;
+  };
+}
+
+/**
+ * Connection state of the ChatAPI
+ */
+export type ChatState = 'disconnected' | 'connecting' | 'connected';
+
+/**
+ * Event callback types
+ */
+export type MessageCallback = (msg: ChatMessage) => void;
+export type StatusChangeCallback = (peerId: string, status: string) => void;
+
+/**
+ * ChatAPI - High-level chat API for Nostra.chat
+ *
+ * Provides a simple API that:
+ * 1. Manages relay pool connection lifecycle
+ * 2. Sends messages via relay pool (NIP-17 gift-wrap internally)
+ * 3. Receives messages from relay pool subscription
+ * 4. Persists messages to IndexedDB message store
+ * 5. Backfills missed messages on init/reconnect (MSG-02)
+ */
+export class ChatAPI {
+  private ownId: string;
+  private log: Logger;
+
+  // Core components
+  private relayPool: NostrRelayPool;
+  private offlineQueue: OfflineQueue | null;
+  private deliveryTracker: DeliveryTracker | null = null;
+
+  // Connection state
+  private state: ChatState = 'disconnected';
+  private activePeer: string | null = null;
+
+  // Message history (in-memory)
+  private history: ChatMessage[] = [];
+
+  // ID generation counter
+  private messageIdCounter = 0;
+
+  // Event callbacks
+  onMessage: MessageCallback | null = null;
+  onStatusChange: StatusChangeCallback | null = null;
+
+  /**
+   * Create a new ChatAPI instance
+   * @param ownId - The user's public key
+   */
+  constructor(ownId: string);
+
+  /**
+   * Create a new ChatAPI instance with dependency injection (for testing)
+   * @param ownId - The user's public key
+   * @param relayPool - NostrRelayPool instance (mockable)
+   * @param offlineQueue - OfflineQueue instance (mockable)
+   */
+  constructor(
+    ownId: string,
+    relayPool: NostrRelayPool,
+    offlineQueue: OfflineQueue | null
+  );
+
+  constructor(
+    ownId: string,
+    relayPool?: NostrRelayPool,
+    offlineQueue?: OfflineQueue | null
+  ) {
+    this.ownId = ownId;
+    this.log = logger('ChatAPI');
+
+    this.log('[ChatAPI] initializing with ownId:', ownId.slice(0, 8) + '...');
+
+    // Use injected dependencies or create real ones
+    if(relayPool && offlineQueue) {
+      this.relayPool = relayPool;
+      this.offlineQueue = offlineQueue;
+
+      // Wire up callbacks on injected pool (DI / test path)
+      if(typeof relayPool.setOnMessage === 'function') {
+        relayPool.setOnMessage((msg: DecryptedMessage) => this.handleRelayMessage(msg));
+      }
+      if(typeof relayPool.setOnStateChange === 'function') {
+        relayPool.setOnStateChange((connectedCount: number, _totalCount: number) => {
+          this.handlePoolStateChange(connectedCount);
+        });
+      }
+    } else {
+      // Create real NostrRelayPool
+      this.relayPool = new NostrRelayPool({
+        relays: [...DEFAULT_RELAYS],
+        onMessage: (msg: DecryptedMessage) => this.handleRelayMessage(msg),
+        onStateChange: (connectedCount: number, _totalCount: number) => {
+          this.handlePoolStateChange(connectedCount);
+        }
+      });
+      this.offlineQueue = new OfflineQueue(this.relayPool);
+    }
+
+    // Wire receipt handler from relay pool to delivery tracker
+    if(typeof this.relayPool.setOnReceipt === 'function') {
+      this.relayPool.setOnReceipt((receipt: {eventId: string; type: 'delivery' | 'read'; from: string}) => {
+        if(this.deliveryTracker) {
+          // Convert relay receipt format to rumor-like event for handleReceipt
+          this.deliveryTracker.handleReceipt({
+            kind: 14,
+            content: '',
+            pubkey: receipt.from,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [['e', receipt.eventId], ['receipt-type', receipt.type]],
+            id: `receipt-${Date.now()}`
+          });
+        }
+      });
+    }
+
+    // Expose for debug inspection
+    if(typeof window !== 'undefined') {
+      (window as any).__nostraChatAPI = this;
+    }
+  }
+
+  /**
+   * Connect to a peer by their public key
+   * @param peerOwnId - The peer's public key
+   */
+  async connect(peerOwnId: string): Promise<void> {
+    if(this.state === 'connected' || this.state === 'connecting') {
+      if(this.activePeer === peerOwnId) {
+        this.log('[ChatAPI] already connected/connecting to peer');
+        return;
+      }
+      // Already connected to a different peer - disconnect first
+      this.log('[ChatAPI] switching to new peer:', peerOwnId.slice(0, 8) + '...');
+      this.disconnect();
+    }
+
+    this.log('[ChatAPI] connecting to peer:', peerOwnId.slice(0, 8) + '...');
+    this.setState('connecting');
+    this.activePeer = peerOwnId;
+
+    try {
+      // Initialize relay pool (connects to all relays)
+      await this.relayPool.initialize();
+
+      // Initialize delivery tracker with pool's identity
+      try {
+        const poolPrivateKey = this.relayPool.getPrivateKey?.();
+        if(poolPrivateKey) {
+          this.deliveryTracker = new DeliveryTracker({
+            privateKey: poolPrivateKey,
+            publicKey: this.ownId,
+            publishFn: async(events: any[]) => {
+              for(const event of events) {
+                await this.relayPool.publishRawEvent(event);
+              }
+            }
+          });
+        }
+      } catch(err) {
+        this.log.warn('[ChatAPI] delivery tracker init failed (non-fatal):', err);
+      }
+
+      // Subscribe to relay messages
+      this.relayPool.subscribeMessages();
+
+      this.setState('connected');
+      this.log('[ChatAPI] connected to peer:', peerOwnId.slice(0, 8) + '...');
+
+      // Notify status change
+      if(this.onStatusChange) {
+        this.onStatusChange(peerOwnId, 'connected');
+      }
+
+      // Trigger relay backfill in background (MSG-02)
+      this.backfillConversations().catch((err) => {
+        this.log.error('[ChatAPI] backfill failed:', err);
+      });
+    } catch(err) {
+      this.log.error('[ChatAPI] connection failed:', err);
+      this.setState('disconnected');
+      throw err;
+    }
+  }
+
+  /**
+   * Initialize relay pool and subscribe to incoming messages globally.
+   * Call this at boot so messages from ANY peer are received,
+   * not just from peers connected via connect().
+   * Also initializes the delivery tracker so receipts work without
+   * needing to open a specific chat first.
+   */
+  async initGlobalSubscription(): Promise<void> {
+    await this.relayPool.initialize();
+
+    // Initialize delivery tracker with pool's identity (same as connect() does).
+    // Without this, incoming delivery/read receipts are silently ignored and
+    // outgoing checkmarks stay at single (✓) forever.
+    try {
+      const poolPrivateKey = this.relayPool.getPrivateKey?.();
+      if(poolPrivateKey && !this.deliveryTracker) {
+        this.deliveryTracker = new DeliveryTracker({
+          privateKey: poolPrivateKey,
+          publicKey: this.ownId,
+          publishFn: async(events: any[]) => {
+            for(const event of events) {
+              await this.relayPool.publishRawEvent(event);
+            }
+          }
+        });
+      }
+    } catch(err) {
+      this.log.warn('[ChatAPI] delivery tracker init failed (non-fatal):', err);
+    }
+
+    this.relayPool.subscribeMessages();
+    this.backfillConversations().catch((e) => this.log('[ChatAPI] backfill failed:', e?.message));
+    this.log('[ChatAPI] global relay subscription active');
+  }
+
+  /**
+   * Disconnect from the current peer
+   */
+  disconnect(): void {
+    this.log('[ChatAPI] disconnecting from peer:', this.activePeer?.slice(0, 8) + '...');
+
+    const wasConnected = this.activePeer;
+
+    this.relayPool.disconnect();
+
+    this.setState('disconnected');
+    this.activePeer = null;
+
+    // Notify status change
+    if(wasConnected && this.onStatusChange) {
+      this.onStatusChange(wasConnected, 'disconnected');
+    }
+  }
+
+  /**
+   * Send a text message
+   * @param content - The text content to send
+   * @returns The generated message ID
+   */
+  async sendText(content: string): Promise<string> {
+    return this.sendMessage('text', content);
+  }
+
+  /**
+   * Send a file message (consumed by Plan 02 for Blossom media).
+   * Creates a kind 15 rumor content string with file metadata tags.
+   *
+   * @param type - File type ('image' | 'video' | 'file')
+   * @param url - Blossom URL of the uploaded file
+   * @param sha256 - SHA-256 hash of the file
+   * @param key - Encryption key hex
+   * @param iv - Encryption IV hex
+   * @param mimeType - MIME type of the file
+   * @param size - File size in bytes
+   * @param dim - Optional dimensions {width, height}
+   * @returns The generated message ID
+   */
+  async sendFileMessage(
+    type: 'image' | 'video' | 'file',
+    url: string,
+    sha256: string,
+    key: string,
+    iv: string,
+    mimeType: string,
+    size: number,
+    dim?: {width: number; height: number}
+  ): Promise<string> {
+    const fileContent = JSON.stringify({
+      url,
+      sha256,
+      mimeType,
+      size,
+      key,
+      iv,
+      ...(dim ? {width: dim.width, height: dim.height} : {})
+    });
+    return this.sendMessage(type as ChatMessageType, fileContent);
+  }
+
+  /**
+   * Internal send implementation
+   */
+  private async sendMessage(type: ChatMessageType, content: string): Promise<string> {
+    const messageId = this.generateMessageId();
+    const timestamp = Date.now();
+    const peerOwnId = this.activePeer;
+
+    this.log('[ChatAPI] sending message:', type, 'id:', messageId, 'peer:', peerOwnId?.slice(0, 8) + '...');
+
+    // Create the message
+    const message: ChatMessage = {
+      id: messageId,
+      from: this.ownId,
+      to: peerOwnId || 'unknown',
+      type,
+      content,
+      timestamp,
+      status: 'sending'
+    };
+
+    // Add to history
+    this.history.push(message);
+
+    // Save to message store with 'sending' status
+    try {
+      const store = getMessageStore();
+      const conversationId = store.getConversationId(this.ownId, peerOwnId || '');
+      await store.saveMessage({
+        eventId: messageId,
+        conversationId,
+        senderPubkey: this.ownId,
+        content,
+        type: type === 'text' ? 'text' : 'file',
+        timestamp: Math.floor(timestamp / 1000),
+        deliveryState: 'sending'
+      });
+    } catch(err) {
+      this.log.warn('[ChatAPI] failed to save to message store:', err);
+    }
+
+    // Track delivery state
+    if(this.deliveryTracker) {
+      this.deliveryTracker.markSending(messageId);
+    }
+
+    // Try to publish via relay pool (gift-wrap handled internally by pool)
+    if(this.relayPool.isConnected()) {
+      try {
+        const plaintext = JSON.stringify({
+          id: messageId,
+          from: this.ownId,
+          to: peerOwnId,
+          type,
+          content,
+          timestamp
+        });
+
+        const result: PublishResult = await this.relayPool.publish(peerOwnId!, plaintext);
+
+        if(result.successes.length > 0) {
+          this.updateMessageStatus(messageId, 'sent');
+          if(this.deliveryTracker) {
+            this.deliveryTracker.markSent(messageId);
+          }
+          this.log('[ChatAPI] message published to', result.successes.length, 'relay(s):', messageId);
+        } else {
+          // All relays failed -- fallback to offline queue
+          this.log('[ChatAPI] all relays failed, queueing message');
+          await this.queueMessage(messageId, content);
+        }
+      } catch(err) {
+        this.log.error('[ChatAPI] relay publish failed:', err);
+        await this.queueMessage(messageId, content);
+      }
+    } else {
+      // Not connected to any relay -- queue for offline delivery
+      this.log('[ChatAPI] relay pool not connected, queueing message');
+      await this.queueMessage(messageId, content);
+    }
+
+    return messageId;
+  }
+
+  /**
+   * Load conversation history from IndexedDB message store (instant local cache).
+   *
+   * @param peerPubkey - Peer's hex public key
+   * @param limit - Max messages to return (default 50)
+   * @param before - Optional timestamp for pagination
+   * @returns Array of stored messages sorted by timestamp desc
+   */
+  async loadHistory(peerPubkey: string, limit?: number, before?: number): Promise<StoredMessage[]> {
+    try {
+      const store = getMessageStore();
+      const conversationId = store.getConversationId(this.ownId, peerPubkey);
+      return await store.getMessages(conversationId, limit, before);
+    } catch(err) {
+      this.log.error('[ChatAPI] failed to load history:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Backfill conversations from relay pool (MSG-02).
+   *
+   * Called on ChatAPI init and relay reconnect.
+   * For each known conversation, queries relays for missed messages
+   * using getLatestTimestamp as the `since` filter.
+   *
+   * Runs in background (non-blocking). Dispatches nostra_backfill_complete
+   * event when done so display bridge can refresh.
+   */
+  async backfillConversations(): Promise<void> {
+    this.log('[ChatAPI] starting relay backfill');
+
+    try {
+      const store = getMessageStore();
+      const conversationIds = await store.getAllConversationIds();
+
+      if(conversationIds.length === 0) {
+        this.log('[ChatAPI] no conversations to backfill');
+        return;
+      }
+
+      this.log('[ChatAPI] backfilling', conversationIds.length, 'conversation(s)');
+
+      for(const convId of conversationIds) {
+        try {
+          const since = await store.getLatestTimestamp(convId);
+
+          // Query relay pool for missed messages
+          // Limit to 50 events per conversation to avoid flooding
+          await this.relayPool.getMessages({
+            'kinds': [1059],
+            '#p': [this.ownId],
+            'since': since > 0 ? since : undefined,
+            'limit': 50
+          });
+          // Note: actual messages come through the subscription handler
+          // and get processed via handleRelayMessage -> dedup by eventId
+        } catch(err) {
+          this.log.warn('[ChatAPI] backfill failed for conversation:', convId, err);
+        }
+      }
+
+      // Dispatch completion event
+      rootScope.dispatchEvent('nostra_backfill_complete', undefined);
+      this.log('[ChatAPI] relay backfill complete');
+    } catch(err) {
+      this.log.error('[ChatAPI] backfill error:', err);
+    }
+  }
+
+  /**
+   * Queue a message for offline delivery
+   */
+  private async queueMessage(messageId: string, content: string): Promise<void> {
+    const peerOwnId = this.activePeer;
+
+    if(!peerOwnId) {
+      this.log.warn('[ChatAPI] no active peer, cannot queue message');
+      this.updateMessageStatus(messageId, 'failed');
+      return;
+    }
+
+    if(!this.offlineQueue) {
+      this.log.warn('[ChatAPI] no offline queue available');
+      this.updateMessageStatus(messageId, 'failed');
+      return;
+    }
+
+    try {
+      await this.offlineQueue.queue(peerOwnId, content);
+      this.updateMessageStatus(messageId, 'sent');
+      this.log('[ChatAPI] message queued:', messageId);
+    } catch(err) {
+      this.log.error('[ChatAPI] queue failed:', err);
+      this.updateMessageStatus(messageId, 'failed');
+    }
+  }
+
+  /**
+   * Update the status of a message in history and message store
+   */
+  private updateMessageStatus(messageId: string, status: ChatMessageStatus): void {
+    const msg = this.history.find(m => m.id === messageId);
+    if(msg) {
+      msg.status = status;
+    }
+
+    // Update in message store (fire-and-forget)
+    const store = getMessageStore();
+    const peerOwnId = this.activePeer;
+    if(peerOwnId) {
+      const conversationId = store.getConversationId(this.ownId, peerOwnId);
+      store.getMessages(conversationId, 1).then(msgs => {
+        const stored = msgs.find(m => m.eventId === messageId);
+        if(stored) {
+          stored.deliveryState = status === 'failed' ? 'sending' : status as StoredMessage['deliveryState'];
+          store.saveMessage(stored).catch((e) => console.debug('[ChatAPI] delivery state persist failed:', e?.message));
+        }
+      }).catch((e) => console.debug('[ChatAPI] delivery state lookup failed:', e?.message));
+    }
+  }
+
+  /**
+   * Get the message history
+   * @returns Messages sorted by timestamp ascending
+   */
+  getHistory(): ChatMessage[] {
+    return [...this.history].sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  /**
+   * Get the current connection state
+   */
+  getState(): ChatState {
+    return this.state;
+  }
+
+  /**
+   * Get the active peer's public key
+   */
+  getActivePeer(): string | null {
+    return this.activePeer;
+  }
+
+  setActivePeer(pubkey: string): void {
+    this.activePeer = pubkey;
+  }
+
+  /**
+   * Mark a message as read by the current user.
+   * Sends a read receipt to the message sender if read receipts are enabled.
+   *
+   * @param eventId - The relay event ID of the message to mark as read
+   * @param senderPubkey - The sender's hex public key
+   */
+  async markRead(eventId: string, senderPubkey: string): Promise<void> {
+    if(!this.deliveryTracker) return;
+    await this.deliveryTracker.sendReadReceipt(eventId, senderPubkey);
+  }
+
+  /**
+   * Get the delivery tracker instance (for external state queries).
+   */
+  getDeliveryTracker(): DeliveryTracker | null {
+    return this.deliveryTracker;
+  }
+
+  /**
+   * Delete a conversation with 3-level cleanup:
+   *
+   * Level 1 - Local: Remove all messages from IndexedDB
+   * Level 2 - Peer notification: Gift-wrapped delete notification with event IDs
+   * Level 3 - Relay: NIP-09 kind 5 deletion request (best-effort)
+   *
+   * @param peerPubkey - The peer's hex public key
+   */
+  async deleteConversation(peerPubkey: string): Promise<void> {
+    this.log('[ChatAPI] deleteConversation for peer:', peerPubkey.slice(0, 8) + '...');
+
+    const store = getMessageStore();
+    const conversationId = store.getConversationId(this.ownId, peerPubkey);
+
+    // Collect event IDs BEFORE deleting (needed for Level 2 and 3)
+    let eventIds: string[] = [];
+    try {
+      const messages = await store.getMessages(conversationId, 1000);
+      eventIds = messages.map(m => m.eventId).filter(Boolean);
+    } catch(err) {
+      this.log.warn('[ChatAPI] failed to collect event IDs for deletion:', err);
+    }
+
+    // Level 1: Local deletion — remove all messages from IndexedDB
+    try {
+      await store.deleteMessages(conversationId);
+      this.log('[ChatAPI] Level 1: local messages deleted for conversation:', conversationId);
+    } catch(err) {
+      this.log.error('[ChatAPI] Level 1 deletion failed:', err);
+    }
+
+    // Remove from in-memory history
+    this.history = this.history.filter(m => {
+      const isConversation = (m.from === peerPubkey && m.to === this.ownId) ||
+        (m.from === this.ownId && m.to === peerPubkey);
+      return !isConversation;
+    });
+
+    // Level 2: Gift-wrapped peer notification with delete-notification tag
+    if(eventIds.length > 0 && this.relayPool.getPrivateKey()) {
+      try {
+        const privateKey = this.relayPool.getPrivateKey()!;
+
+        // Build tags: delete-notification + e tags for each message
+        const tags: string[][] = [['delete-notification']];
+        for(const eid of eventIds) {
+          tags.push(['e', eid]);
+        }
+
+        // Create a gift-wrapped notification using wrapNip17Message
+        // The content is empty — the tags carry the delete info
+        const deleteContent = JSON.stringify({
+          type: 'delete-notification',
+          eventIds
+        });
+        const wraps = wrapNip17Message(privateKey, peerPubkey, deleteContent);
+
+        for(const wrap of wraps) {
+          await this.relayPool.publishRawEvent(wrap as any);
+        }
+
+        this.log('[ChatAPI] Level 2: delete notification sent to peer,', eventIds.length, 'event IDs');
+      } catch(err) {
+        this.log.warn('[ChatAPI] Level 2 peer notification failed (non-fatal):', err);
+      }
+    }
+
+    // Level 3: NIP-09 kind 5 deletion request to relays (best-effort)
+    if(eventIds.length > 0 && this.relayPool.getPrivateKey()) {
+      try {
+        const {finalizeEvent} = await import('nostr-tools/pure');
+        const privateKey = this.relayPool.getPrivateKey()!;
+
+        // Create kind 5 deletion event referencing the outer gift-wrap event IDs
+        const deletionEvent = finalizeEvent({
+          kind: 5,
+          created_at: Math.floor(Date.now() / 1000),
+          tags: eventIds.map(eid => ['e', eid]),
+          content: 'Conversation deleted'
+        }, privateKey);
+
+        await this.relayPool.publishRawEvent(deletionEvent as any);
+
+        this.log('[ChatAPI] Level 3: NIP-09 deletion request published,', eventIds.length, 'event IDs');
+      } catch(err) {
+        this.log.warn('[ChatAPI] Level 3 NIP-09 deletion failed (non-fatal):', err);
+      }
+    }
+
+    // Dispatch event for display bridge to remove synthetic dialog
+    rootScope.dispatchEvent('nostra_conversation_deleted', {peerPubkey, conversationId});
+
+    this.log('[ChatAPI] deleteConversation complete for:', peerPubkey.slice(0, 8) + '...');
+  }
+
+  // ==================== Private Methods ====================
+
+  /**
+   * Handle pool state changes (connected relay count changes)
+   */
+  private handlePoolStateChange(connectedCount: number): void {
+    this.log('[ChatAPI] relay pool state change: connectedCount =', connectedCount);
+
+    if(connectedCount > 0) {
+      if(this.state !== 'connected' && this.activePeer) {
+        this.setState('connected');
+        if(this.onStatusChange) {
+          this.onStatusChange(this.activePeer, 'connected');
+        }
+      }
+
+      // Auto-flush offline queue when relays come back
+      if(this.offlineQueue && this.activePeer) {
+        this.offlineQueue.flush(this.activePeer).catch((err: any) => {
+          this.log.error('[ChatAPI] auto-flush failed:', err);
+        });
+      }
+
+      // Trigger backfill on reconnect (MSG-02)
+      this.backfillConversations().catch((err) => {
+        this.log.error('[ChatAPI] reconnect backfill failed:', err);
+      });
+    } else {
+      if(this.state !== 'disconnected' && this.activePeer) {
+        this.setState('disconnected');
+        if(this.onStatusChange) {
+          this.onStatusChange(this.activePeer, 'disconnected');
+        }
+      }
+    }
+  }
+
+  /**
+   * Handle messages received via relay pool subscription.
+   * Delegates to chat-api-receive.ts for testability.
+   */
+  private async handleRelayMessage(msg: DecryptedMessage): Promise<void> {
+    this.log('[ChatAPI] received relay message:', msg.id.slice(0, 8) + '...');
+    try {
+      const result = await handleRelayMessageImpl(msg, {
+        ownId: this.ownId,
+        history: this.history,
+        activePeer: this.activePeer,
+        deliveryTracker: this.deliveryTracker,
+        offlineQueue: this.offlineQueue,
+        onMessage: this.onMessage,
+        log: this.log
+      });
+      this.log('[ChatAPI] relay message result:', result.action);
+    } catch(err) {
+      this.log.error('[ChatAPI] failed to handle relay message:', err);
+    }
+  }
+
+  /**
+   * Update internal state
+   */
+  private setState(state: ChatState): void {
+    if(this.state !== state) {
+      this.log('[ChatAPI] state:', state);
+      this.state = state;
+    }
+  }
+
+  /**
+   * Generate a unique message ID
+   */
+  private generateMessageId(): string {
+    return `chat-${Date.now()}-${this.messageIdCounter++}`;
+  }
+
+  /**
+   * Clean up resources
+   */
+  destroy(): void {
+    this.log('[ChatAPI] destroying');
+
+    this.relayPool.disconnect();
+    if(this.offlineQueue) {
+      this.offlineQueue.destroy();
+    }
+
+    this.history = [];
+    this.activePeer = null;
+    this.setState('disconnected');
+  }
+}
+
+/**
+ * Create a ChatAPI instance
+ * @param ownId - The user's public key
+ */
+export function createChatAPI(ownId: string): ChatAPI {
+  return new ChatAPI(ownId);
+}

@@ -1,0 +1,144 @@
+/*
+ * Nostra.chat Onboarding — tweb auth-page style
+ *
+ * Uses tweb's existing auth page patterns (.text-center, .subtitle,
+ * .input-wrapper, btn-primary, etc.) so the onboarding looks native.
+ * Only adds minimal custom styles for Nostra.chat-specific elements.
+ */
+
+.nostra-onboarding {
+  max-width: 360px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+.nostra-onboarding h4 {
+  font-size: 2rem;
+  font-weight: 500;
+  margin: 2rem 0 0.5rem;
+}
+
+.nostra-onboarding .subtitle {
+  margin-bottom: 1.5rem;
+}
+
+.nostra-onboarding .input-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* ─── npub Display Box ──────────────────────────────────────────────── */
+
+.nostra-npub-box {
+  background: var(--surface-color, #f4f4f5);
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.nostra-npub-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--secondary-text-color);
+  margin-bottom: 0.75rem;
+}
+
+.nostra-npub-value {
+  font-family: var(--font-mono, 'SF Mono', 'Menlo', monospace);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--primary-text-color);
+  word-break: break-all;
+  user-select: all;
+  margin-bottom: 1rem;
+}
+
+/* ─── Seed Phrase Grid ──────────────────────────────────────────────── */
+
+.nostra-seed-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 1rem;
+}
+
+@media(max-width: 480px) {
+  .nostra-seed-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.nostra-seed-field {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 8px;
+  padding: 6px 8px;
+  transition: border-color 0.15s;
+}
+
+.nostra-seed-field:focus-within {
+  border-color: var(--primary-color);
+}
+
+.nostra-seed-num {
+  color: var(--secondary-text-color);
+  font-size: 0.7rem;
+  font-weight: 600;
+  min-width: 1.25rem;
+  text-align: center;
+}
+
+.nostra-seed-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--primary-text-color);
+  font-size: 0.85rem;
+  padding: 4px;
+  outline: none;
+  min-width: 0;
+}
+
+/* ─── Error ─────────────────────────────────────────────────────────── */
+
+.nostra-error {
+  color: var(--danger-color, #e53935);
+  font-size: 0.8rem;
+  min-height: 1.25rem;
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+/* ─── Info text ─────────────────────────────────────────────────────── */
+
+.nostra-info-text {
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
+}
+
+/* ─── Avatar Preview ───────────────────────────────────────────────── */
+
+.nostra-avatar-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.nostra-avatar-img {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: var(--surface-color, #f4f4f5);
+  object-fit: cover;
+}
+
+.nostra-avatar-label {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--secondary-text-color);
+}
