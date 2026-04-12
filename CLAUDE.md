@@ -12,7 +12,7 @@
 | Language | TypeScript 5.7 |
 | Build | Vite 5 |
 | CSS | SCSS (sass) |
-| Testing | Vitest |
+| Testing | Vitest (unit) + Playwright (E2E) |
 | Package Manager | pnpm 9 |
 | Protocol | Nostr (NIP-06, NIP-17, NIP-44, NIP-59, NIP-65) |
 | Storage | IndexedDB + CacheStorage + localStorage |
@@ -235,7 +235,6 @@ import {Message, Chat, User, InputPeer} from '@layer';
 - Do not save screenshots or images in the project root — use `/tmp/` for temporary test artifacts. The `.gitignore` blocks `*.png` at root level
 - Do not assume a component exists in the UI just because the file exists. Grep for the import: `grep -rn 'import.*MessageRequests' src/` — `MessageRequests.tsx` is written but never mounted, so routing messages there made them invisible.
 - Do not assume a `rootScope.dispatchEvent('foo')` call is wired to a listener. Grep for the listener: `grep -rn "addEventListener('foo'" src/` — `nostra_delivery_update` had dispatches but no production listeners.
-- Do not run `eslint --fix` on `src/**/**.ts` broadly — 13 pre-existing lint errors live in `nostraMeshSettings.ts`, `mesh-manager.ts`, `mesh-signaling.ts`, `relay-store.ts`. Lint only the files you modified, or `git checkout --` the unrelated fixes before committing.
 - Do not edit `package.json` version manually — use `pnpm version patch|minor|major` (runs the `preversion` gate locally: lint + tsc) or let release-please manage it via its release PR. Either path, never by hand.
 - Do not open two Claude Code instances in the same working directory — `git worktree add ../nostra.chat-wt/<name> -b <branch> main && cd ../nostra.chat-wt/<name> && pnpm install` isolates them. One Claude per worktree.
 - Do not remove the `!public/recorder.min.js` exception in `.gitignore` — the file is a third-party UMD bundle imported statically from `src/components/chat/input.ts` and the build fails without it.
