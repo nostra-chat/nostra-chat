@@ -55,28 +55,29 @@
 
   .seed-word-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-    padding: 16px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 12px;
     border-radius: 14px;
     background: var(--surface-color, rgba(127, 127, 127, 0.06));
     border: 1px solid var(--border-color, rgba(127, 127, 127, 0.15));
 
     @media (min-width: 480px) {
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
   }
 
   .seed-word-chip {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
+    gap: 8px;
+    padding: 8px 10px;
     border-radius: 10px;
     background: var(--background-color);
     border: 1px solid var(--border-color, rgba(127, 127, 127, 0.15));
     transition: transform 0.12s ease, border-color 0.12s ease;
     user-select: text;
+    min-width: 0;
 
     &:hover {
       transform: translateY(-1px);
@@ -84,26 +85,32 @@
     }
 
     &__num {
-      flex: 0 0 22px;
-      min-width: 22px;
-      height: 22px;
-      border-radius: 6px;
+      flex: 0 0 20px;
+      min-width: 20px;
+      height: 20px;
+      border-radius: 5px;
       background: var(--primary-color);
       color: #fff;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
-      line-height: 22px;
+      line-height: 20px;
       text-align: center;
       font-variant-numeric: tabular-nums;
     }
 
     &__word {
       flex: 1 1 auto;
+      min-width: 0;
       font-family: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 15px;
+      font-size: 13px;
       font-weight: 500;
       color: var(--primary-text-color);
-      letter-spacing: 0.2px;
+      letter-spacing: 0;
+      // BIP-39 words are up to 8 chars; allow wrapping as a safety net so
+      // a long word never breaks out of the chip. We never truncate — the
+      // user must read every letter to back the phrase up.
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
   }
 

@@ -104,7 +104,7 @@ export default class AppPrivacyAndSecurityTab extends SliderSuperTab {
     const meshRow = new Row({
       title: 'P2P Mesh Settings',
       subtitle: 'Direct connections between contacts',
-      icon: 'network' as any,
+      icon: 'link',
       clickable: async() => {
         const {default: AppNostraMeshSettingsTab} = await import('@components/sidebarLeft/tabs/nostraMeshSettings');
         const tab = new AppNostraMeshSettingsTab(this.slider);
