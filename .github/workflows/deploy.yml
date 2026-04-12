@@ -2,11 +2,8 @@ name: Deploy Nostra.chat
 
 on:
   push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+    tags:
+      - 'v*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,44 +14,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Detect docs-only PR
-        id: detect
-        if: github.event_name == 'pull_request'
-        run: |
-          BASE="${{ github.event.pull_request.base.sha }}"
-          CHANGED=$(git diff --name-only "$BASE" HEAD)
-          echo "Changed files:"
-          echo "$CHANGED"
-          CODE=$(echo "$CHANGED" | grep -vE '(\.md$|^docs/|^LICENSE$)' || true)
-          if [ -z "$CODE" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Docs-only PR — skipping build steps"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
 
       - uses: pnpm/action-setup@v4
-        if: steps.detect.outputs.skip != 'true'
 
       - uses: actions/setup-node@v4
-        if: steps.detect.outputs.skip != 'true'
         with:
           node-version: 20
           cache: pnpm
 
       - name: Install dependencies
-        if: steps.detect.outputs.skip != 'true'
         run: pnpm install --frozen-lockfile
 
+      - name: Lint
+        run: pnpm lint
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
       - name: Build
-        if: steps.detect.outputs.skip != 'true'
         run: pnpm build
 
       - uses: actions/upload-artifact@v4
-        if: steps.detect.outputs.skip != 'true'
         with:
           name: dist
           path: dist/
@@ -62,7 +42,6 @@ jobs:
   deploy-cloudflare:
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -79,7 +58,6 @@ jobs:
   deploy-github-pages:
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
     permissions:
       pages: write
       id-token: write
@@ -104,7 +82,6 @@ jobs:
   deploy-ipfs:
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
     permissions:
       contents: read
       statuses: write

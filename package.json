@@ -5,6 +5,8 @@
   "main": "index.js",
   "scripts": {
     "preinstall": "npx only-allow pnpm",
+    "preversion": "pnpm lint && npx tsc --noEmit",
+    "postversion": "git push --follow-tags",
     "start": "vite --force",
     "start-in-docker": "vite --force --host",
     "serve": "pnpm run build; node server.js",
