@@ -8,6 +8,7 @@ coverage/
 public/*.js
 public/*.js.map
 public/*.css
+!public/recorder.min.js
 
 # OS files
 .DS_Store
