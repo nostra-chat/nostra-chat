@@ -1705,7 +1705,7 @@ export default appSidebarLeft;
 
 function getVersionLink() {
   const btnMenuFooter = document.createElement('a');
-  btnMenuFooter.href = 'https://nostra.chat';
+  btnMenuFooter.href = `https://github.com/nostra-chat/nostra-chat/releases/tag/v${App.version}`;
   setBlankToAnchor(btnMenuFooter);
   btnMenuFooter.classList.add('btn-menu-footer');
   btnMenuFooter.addEventListener(CLICK_EVENT_NAME, (e) => {
@@ -1714,7 +1714,7 @@ function getVersionLink() {
   });
   const t = document.createElement('span');
   t.classList.add('btn-menu-footer-text');
-  t.textContent = `Nostra.chat v0.0.1`;
+  t.textContent = `Nostra.chat v${App.version}`;
   btnMenuFooter.append(t);
 
   return btnMenuFooter;
