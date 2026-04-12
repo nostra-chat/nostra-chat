@@ -160,15 +160,17 @@ async function main() {
           return {
             found: true,
             isRead: b.classList.contains('is-read'),
+            isP2pRead: b.classList.contains('is-p2p-read'),
             isSent: b.classList.contains('is-sent'),
             iconClass: icon?.className || '',
             iconText: icon?.textContent || '',
+            iconColor: icon ? getComputedStyle(icon).color : '',
             classes: b.className
           } as any;
         }
-        return {found: false, isRead: false, isSent: false, iconClass: '', iconText: '', classes: ''} as any;
+        return {found: false, isRead: false, isP2pRead: false, isSent: false, iconClass: '', iconText: '', iconColor: '', classes: ''} as any;
       }, text);
-      if(bubbleState.found && bubbleState.isRead) break;
+      if(bubbleState.found && bubbleState.isP2pRead) break;
       await pageA.waitForTimeout(2000);
     }
 
@@ -212,6 +214,7 @@ async function main() {
 
     report('BUBBLE_FOUND', bubbleState.found, `found=${bubbleState.found}`);
     report('BUBBLE_IS_READ', bubbleState.isRead, `is-read=${bubbleState.isRead}`);
+    report('BUBBLE_IS_P2P_READ', !!bubbleState.isP2pRead, `is-p2p-read=${bubbleState.isP2pRead} color=${bubbleState.iconColor}`);
     // After delivery, the sending status icon should have been replaced with
     // the 'checks' glyph by the onboarding listener. We detect this by querying
     // the glyph char (icons are rendered as tgico-class + unicode textContent).
