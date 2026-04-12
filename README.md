@@ -94,6 +94,53 @@ Tor integration runs entirely in the browser via a WASM build of [Arti](https://
 - PWA installable on mobile and desktop, works offline for cached conversations
 - Deployable from any origin — Cloudflare Pages, GitHub Pages, IPFS — for censorship resistance
 
+### How Nostra.chat compares
+
+A feature-by-feature comparison with other privacy-focused messengers and the mainstream alternatives. This table reflects publicly known facts as of April 2026 and may become outdated — please [open an issue](https://github.com/nostra-chat/nostra-chat/issues) if you spot an inaccuracy.
+
+| | **Nostra.chat** | Signal | Session | SimpleX | Keet | WhatsApp | Telegram |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Signup without phone number** | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| **Signup without email or account** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **User-owned cryptographic identity (self-custody keys)** | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| **E2E encrypted by default** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ [¹] |
+| **Metadata hidden from infrastructure operators** | ✅ | ⚠️ [²] | ✅ | ✅ | ✅ | ❌ | ❌ |
+| **Built-in Tor / onion routing** | ✅ | ❌ | ✅ [³] | ✅ | ❌ | ❌ | ❌ |
+| **No central server at all** | ✅ | ❌ | ⚠️ [⁴] | ⚠️ [⁵] | ✅ [⁶] | ❌ | ❌ |
+| **Self-hostable infrastructure** | ✅ | ❌ | ❌ | ✅ | N/A | ❌ | ❌ |
+| **Open-source client** | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
+| **Open-source protocol / infrastructure** | ✅ | ✅ | ✅ | ✅ | ⚠️ [⁷] | ❌ | ❌ |
+| **Independently audited** | ❌ [⁸] | ✅ | ✅ | ✅ | ❌ | ⚠️ [⁹] | ❌ |
+| **Group chats** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Media / file sharing** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Voice / video calls** | ❌ | ✅ | ⚠️ | ✅ | ✅ | ✅ | ✅ |
+| **Works without installing a native app** | ✅ [¹⁰] | ❌ | ❌ | ❌ | ❌ | ⚠️ | ⚠️ |
+| **Censorship-resistant distribution (multi-mirror, IPFS)** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+**Notes:**
+
+1. Telegram's "Secret Chats" are E2E encrypted, but regular chats — the default — are client-to-server only and the server sees the plaintext.
+2. Signal's Sealed Sender hides the sender from its own servers, but the servers still see that an account exists, when it comes online, and its contact graph approximations.
+3. Session uses its own LokiNet / Oxen onion network, not Tor.
+4. Session relies on Oxen service nodes, which are permissioned through staking.
+5. SimpleX uses SMP relay servers; anyone can self-host, but most users rely on the project-operated defaults.
+6. Keet is peer-to-peer over Hyperswarm DHT — peers still discover each other via bootstrap nodes operated by the project.
+7. Keet's client and core libraries are open source; the overall ecosystem is developed primarily by a single company (Holepunch).
+8. Nostra.chat has **not yet been independently audited** — see [SECURITY.md](SECURITY.md). A formal audit is planned before leaving alpha. Do not rely on Nostra.chat for high-risk threat models today.
+9. WhatsApp uses the audited Signal protocol, but the closed-source implementation and the surrounding Meta infrastructure have not been publicly audited.
+10. Nostra.chat runs as a PWA — open the URL and start using it. WhatsApp Web and Telegram Web both require a linked mobile device, so "installation-free" is only half true for them.
+
+**This is not a "Nostra.chat wins everything" chart.** Different tools are good at different things:
+
+- **Signal** has the strongest cryptographic reputation and the longest audit history. If your only concern is message confidentiality with a trusted central operator, Signal is the safest choice today.
+- **SimpleX** has arguably the most mature metadata protection model of any messenger, and a Trail of Bits audit.
+- **Session** has the most battle-tested decentralized onion routing and a wide install base.
+- **Keet** has the smoothest P2P voice and video, backed by Holepunch's Hyperswarm stack.
+- **WhatsApp** has universal reach, which is itself a meaningful form of security (the person you want to message is already there).
+- **Telegram** has the richest feature set and the best polish.
+
+**Nostra.chat's positioning is different:** fully decentralized over Nostr relays, with user-owned keys, no account to create, censorship-resistant mirror distribution including IPFS, and zero installation — all in the browser. The cost is being newer, less featured, and currently unaudited. **Choose the tool that fits your threat model, not the one with the most green checkmarks.**
+
 ### Architecture
 
 The app runs Telegram Web K's full UI stack (Solid.js, TypeScript, Vite) but replaces the MTProto backend with a **Virtual MTProto Server** — an in-browser layer that intercepts all MTProto API calls and serves responses from local IndexedDB storage populated by Nostr relays. The Worker-based architecture (SharedWorker + ServiceWorker) is preserved. Zero connections are made to Telegram servers.
