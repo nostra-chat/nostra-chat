@@ -20,7 +20,7 @@ import {chromium, type Page} from 'playwright';
 import {launchOptions} from './helpers/launch-options';
 import {LocalRelay} from './helpers/local-relay';
 
-const APP_URL = 'http://localhost:8080';
+const APP_URL = process.env.APP_URL || 'http://localhost:8080';
 const RELAY_PROPAGATION_MS = 5000;
 
 async function dismissViteOverlay(page: Page) {
@@ -31,8 +31,13 @@ async function dismissViteOverlay(page: Page) {
 }
 
 async function createIdentity(page: Page, displayName: string): Promise<string> {
-  await page.goto(APP_URL);
-  await page.waitForTimeout(8000);
+  // Vite HMR fails on first headless load with ERR_NETWORK_CHANGED — workaround
+  // is goto → wait → reload → wait. See CLAUDE.md "E2E Testing" section.
+  await page.goto(APP_URL, {waitUntil: 'load'});
+  await page.waitForTimeout(5000);
+  await dismissViteOverlay(page);
+  await page.reload({waitUntil: 'load'});
+  await page.waitForTimeout(15000);
   await dismissViteOverlay(page);
   await page.getByRole('button', {name: 'Create New Identity'}).click();
   await page.waitForTimeout(2000);
