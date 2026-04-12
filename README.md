@@ -38,7 +38,7 @@ see [SECURITY.md](SECURITY.md).
 
 ## About
 
-**Nostra.chat** is a 100% client-side Progressive Web App for decentralized messaging, forked from [Telegram Web K](https://github.com/nicegram/nicegram-web-z). It replaces the Telegram backend with peer-to-peer encrypted chat over [Nostr](https://nostr.com/) relays and integrates [Tor](https://www.torproject.org/) via WASM for network-level privacy.
+**Nostra.chat** is a 100% client-side Progressive Web App for decentralized messaging, forked from [Telegram Web K](https://github.com/morethanwords/tweb). It replaces the Telegram backend with peer-to-peer encrypted chat over [Nostr](https://nostr.com/) relays and integrates [Tor](https://www.torproject.org/) via WASM for network-level privacy.
 
 No servers. No accounts. No install. Just cryptographic keys and a browser.
 
@@ -366,7 +366,7 @@ development workflow, style rules, and commit message conventions.
 * [cryptography](https://github.com/spalt08/cryptography) ([Apache License 2.0](https://github.com/spalt08/cryptography/blob/master/LICENSE))
 * [emoji-data](https://github.com/iamcal/emoji-data) ([MIT License](https://github.com/iamcal/emoji-data/blob/master/LICENSE))
 * [emoji-test-regex-pattern](https://github.com/mathiasbynens/emoji-test-regex-pattern) ([MIT License](https://github.com/mathiasbynens/emoji-test-regex-pattern/blob/main/LICENSE))
-* [rlottie](https://github.com/nicegram/nicegram-web-z.github.io) ([MIT License](https://github.com/nicegram/nicegram-web-z/blob/master/licenses/COPYING.MIT))
+* [rlottie](https://github.com/rlottie/rlottie.github.io) ([MIT License](https://github.com/Samsung/rlottie/blob/master/licenses/COPYING.MIT))
 * [fast-png](https://github.com/image-js/fast-png) ([MIT License](https://github.com/image-js/fast-png/blob/master/LICENSE))
 * [opus-recorder](https://github.com/chris-rudmin/opus-recorder) ([BSD License](https://github.com/chris-rudmin/opus-recorder/blob/master/LICENSE.md))
 * [Prism](https://github.com/PrismJS/prism) ([MIT License](https://github.com/PrismJS/prism/blob/master/LICENSE))
