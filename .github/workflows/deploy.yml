@@ -72,6 +72,9 @@ jobs:
   deploy-ipfs:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: write
     steps:
       - uses: actions/download-artifact@v4
         with:
