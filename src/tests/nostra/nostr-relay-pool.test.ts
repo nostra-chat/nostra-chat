@@ -470,13 +470,13 @@ describe('NostrRelayPool', () => {
   });
 
   describe('default relays (Phase 3)', () => {
-    it('DEFAULT_RELAYS has 4 entries', () => {
-      expect(DEFAULT_RELAYS).toHaveLength(4);
+    it('DEFAULT_RELAYS has 5 entries', () => {
+      expect(DEFAULT_RELAYS).toHaveLength(5);
     });
 
-    it('DEFAULT_RELAYS includes relay.nostr.band', () => {
+    it('DEFAULT_RELAYS includes relay.damus.io', () => {
       const urls = DEFAULT_RELAYS.map((r: any) => r.url);
-      expect(urls).toContain('wss://relay.nostr.band');
+      expect(urls).toContain('wss://relay.damus.io');
     });
   });
 

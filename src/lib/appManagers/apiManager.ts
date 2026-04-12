@@ -773,6 +773,8 @@ export class ApiManager extends ApiManagerMethods {
     'photos.uploadProfilePhoto': {_: 'photos.photo', photo: {_: 'photoEmpty', id: '0'}, users: []},
     'premium.getBoostsList': {_: 'premium.boostsList', count: 0, boosts: [], users: []},
     'stories.getStoriesByID': {_: 'stories.stories', count: 0, stories: [], chats: [], users: []},
+    'stories.getPinnedStories': {_: 'stories.stories', count: 0, stories: [], chats: [], users: [], pinned_to_top: []},
+    'stories.getStoriesArchive': {_: 'stories.stories', count: 0, stories: [], chats: [], users: []},
     'upload.getFile': {_: 'upload.file', type: {_: 'storage.fileUnknown'}, mtime: 0, bytes: new Uint8Array(0)},
     'upload.getWebFile': {_: 'upload.webFile', size: 0, mime_type: '', file_type: {_: 'storage.fileUnknown'}, mtime: 0, bytes: new Uint8Array(0)}
   };

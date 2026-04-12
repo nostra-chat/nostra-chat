@@ -67,6 +67,9 @@ export default class DialogsContextMenu {
         this.dialog = this.monoforumParentPeerId ?
           await this.managers.monoforumDialogsStorage.getDialogByParent(this.monoforumParentPeerId, this.peerId):
           await this.managers.dialogsStorage.getAnyDialog(this.peerId, this.threadId);
+        if(!this.dialog) {
+          throw 'Dialog not found';
+        }
         this.filterId = this.threadId ? undefined : appDialogsManager.filterId;
         this.canManageTopics = isForumTopic(this.dialog) ? await this.managers.dialogsStorage.canManageTopic(this.dialog) : undefined;
         this.canDelete = await this.checkIfCanDelete();

@@ -41,8 +41,9 @@ const _testRelays = typeof window !== 'undefined' && (window as any).__nostraTes
 export const DEFAULT_RELAYS: RelayConfig[] = Array.isArray(_testRelays) ? _testRelays : [
   {url: 'wss://relay.damus.io', read: true, write: true},
   {url: 'wss://nos.lol', read: true, write: true},
-  {url: 'wss://relay.snort.social', read: true, write: true},
-  {url: 'wss://relay.nostr.band', read: true, write: true}
+  {url: 'wss://relay.primal.net', read: true, write: true},
+  {url: 'wss://nostr.mom', read: true, write: true},
+  {url: 'wss://nostr.data.haus', read: true, write: true}
 ];
 
 const DEDUP_CACHE_MAX = 10_000;

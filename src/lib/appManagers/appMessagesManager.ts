@@ -5686,7 +5686,8 @@ export class AppMessagesManager extends AppManager {
     }
 
     // * second rule for saved messages, because there is no 'out' flag
-    if(/* message.pFlags.out ||  */this.getMessagePeer(message) === this.appUsersManager.getSelf().id) {
+    const selfId = this.appUsersManager.getSelf()?.id;
+    if(/* message.pFlags.out ||  */selfId !== undefined && this.getMessagePeer(message) === selfId) {
       return true;
     }
 
@@ -10133,6 +10134,7 @@ export class AppMessagesManager extends AppManager {
   }
 
   public getDialogUnreadCount(dialog: Dialog | ForumTopic | MonoforumDialog) {
+    if(!dialog) return 0;
     let unreadCount = dialog.unread_count;
     if(
       !isForumTopic(dialog) &&
@@ -10152,7 +10154,7 @@ export class AppMessagesManager extends AppManager {
   }
 
   public isDialogUnread(dialog: AnyDialog | MonoforumDialog) {
-    return !isSavedDialog(dialog) && !!this.getDialogUnreadCount(dialog);
+    return !!dialog && !isSavedDialog(dialog) && !!this.getDialogUnreadCount(dialog);
   }
 
   public canForward(message: Message.message | Message.messageService) {
