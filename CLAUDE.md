@@ -236,6 +236,9 @@ import {Message, Chat, User, InputPeer} from '@layer';
 - Do not assume a component exists in the UI just because the file exists. Grep for the import: `grep -rn 'import.*MessageRequests' src/` — `MessageRequests.tsx` is written but never mounted, so routing messages there made them invisible.
 - Do not assume a `rootScope.dispatchEvent('foo')` call is wired to a listener. Grep for the listener: `grep -rn "addEventListener('foo'" src/` — `nostra_delivery_update` had dispatches but no production listeners.
 - Do not run `eslint --fix` on `src/**/**.ts` broadly — 13 pre-existing lint errors live in `nostraMeshSettings.ts`, `mesh-manager.ts`, `mesh-signaling.ts`, `relay-store.ts`. Lint only the files you modified, or `git checkout --` the unrelated fixes before committing.
+- Do not edit `package.json` version manually — release-please manages it on every release PR merge.
+- Do not push directly to `main` — branch protection rejects it; always work in a feature branch + PR + squash merge.
+- Do not remove the `!public/recorder.min.js` exception in `.gitignore` — the file is a third-party UMD bundle imported statically from `src/components/chat/input.ts` and the build fails without it.
 
 ## Running Tests
 
@@ -245,6 +248,18 @@ pnpm test src/tests/foo    # specific test file
 ```
 
 Vitest config: `threads: false`, `globals: true`, jsdom environment, setup in `src/tests/setup.ts`.
+
+## Release & Deployment
+
+- **Pipeline**: `.github/workflows/deploy.yml` runs `build` on every PR (required status check) and `build` + 3 deploy jobs on push to `main`. Deploy jobs are gated by `if: github.event_name == 'push'` so PRs never deploy.
+- **Live mirrors**: `https://nostra.chat` (Cloudflare, primary) · `https://nostra-chat.pages.dev` (Cloudflare fallback) · `https://nostra-chat.github.io/nostra-chat/` (GitHub Pages) · IPFS CID per release (Filebase).
+- **Versioning**: `release-please` (`.github/workflows/release-please.yml` + `.release-please-config.json` + `.release-please-manifest.json`). Never edit `package.json` version or `CHANGELOG.md` by hand — release-please rewrites them.
+- **Conventional Commits drive releases**: `feat:` / `fix:` / `perf:` / `revert:` bump the version; `docs:` / `chore:` / `style:` / `build:` / `ci:` / `refactor:` / `test:` are hidden and non-releasing. Breaking change: `feat!:` or `BREAKING CHANGE:` footer.
+- **Release-please PRs do NOT trigger CI by themselves** — author is `github-actions[bot]` and `GITHUB_TOKEN` is forbidden from triggering workflows (anti-recursion). Required check `build` stays unchecked and branch protection blocks the merge. Unblock by pushing an empty commit to the release-please branch: `git fetch github release-please--branches--main--components--nostra-chat && git checkout -B rp-trigger github/release-please--branches--main--components--nostra-chat && git commit --allow-empty -m "chore: trigger CI" && git push github rp-trigger:release-please--branches--main--components--nostra-chat`.
+- **Required CI secrets**: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `FILEBASE_ACCESS_KEY`, `FILEBASE_SECRET_KEY`, `FILEBASE_BUCKET`. Do NOT re-add Pinata: `ipshipyard/ipfs-deploy-action@v1` rejects it as sole provider and requires a CAR upload provider (Filebase works).
+- **`deploy-ipfs` job permissions**: needs explicit `permissions: contents: read, statuses: write` — without `statuses: write` the IPFS upload succeeds but the job fails when posting the CID as a commit status.
+- **GitHub Flow**: feature branch naming `feat/<scope>`, `fix/<scope>`, `docs/<scope>`, `chore/<scope>`, `ci/<scope>`. Target `main`. Squash merge only. Auto-delete head branch on merge. Required approvals: 0 (solo maintainer today — raise when contributors arrive).
+- **Branch protection on `main`**: PR required, `build` status check required, force-pushes blocked, deletions blocked. Repo-level settings: "Allow GitHub Actions to create and approve pull requests" MUST be enabled (Settings → Actions → General → Workflow permissions) or release-please can't open its release PR.
 
 ## Nostra.chat Architecture Notes
 
