@@ -28,7 +28,7 @@ export default class AvatarEdit {
   private canvas: HTMLCanvasElement;
   private icon: HTMLSpanElement;
 
-  constructor(onChange: (uploadAvatar: () => CancellablePromise<InputFile>) => void, options?: Options) {
+  constructor(onChange: (uploadAvatar: () => CancellablePromise<InputFile>, blob: Blob) => void, options?: Options) {
     this.container = document.createElement('div');
     this.container.classList.add('avatar-edit');
 
@@ -100,7 +100,7 @@ export async function getFileAndOpenEditor({isForum, onFinish, dontCreatePreview
 type FinishFromResultArgs = {
   result: MediaEditorFinalResult;
   canvas: HTMLCanvasElement;
-  onChange: (value: () => CancellablePromise<InputFile>) => void;
+  onChange: (value: () => CancellablePromise<InputFile>, blob: Blob) => void;
 };
 
 async function finishFromResult({result: editorResult, canvas, onChange}: FinishFromResultArgs) {
@@ -130,7 +130,7 @@ async function finishFromResult({result: editorResult, canvas, onChange}: Finish
   ctx.fillRect(0, 0, width, height);
 
   // Doing this now prevents the avatar blinking to the old one
-  onChange(() => appDownloadManager.upload(resultPayload.blob));
+  onChange(() => appDownloadManager.upload(resultPayload.blob), resultPayload.blob);
 
   await animatedImg.animate({
     opacity: [1, 0]
