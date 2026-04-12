@@ -46,6 +46,8 @@ export interface StoredMessage {
   isOutgoing?: boolean;
   /** Parsed application message ID (chat-XXX-N) — used so read receipts can key off the same ID that delivery receipts use */
   appMessageId?: string;
+  /** Unix timestamp (seconds) of the most recent edit. Absent on never-edited messages. */
+  editedAt?: number;
 }
 
 // ─── Constants ─────────────────────────────────────────────────────
@@ -135,6 +137,7 @@ export class MessageStore {
             if(existing?.mid && !msg.mid) merged.mid = existing.mid;
             if(existing?.twebPeerId && !msg.twebPeerId) merged.twebPeerId = existing.twebPeerId;
             if(existing?.isOutgoing !== undefined && msg.isOutgoing === undefined) merged.isOutgoing = existing.isOutgoing;
+            if(existing?.editedAt && !msg.editedAt) merged.editedAt = existing.editedAt;
             const putReq = store.put(merged, getReq.result);
             putReq.onerror = () => reject(putReq.error);
             putReq.onsuccess = () => resolve();
@@ -273,6 +276,41 @@ export class MessageStore {
           cursor.continue();
         } else {
           resolve(); // Not found — OK
+        }
+      };
+    });
+  }
+
+  /**
+   * Look up a single message by its app-level message ID (chat-XXX-N).
+   *
+   * The app id may live either in the `eventId` column (sender-side rows are
+   * keyed by app id) or in the `appMessageId` column (receiver-side rows carry
+   * it as a parsed field). This method tries both, eventId first.
+   *
+   * Used by the edit pipeline so a single lookup works on both sides.
+   */
+  async getByAppMessageId(appMessageId: string): Promise<StoredMessage | null> {
+    const direct = await this.getByEventId(appMessageId);
+    if(direct) return direct;
+
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.openCursor();
+      request.onerror = () => reject(request.error);
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+        if(cursor) {
+          const msg = cursor.value as StoredMessage;
+          if(msg.appMessageId === appMessageId) {
+            resolve(msg);
+            return;
+          }
+          cursor.continue();
+        } else {
+          resolve(null);
         }
       };
     });

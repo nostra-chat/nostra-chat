@@ -8,7 +8,7 @@
 
 import {Logger, logger} from '@lib/logger';
 import {NostrRelay, DecryptedMessage, NostrEvent} from './nostr-relay';
-import {wrapNip17Message} from './nostr-crypto';
+import {wrapNip17Message, wrapNip17Edit} from './nostr-crypto';
 import {buildNip65Event} from './nip65';
 import {loadEncryptedIdentity, loadBrowserKey, decryptKeys} from './key-storage';
 import {importFromMnemonic} from './nostr-identity';
@@ -243,6 +243,60 @@ export class NostrRelayPool {
     }
 
     // Publish all wraps to all write relays
+    const promises = writeEntries.map(async(entry) => {
+      try {
+        for(const wrap of wraps) {
+          entry.instance.publishRawEvent(wrap);
+        }
+        successes.push(wraps[0]?.id || '');
+      } catch(err) {
+        failures.push({
+          url: entry.config.url,
+          error: err instanceof Error ? err.message : String(err)
+        });
+      }
+    });
+
+    await Promise.all(promises);
+    return {successes, failures};
+  }
+
+  /**
+   * Publish an edit message: wraps a kind 14 rumor carrying the
+   * `['nostra-edit', originalAppMessageId]` marker tag and publishes both
+   * gift-wraps (recipient + self for multi-device echo) to all write relays.
+   *
+   * Returns the publish result; failures are aggregated per relay just like publish().
+   */
+  async publishEdit(
+    recipientPubkey: string,
+    originalAppMessageId: string,
+    newPlaintext: string
+  ): Promise<PublishResult> {
+    if(!this.privateKeyBytes) {
+      return {
+        successes: [],
+        failures: [{url: 'wrap', error: 'no private key available for edit wrap'}]
+      };
+    }
+
+    let wraps: NostrEvent[];
+    try {
+      wraps = wrapNip17Edit(this.privateKeyBytes, recipientPubkey, originalAppMessageId, newPlaintext) as unknown as NostrEvent[];
+    } catch(err) {
+      return {
+        successes: [],
+        failures: [{url: 'wrap', error: err instanceof Error ? err.message : String(err)}]
+      };
+    }
+
+    const successes: string[] = [];
+    const failures: {url: string; error: string}[] = [];
+
+    const writeEntries = this.relayEntries.filter(e =>
+      e.config.write && this.enabled.get(e.config.url) !== false
+    );
+
     const promises = writeEntries.map(async(entry) => {
       try {
         for(const wrap of wraps) {

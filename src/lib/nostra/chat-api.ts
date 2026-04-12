@@ -453,6 +453,91 @@ export class ChatAPI {
   }
 
   /**
+   * Edit a previously sent text message in a 1:1 chat.
+   *
+   * Publishes a new NIP-17 gift-wrap carrying a marker tag
+   * `['nostra-edit', originalAppMessageId]`. The receiver detects the tag and
+   * updates the existing message instead of inserting a new bubble.
+   *
+   * Locally, the sender updates the original store row in place: same eventId,
+   * new content + editedAt. The bubble's `mid`/`timestamp` are preserved so
+   * ordering does not shift. Multi-device echo is handled because the wrap
+   * publishes to both recipient and self.
+   *
+   * @param originalAppMessageId - App-level ID of the original message (chat-XXX-N)
+   * @param newContent - New text content
+   * @returns true on at least one relay success, false otherwise
+   */
+  async editMessage(originalAppMessageId: string, newContent: string): Promise<boolean> {
+    const peerOwnId = this.activePeer;
+    if(!peerOwnId) {
+      this.log.warn('[ChatAPI] editMessage: no active peer');
+      return false;
+    }
+
+    const store = getMessageStore();
+    let existing: StoredMessage | null = null;
+    try {
+      existing = await store.getByAppMessageId(originalAppMessageId);
+    } catch{
+      existing = null;
+    }
+    if(!existing) {
+      this.log.warn('[ChatAPI] editMessage: original not found:', originalAppMessageId);
+      return false;
+    }
+    if(existing.senderPubkey !== this.ownId) {
+      this.log.warn('[ChatAPI] editMessage: refusing to edit non-own message');
+      return false;
+    }
+
+    const editedAt = Math.floor(Date.now() / 1000);
+    const plaintext = JSON.stringify({
+      id: originalAppMessageId,
+      from: this.ownId,
+      to: peerOwnId,
+      type: 'text',
+      content: newContent,
+      timestamp: existing.timestamp * 1000,
+      editedAt
+    });
+
+    // Update local store immediately so the sender's bubble re-renders without
+    // waiting for the relay echo. Upsert preserves mid/twebPeerId/isOutgoing.
+    try {
+      await store.saveMessage({
+        ...existing,
+        content: newContent,
+        editedAt
+      });
+    } catch(err) {
+      this.log.warn('[ChatAPI] editMessage: local store update failed:', err);
+    }
+
+    // Update in-memory history mirror as well
+    const histEntry = this.history.find(m => m.id === originalAppMessageId);
+    if(histEntry) histEntry.content = newContent;
+
+    if(!this.relayPool.isConnected()) {
+      this.log.warn('[ChatAPI] editMessage: relay pool not connected; local-only update');
+      return false;
+    }
+
+    try {
+      const result = await this.relayPool.publishEdit(peerOwnId, originalAppMessageId, plaintext);
+      if(result.successes.length > 0) {
+        this.log('[ChatAPI] edit published to', result.successes.length, 'relay(s):', originalAppMessageId);
+        return true;
+      }
+      this.log.warn('[ChatAPI] editMessage: all relays failed');
+      return false;
+    } catch(err) {
+      this.log.error('[ChatAPI] editMessage: relay publish failed:', err);
+      return false;
+    }
+  }
+
+  /**
    * Load conversation history from IndexedDB message store (instant local cache).
    *
    * @param peerPubkey - Peer's hex public key

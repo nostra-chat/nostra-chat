@@ -125,6 +125,46 @@ export function unwrapNip17Message(
 }
 
 /**
+ * Wrap an edit message as NIP-17 gift-wraps (one for recipient, one for self).
+ *
+ * The rumor carries a marker tag `['nostra-edit', <originalAppMessageId>]` that
+ * receivers detect to update the existing message instead of inserting a new one.
+ *
+ * The original ID is the application-level message ID (chat-XXX-N), not the
+ * Nostr rumor hex — keeps lookup symmetric between sender and receiver stores.
+ *
+ * @param senderSk - Sender's secret key (Uint8Array)
+ * @param recipientPubHex - Recipient's hex public key
+ * @param originalAppMessageId - App-level ID of the original message (chat-XXX-N)
+ * @param newPlaintext - New message content (full JSON envelope, same shape as a fresh send)
+ * @returns Array of two kind 1059 events: [recipientWrap, selfWrap]
+ */
+export function wrapNip17Edit(
+  senderSk: Uint8Array,
+  recipientPubHex: string,
+  originalAppMessageId: string,
+  newPlaintext: string
+): NTNostrEvent[] {
+  const senderPubHex = getPublicKey(senderSk);
+  const rumorEvent = createNip59Rumor({
+    kind: 14,
+    content: newPlaintext,
+    tags: [
+      ['p', recipientPubHex],
+      ['nostra-edit', originalAppMessageId]
+    ]
+  }, senderSk);
+
+  const recipientSeal = createNip59Seal(rumorEvent, senderSk, recipientPubHex);
+  const recipientWrap = createNip59Wrap(recipientSeal, recipientPubHex);
+
+  const selfSeal = createNip59Seal(rumorEvent, senderSk, senderPubHex);
+  const selfWrap = createNip59Wrap(selfSeal, senderPubHex);
+
+  return [recipientWrap, selfWrap] as unknown as NTNostrEvent[];
+}
+
+/**
  * Wrap a delivery/read receipt as NIP-17 gift-wrap for the recipient only (no self-send).
  *
  * Creates a kind 14 rumor with empty content, receipt-type tag, and 'e' tag

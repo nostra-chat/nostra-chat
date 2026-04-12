@@ -46,6 +46,30 @@ export type ReceiveResult =
 
 // ─── Step functions (testable individually) ────────────────────
 
+/**
+ * Check if the rumor tags carry a Nostra edit marker.
+ * Returns the original app-level message ID being edited, or null if not an edit.
+ *
+ * Tag shape: ['nostra-edit', '<appMessageId>']
+ *
+ * The original ID is the application-level message ID (format `chat-<timestamp>-<n>`),
+ * NOT the Nostr rumor hex. Using the app id keeps lookup consistent across sender
+ * and receiver stores (sender's row is keyed by app id, receiver's row carries it
+ * in the appMessageId field).
+ */
+export function isEditMessage(tags: string[][] | undefined): {originalAppMessageId: string} | null {
+  if(!tags || !Array.isArray(tags)) return null;
+  for(const tag of tags) {
+    if(!Array.isArray(tag) || tag.length < 2) continue;
+    if(tag[0] !== 'nostra-edit') continue;
+    const id = tag[1];
+    if(typeof id !== 'string') continue;
+    if(!/^chat-\d+-\d+$/.test(id)) continue;
+    return {originalAppMessageId: id};
+  }
+  return null;
+}
+
 /** Check if the message is a delete notification */
 export function isDeleteNotification(content: string): {eventIds: string[]} | null {
   try {

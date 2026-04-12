@@ -280,6 +280,7 @@ export type BroadcastEvents = {
   'nostra_message_request': {pubkey: string; firstMessage: string},
   'nostra_contact_accepted': {pubkey: string; peerId: number},
   'nostra_new_message': {peerId: number; mid: number; senderPubkey: string; message: {content: string}; timestamp: number},
+  'nostra_message_edit': {peerId: number; mid: number; senderPubkey: string; originalEventId: string; newContent: string; editedAt: number},
   'nostra_profile_update': {peerId: number; pubkey: string; displayName: string; about?: string; picture?: string},
   'nostra_presence_update': {peerId: number; pubkey: string; status: string},
   'nostra_backfill_complete': void,
