@@ -101,7 +101,6 @@ A feature-by-feature comparison with other privacy-focused messengers and the ma
 | | **Nostra.chat** | Signal | Session | SimpleX | Keet | WhatsApp | Telegram |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | **Signup without phone number** | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ |
-| **Signup without email or account** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **User-owned cryptographic identity (self-custody keys)** | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ |
 | **E2E encrypted by default** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ [¹] |
 | **Metadata hidden from infrastructure operators** | ✅ | ⚠️ [²] | ✅ | ✅ | ✅ | ❌ | ❌ |
