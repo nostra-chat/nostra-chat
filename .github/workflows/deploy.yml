@@ -81,6 +81,7 @@ jobs:
       - uses: ipshipyard/ipfs-deploy-action@v1
         with:
           path-to-deploy: dist
-          pinata-jwt-token: ${{ secrets.PINATA_JWT_TOKEN }}
-          pinata-pinning-url: 'https://api.pinata.cloud/psa'
+          filebase-access-key: ${{ secrets.FILEBASE_ACCESS_KEY }}
+          filebase-secret-key: ${{ secrets.FILEBASE_SECRET_KEY }}
+          filebase-bucket: ${{ secrets.FILEBASE_BUCKET }}
           github-token: ${{ github.token }}
