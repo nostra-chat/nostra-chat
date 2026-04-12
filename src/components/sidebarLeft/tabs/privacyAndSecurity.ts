@@ -10,6 +10,7 @@ import Row from '@components/row';
 import rootScope from '@lib/rootScope';
 import CheckboxField from '@components/checkboxField';
 import AppNostraSecurityTab from '@components/sidebarLeft/tabs/nostraSecurity';
+import AppNostraSeedPhraseTab from '@components/sidebarLeft/tabs/nostraSeedPhrase';
 import {PrivacyTransport} from '@lib/nostra/privacy-transport';
 
 export default class AppPrivacyAndSecurityTab extends SliderSuperTab {
@@ -131,7 +132,18 @@ export default class AppPrivacyAndSecurityTab extends SliderSuperTab {
       listenerSetter: this.listenerSetter
     });
 
-    securitySection.content.append(keyProtectionRow.container);
+    const recoveryPhraseRow = new Row({
+      title: 'Recovery Phrase',
+      subtitle: 'View your 12-word backup to restore access',
+      icon: 'key',
+      clickable: () => {
+        const tab = this.slider.createTab(AppNostraSeedPhraseTab);
+        tab.open();
+      },
+      listenerSetter: this.listenerSetter
+    });
+
+    securitySection.content.append(keyProtectionRow.container, recoveryPhraseRow.container);
 
     // Section 2: Read Receipts (Nostra.chat-specific)
     const privacySection = new SettingSection({

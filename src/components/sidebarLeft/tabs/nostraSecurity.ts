@@ -1,8 +1,9 @@
 /*
- * Nostra.chat -- Security Settings UI
+ * Nostra.chat -- Key Protection Settings UI
  *
- * Settings > Security tab: PIN/passphrase key protection,
- * seed phrase viewer, and forgot-PIN recovery.
+ * Settings > Key Protection tab: choose PIN/passphrase protection
+ * and forgot-PIN recovery via seed phrase import.
+ * The seed phrase viewer lives in a separate tab (nostraSeedPhrase.ts).
  */
 
 import {SliderSuperTab} from '@components/slider';
@@ -27,12 +28,9 @@ import {
 import type {EncryptedIdentityRecord} from '@lib/nostra/key-storage';
 
 export default class AppNostraSecurityTab extends SliderSuperTab {
-  private seedContainer: HTMLElement | null = null;
-  private seedTimeout: ReturnType<typeof setTimeout> | null = null;
-
   public init() {
     this.container.classList.add('nostra-security-settings');
-    this.setTitle('Security' as any);
+    this.setTitle('Key Protection' as any);
 
     const identity = useNostraIdentity();
 
@@ -58,11 +56,11 @@ export default class AppNostraSecurityTab extends SliderSuperTab {
       const row = new Row({
         title: option.label,
         clickable: true,
-        checkboxField: {
+        checkboxFieldOptions: {
           round: true,
           name: 'protectionType',
           checked: currentType === option.value
-        } as any
+        }
       });
 
       attachClickEvent(row.container, () => {
@@ -74,25 +72,7 @@ export default class AppNostraSecurityTab extends SliderSuperTab {
 
     protectionSection.content.append(radioGroup);
 
-    // Section 2: Seed Phrase Viewer
-    const seedSection = new SettingSection({
-      name: 'Seed Phrase' as any,
-      caption: 'Your 12-word recovery phrase. Store it securely.' as any
-    });
-
-    this.seedContainer = document.createElement('div');
-    this.seedContainer.classList.add('seed-phrase-container');
-    this.seedContainer.style.display = 'none';
-
-    const viewSeedBtn = Button('btn-primary btn-color-primary');
-    viewSeedBtn.textContent = 'View Seed Phrase';
-    attachClickEvent(viewSeedBtn, () => {
-      this.handleViewSeed(identity.protectionType());
-    }, {listenerSetter: this.listenerSetter});
-
-    seedSection.content.append(viewSeedBtn, this.seedContainer);
-
-    // Section 3: Recovery
+    // Section 2: Recovery
     const recoverySection = new SettingSection({
       name: 'Recovery' as any
     });
@@ -111,14 +91,8 @@ export default class AppNostraSecurityTab extends SliderSuperTab {
 
     this.scrollable.append(
       protectionSection.container,
-      seedSection.container,
       recoverySection.container
     );
-  }
-
-  public onCloseAfterTimeout() {
-    super.onCloseAfterTimeout();
-    this.hideSeed();
   }
 
   /**
@@ -197,104 +171,6 @@ export default class AppNostraSecurityTab extends SliderSuperTab {
       toast('Protection updated to: ' + newType);
     } catch(err) {
       toast('Failed to change protection: ' + (err instanceof Error ? err.message : String(err)));
-    }
-  }
-
-  /**
-   * Handle viewing the seed phrase.
-   * Requires unlock if PIN/passphrase is active.
-   */
-  private async handleViewSeed(protectionType: string): Promise<void> {
-    try {
-      const record = await loadEncryptedIdentity();
-      if(!record) {
-        toast('No identity found');
-        return;
-      }
-
-      let decryptedData: {seed: string; nsec: string};
-
-      if(protectionType === 'none') {
-        const browserKey = await loadBrowserKey();
-        if(!browserKey) {
-          toast('Browser key not found');
-          return;
-        }
-        decryptedData = await decryptKeys(record.iv, record.encryptedKeys, browserKey);
-      } else {
-        const secret = await this.promptForSecret(protectionType);
-        if(!secret) return;
-
-        const key = protectionType === 'pin' ?
-          await deriveKeyFromPin(secret, record.salt!) :
-          await deriveKeyFromPassphrase(secret, record.salt!);
-
-        try {
-          decryptedData = await decryptKeys(record.iv, record.encryptedKeys, key);
-        } catch{
-          toast('Incorrect ' + (protectionType === 'pin' ? 'PIN' : 'passphrase'));
-          return;
-        }
-      }
-
-      this.showSeed(decryptedData.seed);
-    } catch(err) {
-      toast('Failed to decrypt seed: ' + (err instanceof Error ? err.message : String(err)));
-    }
-  }
-
-  /**
-   * Display seed phrase words in a numbered grid.
-   * Auto-hides after 60 seconds.
-   */
-  private showSeed(seed: string): void {
-    if(!this.seedContainer) return;
-
-    const words = seed.split(' ');
-    this.seedContainer.innerHTML = '';
-    this.seedContainer.style.display = 'block';
-
-    const grid = document.createElement('div');
-    grid.classList.add('seed-word-grid');
-
-    for(let i = 0; i < words.length; i++) {
-      const wordEl = document.createElement('div');
-      wordEl.classList.add('seed-word');
-      wordEl.textContent = `${i + 1}. ${words[i]}`;
-      grid.append(wordEl);
-    }
-
-    const warning = document.createElement('p');
-    warning.classList.add('seed-warning');
-    warning.textContent = 'Store this securely. Anyone with this phrase can access your messages.';
-
-    const copyBtn = Button('btn-primary btn-color-primary btn-transparent');
-    copyBtn.textContent = 'Copy Seed';
-    copyBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(seed).then(() => {
-        toast('Seed phrase copied');
-      });
-    });
-
-    this.seedContainer.append(grid, warning, copyBtn);
-
-    // Auto-hide after 60 seconds
-    this.seedTimeout = setTimeout(() => {
-      this.hideSeed();
-    }, 60000);
-  }
-
-  /**
-   * Hide the seed phrase display.
-   */
-  private hideSeed(): void {
-    if(this.seedTimeout) {
-      clearTimeout(this.seedTimeout);
-      this.seedTimeout = null;
-    }
-    if(this.seedContainer) {
-      this.seedContainer.innerHTML = '';
-      this.seedContainer.style.display = 'none';
     }
   }
 
