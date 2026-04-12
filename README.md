@@ -1,6 +1,40 @@
 # Nostra.chat
 
+[![Build](https://github.com/nostra-chat/nostra-chat/actions/workflows/deploy.yml/badge.svg)](https://github.com/nostra-chat/nostra-chat/actions/workflows/deploy.yml)
+[![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
+[![PWA](https://img.shields.io/badge/PWA-ready-5A0FC8.svg)](https://nostra.chat)
+
 Privacy-first decentralized messaging with end-to-end encryption and anonymous relay-based delivery.
+
+## Try it now
+
+| Mirror | URL | Notes |
+|---|---|---|
+| 🌐 **Primary** | **<https://nostra.chat>** | Cloudflare Pages, custom domain |
+| 🪞 Mirror 1 | <https://nostra-chat.pages.dev> | Cloudflare fallback |
+| 🪞 Mirror 2 | <https://nostra-chat.github.io/nostra-chat/> | GitHub Pages |
+| 🧅 IPFS | see [IPFS distribution](#ipfs-distribution) below | Censorship-resistant, immutable |
+
+Install as a PWA: open any of the links above in Chrome, Edge, or Firefox →
+the browser will offer an "Install app" option in the address bar or menu.
+
+<!-- TODO: add screenshot of a chat with Tor indicator and delivery states -->
+<!-- ![Nostra.chat screenshot](docs/assets/screenshot-main.png) -->
+
+## ⚠️ Project status — Alpha software
+
+Nostra.chat is **early alpha**. Expect bugs, expect UI rough edges, expect
+occasional breaking changes between releases. The code has **not been
+independently audited** by any third party.
+
+**Do not use Nostra.chat for communications where a compromise would put your
+physical safety, freedom, or life at risk.** For those threat models, prefer
+mature, audited tools such as [Signal](https://signal.org/) or
+[Session](https://getsession.org/). We will remove this warning when an
+independent audit has been completed and the software has stabilized.
+
+For the threat model, what the project defends against and what it does not,
+see [SECURITY.md](SECURITY.md).
 
 ## About
 
@@ -79,6 +113,25 @@ Nostr Relays (via Tor)
 ```
 
 ## Getting Started
+
+### Browser support
+
+Nostra.chat requires a modern browser with support for Service Workers,
+SharedWorkers (optional — falls back to DedicatedWorker), IndexedDB, the Web
+Crypto API, and ES2020+.
+
+| Browser | Status | Notes |
+|---|---|---|
+| Chrome / Chromium 100+ | ✅ Fully tested | Primary development target |
+| Edge 100+ | ✅ Fully tested | Chromium-based |
+| Firefox 115+ | ✅ Tested | SharedWorker works; Tor WASM slower than Chromium |
+| Brave | ✅ Tested | Chromium-based |
+| Safari 16+ | ⚠️ Partial | SharedWorker disabled by default; pass `?noSharedWorker=1` |
+| Mobile Chrome / Edge | ✅ Works | Installable as PWA |
+| Mobile Safari (iOS 16+) | ⚠️ Partial | Service Worker quirks, background delivery limited |
+
+If you hit a browser-specific bug, please open an issue with the browser
+version and OS.
 
 ### Prerequisites
 
@@ -171,6 +224,83 @@ Example: `http://localhost:8080/?debug=1`
 - [ ] Tor UI improvements — toggle, circuit dashboard, latency indicators
 - [ ] In-browser mini-relay with store-and-forward capability
 - [ ] P2P mesh — WebRTC DataChannel between contacts, tunneled through Tor
+- [ ] Trust-minimized PWA updates — user-controlled updates with threshold auditor signatures and reproducible builds ([design](docs/TRUST-MINIMIZED-UPDATES.md))
+
+## IPFS distribution
+
+Every push to `main` is built, bundled, and pinned to [IPFS](https://ipfs.tech/)
+as an immutable content-addressed bundle via Filebase. The CID changes with
+each release because it is a deterministic function of the build output.
+
+Use the latest CID from
+[GitHub Releases](https://github.com/nostra-chat/nostra-chat/releases) (once
+the first release is tagged) or from the commit status on the `main` branch.
+Any public IPFS gateway will serve it:
+
+```
+https://dweb.link/ipfs/<CID>/
+https://ipfs.io/ipfs/<CID>/
+https://cf-ipfs.com/ipfs/<CID>/
+https://w3s.link/ipfs/<CID>/
+```
+
+**Why IPFS matters:** if Cloudflare Pages and GitHub Pages become unavailable
+(censorship, takedown, legal action, account suspension), the IPFS mirror
+remains reachable from any gateway and from local IPFS nodes. The
+content-addressed URL also lets a user verify that the bundle they are
+running matches a specific, immutable version of the source.
+
+A planned [trust-minimized update flow](docs/TRUST-MINIMIZED-UPDATES.md) will
+build on top of this CID-based distribution to add threshold auditor
+signatures before updates are applied.
+
+## Security
+
+Nostra.chat is **alpha, unaudited software**. Read
+[SECURITY.md](SECURITY.md) for the threat model, what the project defends
+against, what it does not, and how to privately report vulnerabilities.
+
+**Quick summary of the threat model:**
+
+| Threat | Defended? |
+|---|---|
+| Relay operators reading message content | ✅ Gift-wrap (NIP-17 / NIP-59) |
+| Relay operators learning sender, recipient, or group membership | ✅ Gift-wrap, ephemeral keys |
+| Network eavesdropper linking your IP to your pubkey | ✅ Tor (when enabled) |
+| Censorship of a single relay | ✅ Multi-relay redundancy |
+| Censorship of the distribution mirrors | ✅ IPFS fallback, multiple mirrors |
+| DNS / CDN hijack serving modified code | 🔜 Planned — trust-minimized updates |
+| Compromised maintainer key / malicious release | 🔜 Planned — threshold auditor signatures |
+| Endpoint compromise (malware, keylogger, screen capture) | ❌ No client-side messenger defends against this |
+| Traffic-analysis correlation by a global passive adversary | ❌ Partial mitigation via Tor only |
+
+To privately report a vulnerability, DM the project Nostr account:
+
+```
+npub1zxn3hul7dsaex9l5a8l8scflxzruxh3v9gvvvgcmtdus7aqenmrskmtyqz
+```
+
+## Contributing
+
+Contributions are welcome — bug reports, code, documentation, translations,
+and release testing. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+development workflow, style rules, and commit message conventions.
+
+**Before opening a PR:**
+
+1. Read [CONTRIBUTING.md](CONTRIBUTING.md).
+2. Run `pnpm lint` and `pnpm test`.
+3. Use [Conventional Commits](https://www.conventionalcommits.org/) for the
+   commit messages — the release changelog is generated from them.
+4. Target the `main` branch; we merge PRs with squash-and-merge.
+
+## Community
+
+- **Nostr:** [`npub1zxn3hul7dsaex9l5a8l8scflxzruxh3v9gvvvgcmtdus7aqenmrskmtyqz`](https://njump.me/npub1zxn3hul7dsaex9l5a8l8scflxzruxh3v9gvvvgcmtdus7aqenmrskmtyqz)
+- **Issues & feature requests:** [GitHub Issues](https://github.com/nostra-chat/nostra-chat/issues)
+- **General discussion:** [GitHub Discussions](https://github.com/nostra-chat/nostra-chat/discussions)
+- **Security reports:** see [SECURITY.md](SECURITY.md) (do not use public
+  channels for vulnerability reports)
 
 ## Nostr NIPs implemented
 
