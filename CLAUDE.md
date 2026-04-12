@@ -235,6 +235,7 @@ import {Message, Chat, User, InputPeer} from '@layer';
 - Do not save screenshots or images in the project root — use `/tmp/` for temporary test artifacts. The `.gitignore` blocks `*.png` at root level
 - Do not assume a component exists in the UI just because the file exists. Grep for the import: `grep -rn 'import.*MessageRequests' src/` — `MessageRequests.tsx` is written but never mounted, so routing messages there made them invisible.
 - Do not assume a `rootScope.dispatchEvent('foo')` call is wired to a listener. Grep for the listener: `grep -rn "addEventListener('foo'" src/` — `nostra_delivery_update` had dispatches but no production listeners.
+- Do not run `eslint --fix` on `src/**/**.ts` broadly — 13 pre-existing lint errors live in `nostraMeshSettings.ts`, `mesh-manager.ts`, `mesh-signaling.ts`, `relay-store.ts`. Lint only the files you modified, or `git checkout --` the unrelated fixes before committing.
 
 ## Running Tests
 
@@ -279,6 +280,12 @@ Vitest config: `threads: false`, `globals: true`, jsdom environment, setup in `s
 - `invalidateHistoryCache(peerId)` on `appMessagesManager` resets `SlicedArray` for a peer — call from main thread via `rootScope.managers.appMessagesManager.invalidateHistoryCache(peerId)` after `nostra_new_message` arrives. Without this, reopened chats return stale cached history.
 - `nostra_new_message` handler must build tweb messages directly from event data via `mapper.createTwebMessage()` — never re-read from message-store via `server.handleMethod('messages.getHistory')`. The IndexedDB round-trip has 0-5s variable latency and can return empty (silent message drop).
 - Synthetic dialogs dispatched via `dialogs_multiupdate` must have `(dialog as any).topMessage = msg` (the message object, not just `top_message` ID). Without this, `setLastMessage` → `getLastMessageForDialog` falls back to `getMessageByPeer` which fails when `hasReachedTheEnd` is false on the dialog list.
+- `NostraSync.onIncomingMessage()` MUST save with `eventId = msg.relayEventId || msg.id` — NOT `msg.id` alone. The ChatMessage's `msg.id` is the parsed `chat-XXX-N` from content, while `chat-api-receive` stores with rumor hex. Mismatched eventIds create duplicate rows in message-store → two bubbles per incoming message.
+- `ChatAPI.connect(peerPubkey)` MUST be a lightweight `activePeer` switch when a global subscription is already active. Do NOT call `disconnect()` — it tears down the relay pool and kills the subscription that the sender's self-echo depends on for bubble rendering.
+- Pinned-message filter (`inputMessagesFilterPinned`) must be intercepted in BOTH `searchMessages` AND `getHistory` in `virtual-mtproto-server.ts`. Return empty `{messages: [], users: [], chats: [], count: 0}`. tweb's `ChatPinnedMessage` uses `getHistory` with `inputFilter`, which `requestHistory` routes to `messages.search` OR `messages.getHistory` depending on context.
+- Virtual MTProto Server's `sendMessage` must return `nostraMid` and `nostraEventId` in the response object so the Worker's P2P shortcut in `appMessagesManager.ts` can rename the temp mid (`0.0001`) to the real timestamp-based mid. Without this, outgoing bubbles sort incorrectly among received messages.
+- P2P outgoing bubble rendering: `beforeMessageSending` in `appMessagesManager.ts` MUST skip its `history_append` dispatch for P2P peers (`Number(peerId) >= 1e15`). The main-thread VMT Server's `injectOutgoingBubble` is the sole render path — dispatching from both causes duplicate DOM elements.
+- Main-thread code in `virtual-mtproto-server.ts` that dispatches rootScope events MUST use `rs.dispatchEventSingle(...)` not `rs.dispatchEvent(...)`. The latter forwards via `MTProtoMessagePort.invokeVoid('event', ...)` which throws unhandled rejections in vitest environments.
 
 ### Message Receive Pipeline
 - At boot, `initGlobalSubscription()` in `chat-api.ts` subscribes to gift-wrap events (kind 1059) on all relays. Without this, only peers connected via `chatAPI.connect()` are heard.
@@ -338,6 +345,10 @@ Vitest config: `threads: false`, `globals: true`, jsdom environment, setup in `s
 
 ### E2E Testing (Playwright)
 - **Launch options:** All E2E tests use `launchOptions` from `helpers/launch-options.ts`. Env vars: `E2E_HEADED=1` (visible browser), `E2E_SLOWMO=N` (slow motion ms), `E2E_DEVTOOLS=1` (open DevTools, implies headed). Never hardcode `headless: true` in test files.
+- **Vite HMR fails on first headless load** with `ERR_NETWORK_CHANGED`. Workaround: `page.goto(APP_URL, {waitUntil: 'load'})` → `waitForTimeout(5000)` → `page.reload({waitUntil: 'load'})` → `waitForTimeout(15000)`. See `e2e-bug-regression.ts` for the pattern.
+- **tweb markdown italic trap:** underscores in message text (e.g. `Bug3_reply_reply_...`) are parsed as italic (`_reply_`), which wraps them in `<i>` and breaks `textContent.includes(msg)` assertions. Always use dashes in test message strings (`Bug1-first-msg-${Date.now()}`).
+- **Bubble text extraction** for assertions: `.message` contains `.time`, `.time-inner`, `.reactions`, `.bubble-pin` children that pollute `textContent`. Clone the element and `.querySelectorAll('.time, .time-inner, .reactions, .bubble-pin').forEach(e => e.remove())` before reading text.
+- `e2e-bug-regression.ts` is the canonical regression suite for the 4 P2P bugs (duplicate first message, missing reply bubble, out-of-order, auto-pin). Run it after any change to the message pipeline or virtual-mtproto-server.
 - **Run all E2E:** `pnpm test:e2e:all` (bail on first failure), `pnpm test:e2e:all:no-bail` (run all). Single test: `pnpm test:e2e src/tests/e2e/e2e-foo.ts`. Debug: `pnpm test:e2e:debug src/tests/e2e/e2e-foo.ts`.
 - NEVER use `document.body.textContent.includes()` to check received messages — it matches chat list preview. Use `.bubble .message, .bubble .inner, .bubble-content` selectors.
 - Relay propagation needs 30s timeout (not 15s). damus.io and nos.lol are reliable; snort.social and nostr.band are frequently offline.
