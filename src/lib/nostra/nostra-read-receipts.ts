@@ -35,10 +35,12 @@ export function createReadReceiptSender(): ReadReceiptSender {
 
       for(const msg of messages) {
         if(msg.senderPubkey !== peerPubkey) continue;
-        if(!msg.eventId || markedRead.has(msg.eventId)) continue;
-        markedRead.add(msg.eventId);
+        // Prefer the parsed app id so the sender's tracker matches (same key as delivery receipts).
+        const receiptId = msg.appMessageId || msg.eventId;
+        if(!receiptId || markedRead.has(receiptId)) continue;
+        markedRead.add(receiptId);
         try {
-          await ca.markRead(msg.eventId, peerPubkey);
+          await ca.markRead(receiptId, peerPubkey);
         } catch{
           // non-critical
         }

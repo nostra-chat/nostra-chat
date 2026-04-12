@@ -45,6 +45,7 @@ export class NostraSync {
 
     await store.saveMessage({
       eventId: storageEventId,
+      appMessageId: msg.id,
       conversationId,
       senderPubkey,
       content: msg.content,

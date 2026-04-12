@@ -44,6 +44,8 @@ export interface StoredMessage {
   twebPeerId?: number;
   /** Whether this message was outgoing */
   isOutgoing?: boolean;
+  /** Parsed application message ID (chat-XXX-N) — used so read receipts can key off the same ID that delivery receipts use */
+  appMessageId?: string;
 }
 
 // ─── Constants ─────────────────────────────────────────────────────

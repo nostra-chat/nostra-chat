@@ -228,6 +228,7 @@ export async function handleRelayMessage(
     const conversationId = store.getConversationId(ctx.ownId, msg.from);
     store.saveMessage({
       eventId: msg.id,
+      appMessageId: chatMessage.id,
       conversationId,
       senderPubkey: msg.from,
       content: chatMessage.content,

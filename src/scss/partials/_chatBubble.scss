@@ -3454,6 +3454,12 @@
     }
   }
 
+  &.is-p2p-read {
+    .time-sending-status {
+      color: #53bdeb;
+    }
+  }
+
   .document-ico:after {
     border-top-color: var(--message-background-color);
     border-right-color: var(--message-background-color);
