@@ -6,8 +6,9 @@
  */
 
 import {NostraPeerMapper} from './nostra-peer-mapper';
-import {getMessageStore} from './message-store';
+import {getMessageStore, StoredMessage} from './message-store';
 import type {ChatMessage} from './chat-api';
+import type {IncomingEdit} from './chat-api-receive';
 
 const LOG_PREFIX = '[NostraSync]';
 
@@ -60,6 +61,38 @@ export class NostraSync {
 
     console.log(LOG_PREFIX, 'dispatching nostra_new_message', {peerId, mid});
     this.dispatch('nostra_new_message', {peerId, mid, senderPubkey, message: msg, timestamp});
+  }
+
+  /**
+   * Called when ChatAPI receives an incoming edit (a rumor carrying the
+   * 'nostra-edit' marker tag). The message-store row has already been
+   * updated by chat-api-receive; here we resolve peerId/mid and dispatch
+   * the rootScope event so the UI re-renders the bubble.
+   */
+  async onIncomingEdit(edit: IncomingEdit): Promise<void> {
+    const peerId = await this.mapper.mapPubkey(edit.senderPubkey);
+    const store = getMessageStore();
+    let original: StoredMessage | null = null;
+    try {
+      original = await store.getByAppMessageId(edit.originalAppMessageId);
+    } catch{
+      original = null;
+    }
+    const mid = original?.mid;
+    if(!mid) {
+      console.log(LOG_PREFIX, 'edit has no resolvable mid; skipping dispatch', edit.originalAppMessageId);
+      return;
+    }
+
+    console.log(LOG_PREFIX, 'dispatching nostra_message_edit', {peerId, mid});
+    this.dispatch('nostra_message_edit', {
+      peerId,
+      mid,
+      senderPubkey: edit.senderPubkey,
+      originalEventId: edit.originalAppMessageId,
+      newContent: edit.newContent,
+      editedAt: edit.editedAt
+    });
   }
 
   /**

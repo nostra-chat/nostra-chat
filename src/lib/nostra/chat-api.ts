@@ -24,7 +24,7 @@ import {getMessageRequestStore} from './message-requests';
 import {wrapNip17Message} from './nostr-crypto';
 import {isControlEvent, getGroupIdFromRumor} from './group-control-messages';
 import rootScope from '@lib/rootScope';
-import {handleRelayMessage as handleRelayMessageImpl} from './chat-api-receive';
+import {handleRelayMessage as handleRelayMessageImpl, IncomingEdit} from './chat-api-receive';
 
 /**
  * Message types supported in chat
@@ -111,6 +111,7 @@ export class ChatAPI {
 
   // Event callbacks
   onMessage: MessageCallback | null = null;
+  onEditMessage: ((edit: IncomingEdit) => void) | null = null;
   onStatusChange: StatusChangeCallback | null = null;
 
   /**
@@ -851,6 +852,7 @@ export class ChatAPI {
         deliveryTracker: this.deliveryTracker,
         offlineQueue: this.offlineQueue,
         onMessage: this.onMessage,
+        onEdit: this.onEditMessage,
         log: this.log
       });
       this.log('[ChatAPI] relay message result:', result.action);

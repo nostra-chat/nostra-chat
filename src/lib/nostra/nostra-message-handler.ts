@@ -132,6 +132,54 @@ export async function invalidateHistoryCache(peerId: number): Promise<void> {
   } catch(e: any) { console.debug('[MessageHandler] invalidateHistoryCache:', e?.message); }
 }
 
+export interface IncomingEditData {
+  peerId: number;
+  mid: number;
+  senderPubkey: string;
+  originalEventId: string;
+  newContent: string;
+  editedAt: number;
+}
+
+/**
+ * Apply an incoming edit to a tweb message in the main-thread mirrors and
+ * notify bubbles.ts via the existing tweb `message_edit` event so the bubble
+ * re-renders with the new text + "edited" marker.
+ *
+ * No-op for self edits — the local edit path already updated the bubble.
+ */
+export async function handleIncomingEdit(data: IncomingEditData, ownPubkey: string): Promise<void> {
+  if(data.senderPubkey === ownPubkey) return;
+
+  const proxy = MOUNT_CLASS_TO.apiManagerProxy;
+  const storageKey = `${data.peerId}_history`;
+
+  const existing = proxy?.mirrors?.messages?.[storageKey]?.[data.mid];
+  if(existing) {
+    existing.message = data.newContent;
+    existing.edit_date = data.editedAt;
+  }
+
+  // Tell the Worker to update its own storage so subsequent getHistory calls
+  // return the edited content.
+  try {
+    await rootScope.managers.appMessagesManager.setMessageToStorage(storageKey as any, {
+      ...(existing || {}),
+      mid: data.mid,
+      peerId: data.peerId,
+      message: data.newContent,
+      edit_date: data.editedAt
+    });
+  } catch(e: any) { console.debug('[MessageHandler] edit setMessageToStorage:', e?.message); }
+
+  rootScope.dispatchEvent('message_edit' as any, {
+    storageKey,
+    peerId: data.peerId,
+    mid: data.mid,
+    message: existing || {mid: data.mid, peerId: data.peerId, message: data.newContent, edit_date: data.editedAt}
+  });
+}
+
 /**
  * Full incoming message handler — orchestrates build, inject, dispatch.
  * Returns result for pending-message tracking.

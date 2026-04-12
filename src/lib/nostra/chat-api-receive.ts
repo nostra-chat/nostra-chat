@@ -16,6 +16,14 @@ import {isControlEvent, getGroupIdFromRumor} from './group-control-messages';
 import type {ChatMessage, ChatMessageType} from './chat-api';
 import rootScope from '@lib/rootScope';
 
+/** Payload for an incoming edit notification */
+export interface IncomingEdit {
+  originalAppMessageId: string;
+  newContent: string;
+  editedAt: number;
+  senderPubkey: string;
+}
+
 /** Context injected by ChatAPI for receive handler */
 export interface ReceiveContext {
   ownId: string;
@@ -26,6 +34,7 @@ export interface ReceiveContext {
   } | null;
   offlineQueue: {acknowledge(id: string): void} | null;
   onMessage: ((msg: ChatMessage) => void) | null;
+  onEdit: ((edit: IncomingEdit) => void) | null;
   log: {
     (...args: any[]): void;
     warn(...args: any[]): void;
@@ -42,6 +51,7 @@ export type ReceiveResult =
   | {action: 'echo_skipped'; id: string}
   | {action: 'echo_saved'; id: string}
   | {action: 'duplicate'; id: string}
+  | {action: 'edited'; originalAppMessageId: string}
   | {action: 'received'; message: ChatMessage};
 
 // ─── Step functions (testable individually) ────────────────────
@@ -146,6 +156,59 @@ export async function handleRelayMessage(
     const conversationId = store.getConversationId(ctx.ownId, msg.from);
     await store.deleteMessages(conversationId, deleteNotif.eventIds);
     return {action: 'deleted', conversationId};
+  }
+
+  // 1b. Check for edit marker tag — handle in place, do NOT create a new bubble.
+  // Edit lookup uses appMessageId so it works regardless of whether the original
+  // row is sender-side (eventId == app id) or receiver-side (appMessageId column).
+  const editMarker = isEditMessage(msg.tags);
+  if(editMarker) {
+    const store = getMessageStore();
+    let original: StoredMessage | null = null;
+    try {
+      original = await store.getByAppMessageId(editMarker.originalAppMessageId);
+    } catch{
+      original = null;
+    }
+    if(!original) {
+      ctx.log.warn('[ChatAPI] edit dropped — original not found:', editMarker.originalAppMessageId);
+      return {action: 'skipped', reason: 'edit_original_missing'};
+    }
+    if(original.senderPubkey !== msg.from) {
+      ctx.log.warn('[ChatAPI] edit dropped — sender pubkey mismatch:', msg.from.slice(0, 8) + '...');
+      return {action: 'skipped', reason: 'edit_author_mismatch'};
+    }
+
+    // Parse the new content from the rumor body (full JSON envelope, same as send)
+    const parsed = parseMessageContent(msg.content);
+    const newContent = parsed.content;
+    const editedAt = msg.timestamp;
+
+    // Idempotency: if we already applied a same-or-newer edit, no-op
+    if(original.content === newContent && (original.editedAt || 0) >= editedAt) {
+      return {action: 'skipped', reason: 'edit_already_applied'};
+    }
+
+    try {
+      await store.saveMessage({
+        ...original,
+        content: newContent,
+        editedAt
+      });
+    } catch(err) {
+      ctx.log.warn('[ChatAPI] edit store update failed:', err);
+    }
+
+    if(ctx.onEdit) {
+      ctx.onEdit({
+        originalAppMessageId: editMarker.originalAppMessageId,
+        newContent,
+        editedAt,
+        senderPubkey: msg.from
+      });
+    }
+
+    return {action: 'edited', originalAppMessageId: editMarker.originalAppMessageId};
   }
 
   // 2. Check if sender is blocked

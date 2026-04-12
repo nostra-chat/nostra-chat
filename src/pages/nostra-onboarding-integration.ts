@@ -20,7 +20,7 @@ import {NostraMTProtoServer} from '../lib/nostra/virtual-mtproto-server';
 import {NostraSync} from '../lib/nostra/nostra-sync';
 import {MOUNT_CLASS_TO} from '@config/debug';
 import rootScope from '../lib/rootScope';
-import {handleIncomingMessage} from '@lib/nostra/nostra-message-handler';
+import {handleIncomingMessage, handleIncomingEdit} from '@lib/nostra/nostra-message-handler';
 import {createPendingFlush} from '@lib/nostra/nostra-pending-flush';
 import {createReadReceiptSender} from '@lib/nostra/nostra-read-receipts';
 import {createDeliveryUI} from '@lib/nostra/nostra-delivery-ui';
@@ -146,6 +146,9 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
       chatAPI.onMessage = (msg: any) => {
         sync.onIncomingMessage(msg, msg.from);
       };
+      chatAPI.onEditMessage = (edit: any) => {
+        sync.onIncomingEdit(edit);
+      };
       console.log('[NostraOnboardingIntegration] NostraSync wired to ChatAPI');
 
       // Defer the ChatAPI's global subscription until the PrivacyTransport
@@ -180,6 +183,15 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
           }
         } catch(err) {
           console.warn('[NostraOnboardingIntegration] nostra_new_message handler error:', err);
+        }
+      });
+
+      // Incoming edit handler — updates existing bubble in place
+      rootScope.addEventListener('nostra_message_edit', async(data) => {
+        try {
+          await handleIncomingEdit(data, identity.publicKey);
+        } catch(err) {
+          console.warn('[NostraOnboardingIntegration] nostra_message_edit handler error:', err);
         }
       });
 
