@@ -49,9 +49,9 @@ export default class AppNostraMeshSettingsTab extends SliderSuperTab {
     meshCheckbox.input.addEventListener('change', () => {
       const enabled = meshCheckbox.checked;
       localStorage.setItem(MESH_ENABLED_KEY, String(enabled));
-      toggleRow.subtitle.textContent = enabled
-        ? 'Direct connections active'
-        : 'Relay-only mode';
+      toggleRow.subtitle.textContent = enabled ?
+        'Direct connections active' :
+        'Relay-only mode';
       try {
         const pool = (window as any).__nostraPool;
         if(pool?.setMeshEnabled) pool.setMeshEnabled(enabled);
@@ -109,9 +109,9 @@ export default class AppNostraMeshSettingsTab extends SliderSuperTab {
       const connected = peers.filter((p) => p.status === 'online').length;
       const total = peers.length;
 
-      this.statsEl.textContent = total === 0
-        ? 'No contacts in mesh'
-        : `Connected to ${connected}/${total} contacts`;
+      this.statsEl.textContent = total === 0 ?
+        'No contacts in mesh' :
+        `Connected to ${connected}/${total} contacts`;
 
       // Rebuild contact rows
       this.contactListEl.innerHTML = '';

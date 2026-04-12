@@ -186,8 +186,8 @@ export class RelayStore {
           }
           if(pTagSet) {
             const pValues = ev.tags
-              .filter((t) => t[0] === 'p')
-              .map((t) => t[1]);
+            .filter((t) => t[0] === 'p')
+            .map((t) => t[1]);
             const hasPMatch = pValues.some((v) => pTagSet.has(v));
             if(!hasPMatch) {
               cursor.continue();

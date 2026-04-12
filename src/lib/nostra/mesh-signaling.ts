@@ -36,7 +36,7 @@ export function parseSignalContent(content: string): SignalMessage | null {
     if(parsed.type !== 'webrtc-signal') return null;
     if(!parsed.action || !parsed.sessionId) return null;
     return parsed as SignalMessage;
-  } catch {
+  } catch{
     return null;
   }
 }

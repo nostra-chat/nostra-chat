@@ -220,7 +220,7 @@ export class MeshManager {
 
       try {
         await this.callbacks.sendSignal(pubkey, signal);
-      } catch {}
+      } catch{}
     });
   }
 
@@ -278,7 +278,7 @@ export class MeshManager {
 
     try {
       state.pc.close();
-    } catch {}
+    } catch{}
 
     if(wasConnected) {
       this.callbacks.onPeerDisconnected(pubkey);
@@ -310,7 +310,7 @@ export class MeshManager {
         if(newState) {
           newState.reconnectAttempts = current.reconnectAttempts;
         }
-      } catch {}
+      } catch{}
     }, delay);
   }
 
@@ -329,11 +329,11 @@ export class MeshManager {
 
     try {
       if(state.dc) state.dc.close();
-    } catch {}
+    } catch{}
 
     try {
       state.pc.close();
-    } catch {}
+    } catch{}
 
     state.status = 'disconnected';
     this.peers.delete(pubkey);
@@ -355,7 +355,7 @@ export class MeshManager {
     try {
       state.dc.send(message);
       return true;
-    } catch {
+    } catch{
       return false;
     }
   }
