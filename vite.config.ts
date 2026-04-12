@@ -7,12 +7,13 @@ import checker from 'vite-plugin-checker';
 // import devtools from 'solid-devtools/vite'
 import autoprefixer from 'autoprefixer';
 import {resolve} from 'path';
-import {existsSync, copyFileSync} from 'fs';
+import {existsSync, copyFileSync, readFileSync} from 'fs';
 import {ServerOptions} from 'vite';
 import {watchLangFile} from './watch-lang.js';
 import path from 'path';
 
 const rootDir = resolve(__dirname);
+const pkgVersion = JSON.parse(readFileSync(path.join(rootDir, 'package.json'), 'utf8')).version as string;
 const certsDir = path.join(rootDir, 'certs');
 const ENV_LOCAL_FILE_PATH = path.join(rootDir, '.env.local');
 const LANG_PACK_LOCAL_FILE_PATH = path.join(rootDir, 'src', 'langPackLocalVersion.ts');
@@ -104,6 +105,10 @@ if(USE_OWN_SOLID) {
 }
 
 export default defineConfig({
+  define: {
+    'import.meta.env.VITE_VERSION': JSON.stringify(pkgVersion),
+    'import.meta.env.VITE_VERSION_FULL': JSON.stringify(pkgVersion)
+  },
   plugins: [
     // devtools({
     //   /* features options - all disabled by default */
