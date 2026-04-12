@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import {describe, it, expect, beforeEach, vi} from 'vitest';
+import {describe, it, expect, beforeEach, afterAll, vi} from 'vitest';
 import {isEditMessage, handleRelayMessage, ReceiveContext, IncomingEdit} from '@lib/nostra/chat-api-receive';
 import {getMessageStore} from '@lib/nostra/message-store';
 import type {DecryptedMessage} from '@lib/nostra/nostr-relay';
@@ -17,6 +17,12 @@ vi.mock('@lib/rootScope', () => ({
     dispatchEvent: vi.fn()
   }
 }));
+
+afterAll(() => {
+  vi.unmock('@lib/rootScope');
+  vi.unmock('@lib/nostra/message-requests');
+  vi.restoreAllMocks();
+});
 
 const SENDER_PUB = 'a'.repeat(64);
 const OWN_PUB = 'b'.repeat(64);
