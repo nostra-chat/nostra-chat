@@ -243,6 +243,9 @@ export class NostraMTProtoServer {
       case 'messages.sendMessage':
         return this.sendMessage(params);
 
+      case 'messages.editMessage':
+        return this.editMessage(params);
+
       case 'messages.sendMedia':
         return this.sendMedia(params);
 
@@ -701,6 +704,95 @@ export class NostraMTProtoServer {
       };
     } catch(err) {
       console.warn(LOG_PREFIX, 'sendMessage: failed', err);
+      return emptyUpdates;
+    }
+  }
+
+  private async editMessage(params: any): Promise<any> {
+    const emptyUpdates = {
+      _: 'updates',
+      updates: [] as any[],
+      users: [] as any[],
+      chats: [] as any[],
+      date: Math.floor(Date.now() / 1000),
+      seq: 0
+    };
+
+    if(!this.chatAPI || !this.ownPubkey) return emptyUpdates;
+
+    const peerId = extractPeerId(params?.peer);
+    if(peerId === null) return emptyUpdates;
+
+    const peerPubkey = await getPubkey(Math.abs(peerId));
+    if(!peerPubkey) return emptyUpdates;
+
+    const mid: number = params?.id;
+    const newText: string = params?.message ?? '';
+    if(typeof mid !== 'number') return emptyUpdates;
+
+    try {
+      const store = getMessageStore();
+      const original = await store.getByMid(mid);
+      if(!original) {
+        console.warn(LOG_PREFIX, 'editMessage: original mid not in store', mid);
+        return emptyUpdates;
+      }
+      if(original.senderPubkey !== this.ownPubkey) {
+        console.warn(LOG_PREFIX, 'editMessage: refusing to edit non-own message');
+        return emptyUpdates;
+      }
+
+      // For sender rows the eventId column carries the app-level message id
+      // (chat-XXX-N). For receiver rows that would not be true, but we already
+      // verified senderPubkey == ownPubkey, so this is always sender-side here.
+      const originalAppMessageId = original.appMessageId || original.eventId;
+
+      // Make sure the active peer is correct so the relay subscription is wired
+      if(this.chatAPI.getActivePeer() !== peerPubkey) {
+        await this.chatAPI.connect(peerPubkey);
+      }
+
+      const ok = await this.chatAPI.editMessage(originalAppMessageId, newText);
+      if(!ok) {
+        console.warn(LOG_PREFIX, 'editMessage: chatAPI.editMessage returned false');
+        // Fall through anyway: local store + UI were updated by ChatAPI
+      }
+
+      // Patch the main-thread mirror so the bubble re-renders immediately,
+      // then dispatch tweb's message_edit event for bubbles.ts to pick up.
+      try {
+        const apiProxy: any = (await import('@config/debug')).MOUNT_CLASS_TO.apiManagerProxy;
+        const storageKey = `${Math.abs(peerId)}_history`;
+        const existing = apiProxy?.mirrors?.messages?.[storageKey]?.[mid];
+        if(existing) {
+          existing.message = newText;
+          existing.edit_date = Math.floor(Date.now() / 1000);
+        }
+
+        const rs: any = (await import('@lib/rootScope')).default;
+        if(typeof rs.dispatchEventSingle === 'function') {
+          rs.dispatchEventSingle('message_edit', {
+            storageKey,
+            peerId: Math.abs(peerId),
+            mid,
+            message: existing || {mid, peerId: Math.abs(peerId), message: newText, edit_date: Math.floor(Date.now() / 1000)}
+          });
+        }
+      } catch(e: any) { console.debug(LOG_PREFIX, 'editMessage local dispatch failed:', e?.message); }
+
+      return {
+        _: 'updates',
+        updates: [],
+        users: [],
+        chats: [],
+        date: Math.floor(Date.now() / 1000),
+        seq: 0,
+        nostraMid: mid,
+        nostraEventId: originalAppMessageId,
+        nostraEdit: true
+      };
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'editMessage: failed', err);
       return emptyUpdates;
     }
   }

@@ -282,6 +282,35 @@ export class MessageStore {
   }
 
   /**
+   * Look up a single message by its tweb numeric mid.
+   * Returns null if no row carries this mid.
+   *
+   * Performs a full scan; intended for low-frequency lookups (edit, delete).
+   */
+  async getByMid(mid: number): Promise<StoredMessage | null> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.openCursor();
+      request.onerror = () => reject(request.error);
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+        if(cursor) {
+          const msg = cursor.value as StoredMessage;
+          if(msg.mid === mid) {
+            resolve(msg);
+            return;
+          }
+          cursor.continue();
+        } else {
+          resolve(null);
+        }
+      };
+    });
+  }
+
+  /**
    * Look up a single message by its app-level message ID (chat-XXX-N).
    *
    * The app id may live either in the `eventId` column (sender-side rows are

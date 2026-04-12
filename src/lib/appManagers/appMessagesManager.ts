@@ -908,6 +908,26 @@ export class AppMessagesManager extends AppManager {
       invert_media: options.invertMedia,
       ...(inputMediaWebPage ? {media: inputMediaWebPage} : {})
     }).then((updates) => {
+      // [Nostra.chat] P2P shortcut: VMT server returns empty updates with
+      // nostraEdit=true. The server already updated mirrors and dispatched
+      // message_edit on the main thread; here we just update Worker storage
+      // so subsequent getHistory calls return the new content.
+      if(updates?._ === 'updates' && (updates as any).nostraEdit && Number(peerId) >= 1e15) {
+        const storage = this.getHistoryMessagesStorage(peerId);
+        const stored = storage.get(mid);
+        if(stored) {
+          (stored as any).message = text;
+          (stored as any).edit_date = (updates as any).date;
+          this.setMessageToStorage(storage, stored);
+          this.rootScope.dispatchEvent('message_edit', {
+            storageKey: storage.key,
+            peerId,
+            mid,
+            message: stored
+          });
+        }
+        return;
+      }
       this.apiUpdatesManager.processUpdateMessage(updates);
     }, (error: ApiError) => {
       this.log.error('editMessage error:', error);

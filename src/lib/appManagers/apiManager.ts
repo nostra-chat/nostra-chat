@@ -797,6 +797,7 @@ export class ApiManager extends ApiManagerMethods {
     'messages.deleteMessages',
     'messages.sendMessage',
     'messages.sendMedia',
+    'messages.editMessage',
     'messages.createChat',
     'channels.createChannel',
     'channels.inviteToChannel',
