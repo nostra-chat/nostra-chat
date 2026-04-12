@@ -44,7 +44,7 @@ describe('WS-A: Telegram-only UI cleanup', () => {
 
   it('settings.ts still imports Nostra.chat tabs', () => {
     expect(settingsSrc).toContain('AppNostraRelaySettingsTab');
-    expect(settingsSrc).toContain('AppNostraIdentityTab');
+    expect(settingsSrc).toContain('AppEditProfileTab');
   });
 
   it('sidebar does not have MyStories menu item', () => {

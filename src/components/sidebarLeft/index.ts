@@ -100,6 +100,10 @@ import isObject from '@helpers/object/isObject';
 import {useAppSettings} from '@stores/appSettings';
 import {openEmojiStatusPicker} from '@components/sidebarLeft/emojiStatusPicker';
 import {animateValue} from '@helpers/animateValue';
+import AppEditProfileTab from '@components/sidebarLeft/tabs/editProfile';
+import useNostraIdentity from '@stores/nostraIdentity';
+import {generateDicebearAvatar} from '@helpers/generateDicebearAvatar';
+import {decodePubkey} from '@lib/nostra/nostr-identity';
 
 export const LEFT_COLUMN_ACTIVE_CLASSNAME = 'is-left-column-shown';
 
@@ -658,7 +662,17 @@ export class AppSidebarLeft extends SidebarSlider {
       createSubmenu: () => this.createNewChatsSubmenu()
     });
 
-    const menuButtons: (ButtonMenuItemOptions & {verify?: () => boolean | Promise<boolean>})[] = [newSubmenu, {
+    const profileEntry: ButtonMenuItemOptions & {verify?: () => boolean | Promise<boolean>} = {
+      regularText: this.buildNostraProfileMenuContent(),
+      onClick: () => {
+        closeTabsBefore(() => {
+          this.createTab(AppEditProfileTab).open();
+        });
+      },
+      separator: true
+    };
+
+    const menuButtons: (ButtonMenuItemOptions & {verify?: () => boolean | Promise<boolean>})[] = [profileEntry, newSubmenu, {
       icon: 'savedmessages',
       text: 'SavedMessages',
       onClick: () => {
@@ -667,21 +681,11 @@ export class AppSidebarLeft extends SidebarSlider {
             peerId: appImManager.myId
           });
         }, 0);
-      },
-      separator: true
+      }
     }, btnArchive, {
       icon: 'user',
       text: 'Contacts',
       onClick: onContactsClick
-    }, {
-      icon: 'key',
-      regularText: 'Identity',
-      onClick: () => {
-        closeTabsBefore(async() => {
-          const {default: AppNostraIdentityTab} = await import('@components/sidebarLeft/tabs/nostraIdentity');
-          this.createTab(AppNostraIdentityTab).open();
-        });
-      }
     }, {
       icon: 'info',
       regularText: 'Status',
@@ -848,6 +852,41 @@ export class AppSidebarLeft extends SidebarSlider {
     });
   }
 
+
+  private buildNostraProfileMenuContent(): HTMLElement {
+    const identity = useNostraIdentity();
+    const wrap = document.createElement('div');
+    wrap.classList.add('nostra-profile-menu-entry');
+    wrap.style.cssText = 'display:flex;align-items:center;gap:0.75rem;padding:0.25rem 0';
+
+    const avatar = document.createElement('img');
+    avatar.classList.add('nostra-profile-menu-entry-avatar');
+    avatar.style.cssText = 'width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0';
+
+    const picture = identity.picture?.();
+    const npub = identity.npub() || '';
+    if(picture) {
+      avatar.src = picture;
+    } else if(npub) {
+      try {
+        const hex = decodePubkey(npub);
+        generateDicebearAvatar(hex).then((url) => { avatar.src = url; });
+      } catch{}
+    }
+
+    const text = document.createElement('div');
+    text.style.cssText = 'display:flex;flex-direction:column;min-width:0;line-height:1.2';
+    const nameEl = document.createElement('span');
+    nameEl.textContent = identity.displayName() || 'Profile';
+    nameEl.style.cssText = 'font-weight:600;font-size:0.9375rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+    const npubEl = document.createElement('span');
+    npubEl.textContent = npub ? `${npub.slice(0, 12)}…${npub.slice(-4)}` : '';
+    npubEl.style.cssText = 'font-size:0.75rem;opacity:0.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+
+    text.append(nameEl, npubEl);
+    wrap.append(avatar, text);
+    return wrap;
+  }
 
   private async createMoreSubmenu(
     {middleware}: CreateSubmenuArgs,

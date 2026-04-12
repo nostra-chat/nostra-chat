@@ -11,7 +11,7 @@ import lottieLoader from '@lib/rlottie/lottieLoader';
 import Row from '@components/row';
 import SettingSection from '@components/settingSection';
 import AppNostraRelaySettingsTab from '@components/sidebarLeft/tabs/nostraRelaySettings';
-import AppNostraIdentityTab from '@components/sidebarLeft/tabs/nostraIdentity';
+import AppEditProfileTab from '@components/sidebarLeft/tabs/editProfile';
 import useNostraIdentity from '@stores/nostraIdentity';
 import showLogOutPopup from '@components/popups/logOut';
 
@@ -61,7 +61,7 @@ export default class AppSettingsTab extends SliderSuperTab {
       title: 'Identity',
       icon: 'user',
       clickable: () => {
-        const tab = this.slider.createTab(AppNostraIdentityTab);
+        const tab = this.slider.createTab(AppEditProfileTab);
         tab.open();
       },
       listenerSetter: this.listenerSetter
