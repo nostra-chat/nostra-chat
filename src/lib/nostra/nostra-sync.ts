@@ -27,17 +27,24 @@ export class NostraSync {
   /**
    * Called when ChatAPI receives an incoming message.
    * Persists to message store and dispatches nostra_new_message event.
+   *
+   * IMPORTANT: We use `msg.relayEventId` (rumor hex id) as the canonical
+   * storage key, NOT `msg.id` (which is `chat-XXX-N` parsed from the content
+   * JSON). chat-api-receive already stored the message with `eventId = rumor id`,
+   * so we must use the same eventId to hit the upsert path instead of creating
+   * a duplicate row that would produce two bubbles with different mids.
    */
   async onIncomingMessage(msg: ChatMessage, senderPubkey: string): Promise<void> {
     const peerId = await this.mapper.mapPubkey(senderPubkey);
-    const mid = await this.mapper.mapEventId(msg.id, Math.floor(msg.timestamp));
+    const storageEventId = msg.relayEventId || msg.id;
+    const mid = await this.mapper.mapEventId(storageEventId, Math.floor(msg.timestamp));
     // msg.timestamp is already in UNIX seconds (from rumor.created_at)
     const timestamp = Math.floor(msg.timestamp);
     const store = getMessageStore();
     const conversationId = store.getConversationId(this.ownPubkey, senderPubkey);
 
     await store.saveMessage({
-      eventId: msg.id,
+      eventId: storageEventId,
       conversationId,
       senderPubkey,
       content: msg.content,

@@ -405,6 +405,12 @@ export class NostraMTProtoServer {
   }
 
   private async getHistory(params: any): Promise<any> {
+    // If called with a pinned filter, return empty (P2P doesn't support pinning)
+    const filterType = params?.filter?._ || '';
+    if(filterType === 'inputMessagesFilterPinned') {
+      return {_: 'messages.messages', messages: [], users: [], chats: [], count: 0};
+    }
+
     const peerId = extractPeerId(params?.peer);
     if(peerId === null) {
       console.warn(LOG_PREFIX, 'getHistory: could not extract peerId from', params?.peer);
@@ -468,6 +474,19 @@ export class NostraMTProtoServer {
   }
 
   private async searchMessages(params: any): Promise<any> {
+    const filterType = params?.filter?._ || '';
+
+    // P2P messages don't support pinning — return empty for pinned filter
+    if(filterType === 'inputMessagesFilterPinned') {
+      return {
+        _: 'messages.messages',
+        messages: [],
+        users: [],
+        chats: [],
+        count: 0
+      };
+    }
+
     const query = (params?.q ?? '').toLowerCase();
     const store = getMessageStore();
     const messages: any[] = [];
@@ -655,14 +674,102 @@ export class NostraMTProtoServer {
         isOutgoing: true
       });
 
-      // Return empty updates — the Worker's P2P shortcut in appMessagesManager
-      // clears pending/is_outgoing flags and resolves the message promise.
-      // Returning updateNewMessage would fail because the Worker can't match
-      // the new mid to the pending bubble's random_id.
-      return emptyUpdates;
+      // Inject the outgoing bubble directly into the main-thread bubble
+      // pipeline. This is the ONLY history_append dispatch path for P2P
+      // sends — beforeMessageSending on the Worker side is skipped for
+      // P2P peers to avoid duplicate renders.
+      await this.injectOutgoingBubble({
+        peerId: Math.abs(peerId),
+        mid,
+        date: now,
+        text,
+        senderPubkey: this.ownPubkey
+      });
+
+      // Return the mid and date so the Worker's P2P shortcut can
+      // re-assign the message's id from the temp value (0.0001) to the
+      // real timestamp-based mid.
+      return {
+        _: 'updates',
+        updates: [],
+        users: [],
+        chats: [],
+        date: now,
+        seq: 0,
+        nostraMid: mid,
+        nostraEventId: eventId
+      };
     } catch(err) {
       console.warn(LOG_PREFIX, 'sendMessage: failed', err);
       return emptyUpdates;
+    }
+  }
+
+  /**
+   * Inject an outgoing message bubble into the main-thread bubble pipeline.
+   * Used by sendMessage to render the bubble on the sender side with the
+   * real timestamp-based mid. beforeMessageSending on the Worker skips
+   * its history_append dispatch for P2P peers, so this is the sole render
+   * path for P2P outgoing messages.
+   */
+  private async injectOutgoingBubble(params: {
+    peerId: number;
+    mid: number;
+    date: number;
+    text: string;
+    senderPubkey: string;
+  }): Promise<void> {
+    try {
+      const {peerId, mid, date, text} = params;
+
+      const msg = this.mapper.createTwebMessage({
+        mid,
+        peerId,
+        fromPeerId: undefined,
+        date,
+        text,
+        isOutgoing: true
+      });
+      (msg as any).pFlags ??= {};
+      (msg as any).pFlags.out = true;
+      delete (msg as any).pFlags.is_outgoing;
+      delete (msg as any).pending;
+
+      // Inject into main-thread mirrors so lookups find it.
+      const apiProxy: any = (await import('@config/debug')).MOUNT_CLASS_TO.apiManagerProxy;
+      if(apiProxy?.mirrors?.messages) {
+        const storageKey = `${peerId}_history`;
+        if(!apiProxy.mirrors.messages[storageKey]) apiProxy.mirrors.messages[storageKey] = {};
+        apiProxy.mirrors.messages[storageKey][mid] = msg;
+      }
+
+      // Push to the Worker's history storage so bubbles.ts lookups by mid
+      // succeed and subsequent getHistory calls include the message.
+      try {
+        const rs: any = (await import('@lib/rootScope')).default;
+        await rs.managers.appMessagesManager.setMessageToStorage(
+          `${peerId}_history` as any,
+          msg
+        );
+      } catch(e: any) { console.debug(LOG_PREFIX, 'setMessageToStorage failed:', e?.message); }
+
+      // Dispatch history_append on the main-thread rootScope. We use
+      // dispatchEventSingle to fire the event LOCALLY without the
+      // MessagePort forwarding (which fails in test environments where
+      // the port is not initialized). bubbles.ts dedups by fullMid so
+      // repeated dispatches are idempotent.
+      try {
+        const rs: any = (await import('@lib/rootScope')).default;
+        if(typeof rs.dispatchEventSingle === 'function') {
+          rs.dispatchEventSingle('history_append', {
+            storageKey: `${peerId}_history`,
+            message: msg,
+            peerId
+          });
+        }
+      } catch(e: any) { console.debug(LOG_PREFIX, 'history_append dispatch failed:', e?.message); }
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'injectOutgoingBubble failed:', err);
     }
   }
 

@@ -1412,17 +1412,37 @@ export class AppMessagesManager extends AppManager {
         if(updates?._ === 'updates' && (updates as any).updates?.length === 0 && Number(peerId) >= 1e15) {
           const tempId = message.id;
           const tempMessage = copy(message);
+          const storage = this.getHistoryMessagesStorage(peerId);
+
+          // Use the real timestamp-based mid from the Virtual MTProto Server
+          // so that the bubble sorts correctly among received messages.
+          const nostraMid = (updates as any).nostraMid;
+          if(nostraMid && nostraMid !== tempId) {
+            storage.delete(tempId);
+            message.id = nostraMid;
+            message.mid = nostraMid;
+          }
+
           delete message.pFlags.is_outgoing;
           delete message.pending;
           message.pFlags.out = true;
           message.pFlags.unread = true;
-          const storage = this.getHistoryMessagesStorage(peerId);
+          if((updates as any).date) message.date = (updates as any).date;
           this.setMessageToStorage(storage, message);
           this.rootScope.dispatchEvent('message_sent', {
             storageKey: storage.key,
             tempId,
             tempMessage,
             mid: message.mid,
+            message
+          });
+          // Dispatch history_append with the REAL message so that, if the
+          // temp bubble was never rendered (race with chat open state),
+          // the final message is still inserted into the bubbles view.
+          // bubbles.ts dedups by fullMid so this is a no-op when the temp
+          // bubble was already renamed via message_sent.
+          this.rootScope.dispatchEvent('history_append', {
+            storageKey: storage.key,
             message
           });
           this.rootScope.dispatchEvent('messages_pending');
@@ -2751,12 +2771,20 @@ export class AppMessagesManager extends AppManager {
         this.monoforumDialogsStorage.checkLastMessageForExistingDialog(message);
       }
 
-      callbacks.push(() => {
-        this.rootScope.dispatchEvent('history_append', {storageKey: storage.key, message});
-        // storages.forEach((historyStorage) => {
-        //   this.rootScope.dispatchEvent('history_append', {storageKey: historyStorage.key, message});
-        // });
-      });
+      // [Nostra.chat] For P2P peers, the VMT Server injects the bubble
+      // directly from the main thread with the real timestamp-based mid.
+      // Skipping the Worker-side history_append avoids a double-render
+      // (one from temp mid + one from real mid) and keeps the bubble flow
+      // predictable.
+      const isP2PPeer = Number(peerId) >= 1e15;
+      if(!isP2PPeer) {
+        callbacks.push(() => {
+          this.rootScope.dispatchEvent('history_append', {storageKey: storage.key, message});
+          // storages.forEach((historyStorage) => {
+          //   this.rootScope.dispatchEvent('history_append', {storageKey: historyStorage.key, message});
+          // });
+        });
+      }
     }
 
     let pending: PendingMessageDetails;

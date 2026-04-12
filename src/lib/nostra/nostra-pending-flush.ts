@@ -30,12 +30,22 @@ export function createPendingFlush(): PendingFlushManager {
   const flushedForChat = new WeakSet<object>();
   let intervalId: ReturnType<typeof setInterval> | null = null;
 
+  const flushedMids = new Set<string>();
+
   const flush = (numericPeerId: number) => {
     const pending = pendingMessages.get(numericPeerId);
     if(!pending?.length) return;
 
-    // Strategy 1: dispatch history_append
     for(const msg of pending) {
+      const mid = msg.mid || msg.id;
+      const dedupKey = `${numericPeerId}_${mid}`;
+
+      // Skip if this mid was already flushed (prevents duplicate bubbles
+      // from the retry delays in attachListener)
+      if(flushedMids.has(dedupKey)) continue;
+      flushedMids.add(dedupKey);
+
+      // dispatch history_append for real-time bubble rendering
       try {
         rootScope.dispatchEvent('history_append' as any, {
           storageKey: `${numericPeerId}_history`,
@@ -44,24 +54,6 @@ export function createPendingFlush(): PendingFlushManager {
         });
       } catch(e: any) { console.debug('[PendingFlush]', e?.message); }
     }
-
-    // Strategy 2: direct bubble injection fallback
-    try {
-      const im = MOUNT_CLASS_TO.appImManager;
-      const chat = im?.chat;
-      if(chat && (chat as any).peerId && +chat.peerId === numericPeerId) {
-        const bubbles = (chat as any).bubbles;
-        if(bubbles && typeof bubbles.renderNewMessage === 'function') {
-          const alreadyDone = flushedForChat.has(chat);
-          for(const msg of pending) {
-            const fullMid = `${numericPeerId}_${msg.mid || msg.id}`;
-            if(bubbles.bubbles?.get?.(fullMid)) continue;
-            try { bubbles.renderNewMessage(msg, true); } catch(e: any) { console.debug('[PendingFlush]', e?.message); }
-          }
-          if(!alreadyDone) flushedForChat.add(chat);
-        }
-      }
-    } catch(e: any) { console.debug('[PendingFlush]', e?.message); }
 
     // Clear pending only if chat is active for this peer
     const im = MOUNT_CLASS_TO.appImManager;

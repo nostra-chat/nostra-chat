@@ -191,7 +191,17 @@ export class ChatAPI {
   }
 
   /**
-   * Connect to a peer by their public key
+   * Connect to a peer by their public key.
+   *
+   * If a global subscription is already active (from initGlobalSubscription),
+   * this is a lightweight operation: we just update `activePeer` without
+   * tearing down the relay pool. The relay pool uses a SINGLE subscription
+   * for all messages, so switching peers does not require resubscribing.
+   *
+   * Tearing down the pool here would kill the global subscription and cause
+   * the sender to miss their own self-echo (which breaks the bubble render
+   * on send, as the P2P shortcut relies on the echo path).
+   *
    * @param peerOwnId - The peer's public key
    */
   async connect(peerOwnId: string): Promise<void> {
@@ -200,9 +210,15 @@ export class ChatAPI {
         this.log('[ChatAPI] already connected/connecting to peer');
         return;
       }
-      // Already connected to a different peer - disconnect first
-      this.log('[ChatAPI] switching to new peer:', peerOwnId.slice(0, 8) + '...');
-      this.disconnect();
+      // Reuse existing connection: the global subscription already covers
+      // all incoming messages. Just switch the active peer for delivery
+      // tracking context — do NOT tear down the pool.
+      this.log('[ChatAPI] switching active peer to:', peerOwnId.slice(0, 8) + '...');
+      this.activePeer = peerOwnId;
+      if(this.onStatusChange) {
+        this.onStatusChange(peerOwnId, 'connected');
+      }
+      return;
     }
 
     this.log('[ChatAPI] connecting to peer:', peerOwnId.slice(0, 8) + '...');

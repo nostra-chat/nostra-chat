@@ -149,7 +149,9 @@ export async function handleIncomingMessage(
   const {isNewPeer} = await injectIntoMirrors(peerId, msg, data.senderPubkey);
   await invalidateHistoryCache(peerId);
 
-  // Dispatch history_append for real-time bubble rendering (when chat is open)
+  // Dispatch history_append for real-time bubble rendering (when chat is open).
+  // bubbles.ts deduplicates by fullMid — if getHistory already loaded this
+  // message, the duplicate append is silently skipped.
   rootScope.dispatchEvent('history_append' as any, {
     storageKey: `${peerId}_history`,
     message: msg,
