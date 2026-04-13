@@ -22,6 +22,9 @@ jobs:
           node-version: 20
           cache: pnpm
 
+      - name: Prepare local-only files
+        run: cp src/langPackLocalVersion.example.ts src/langPackLocalVersion.ts
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
