@@ -14,8 +14,8 @@ import copy from '@helpers/object/copy';
 export function buildSnapshotFromFilters(filters: MyDialogFilter[]): FolderSnapshot {
   const order = filters.map((f) => f.id);
   const customFolders = filters
-    .filter((f) => f.id >= START_LOCAL_ID)
-    .map((f) => copy(f));
+  .filter((f) => f.id >= START_LOCAL_ID)
+  .map((f) => copy(f));
 
   const protectedTitles: Record<number, MyDialogFilter['title']> = {};
   for(const f of filters) {

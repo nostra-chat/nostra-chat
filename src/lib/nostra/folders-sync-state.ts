@@ -7,7 +7,7 @@ function readTs(key: string): number {
     if(!v) return 0;
     const n = Number(v);
     return Number.isFinite(n) ? n : 0;
-  } catch {
+  } catch{
     return 0;
   }
 }
@@ -15,7 +15,7 @@ function readTs(key: string): number {
 function writeTs(key: string, value: number): void {
   try {
     localStorage.setItem(key, String(value));
-  } catch {}
+  } catch{}
 }
 
 export const getLastPublishedAt = (): number => readTs(LS_KEY_LAST_PUBLISHED);

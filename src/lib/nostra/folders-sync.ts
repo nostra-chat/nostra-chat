@@ -102,11 +102,11 @@ export class FoldersSync {
     let ev;
     try {
       ev = await this.deps.chatAPI.queryLatestEvent({
-        kinds: [FOLDERS_SYNC_KIND],
+        'kinds': [FOLDERS_SYNC_KIND],
         '#d': [FOLDERS_SYNC_D_TAG],
-        limit: 1
+        'limit': 1
       });
-    } catch {
+    } catch{
       return null;
     }
     if(!ev) return null;
@@ -114,7 +114,7 @@ export class FoldersSync {
     let snapshot: unknown;
     try {
       snapshot = JSON.parse(this.deps.decrypt(ev.content));
-    } catch {
+    } catch{
       return null;
     }
     if(!isValidSnapshot(snapshot)) return null;

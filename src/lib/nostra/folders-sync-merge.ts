@@ -21,9 +21,9 @@ export type MergeDecision =
  */
 export function decideMerge(i: MergeInputs): MergeDecision {
   if(i.remoteCreatedAt === null) {
-    return i.hasLocalCustomFolders
-      ? {action: 'publish-local', showToast: false}
-      : {action: 'no-op', showToast: false};
+    return i.hasLocalCustomFolders ?
+      {action: 'publish-local', showToast: false} :
+      {action: 'no-op', showToast: false};
   }
 
   if(i.localModifiedAt > i.remoteCreatedAt) {
