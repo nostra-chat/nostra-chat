@@ -128,6 +128,27 @@ export class LocalRelay {
     `);
   }
 
+  /** Wait for an event matching the filter to appear, polling strfry scan. */
+  async waitForEvent(filter: {kinds?: number[]}, timeoutMs = 15000): Promise<any | null> {
+    const filterJson = JSON.stringify(filter);
+    const start = Date.now();
+    while(Date.now() - start < timeoutMs) {
+      try {
+        // Use full path — strfry is at /app/strfry, not in PATH
+        const out = exec(`docker exec ${CONTAINER_NAME} /app/strfry scan '${filterJson}' 2>/dev/null || true`);
+        if(out) {
+          // Filter to only JSON-looking lines (events) — strfry outputs INFO log lines too
+          const lines = out.split('\n').filter((l) => l.trim().startsWith('{'));
+          if(lines.length > 0) {
+            try { return JSON.parse(lines[lines.length - 1]); } catch{ /* try next */ }
+          }
+        }
+      } catch{ /* not ready */ }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return null;
+  }
+
   /** Check if the relay is reachable. */
   async isHealthy(): Promise<boolean> {
     try {

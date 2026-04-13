@@ -18,6 +18,7 @@ export default class EditPeer {
   public nextBtn: HTMLButtonElement;
 
   public uploadAvatar: () => Promise<InputFile>;
+  public lastAvatarBlob: Blob | null = null;
   public avatarEdit: AvatarEdit;
   public avatarElem: ReturnType<typeof avatarNew>;
 
@@ -61,8 +62,9 @@ export default class EditPeer {
       this.avatarElem.node.classList.add('avatar-placeholder');
 
       if(!options.doNotEditAvatar) {
-        this.avatarEdit = new AvatarEdit((_upload) => {
+        this.avatarEdit = new AvatarEdit((_upload, _blob) => {
           this.uploadAvatar = _upload;
+          this.lastAvatarBlob = _blob;
           this.handleChange();
           this.avatarElem.node.remove();
         }, options.popupOptions);
