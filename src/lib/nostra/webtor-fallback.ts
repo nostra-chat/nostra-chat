@@ -12,7 +12,52 @@
  * access to Snowflake, bootstrap will fail. This is expected behavior.
  */
 
-import initWebtor, {TorClient, TorClientOptions} from '/webtor/webtor_wasm';
+import initWebtor, {TorClient, TorClientOptions, setDebugEnabled, setLogCallback} from '/webtor/webtor_wasm';
+
+// ---------------------------------------------------------------------------
+// Fresh Tor consensus shim
+// ---------------------------------------------------------------------------
+//
+// webtor-rs fetches its cached Tor consensus + microdescriptors from a static
+// site (https://privacy-ethereum.github.io/webtor-rs) which is updated rarely.
+// A stale consensus has out-of-date relay keys, so circuit construction fails
+// at the middle hop with "Circuit-extension handshake authentication failed".
+//
+// We install a one-time fetch shim that rewrites those URLs to /webtor/*
+// served from public/, kept fresh by scripts/update-tor-consensus.mjs.
+//
+// The shim is idempotent and only patches in browser contexts.
+let _fetchShimInstalled = false;
+function installConsensusFetchShim() {
+  if(_fetchShimInstalled) return;
+  if(typeof window === 'undefined' || typeof window.fetch !== 'function') return;
+  _fetchShimInstalled = true;
+
+  const STALE_PREFIX = 'https://privacy-ethereum.github.io/webtor-rs/';
+  const LOCAL_PREFIX = '/webtor/';
+  // Local copies use a .bin suffix so Vite (and other static hosts) do NOT
+  // auto-add Content-Encoding: br, which would make the browser pre-decode
+  // the body before the WASM sees it.
+  const REWRITE: Record<string, string> = {
+    [STALE_PREFIX + 'consensus.txt.br']: LOCAL_PREFIX + 'consensus.br.bin',
+    [STALE_PREFIX + 'microdescriptors.txt.br']: LOCAL_PREFIX + 'microdescriptors.br.bin'
+  };
+
+  const origFetch = window.fetch.bind(window);
+  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    let url: string;
+    if(typeof input === 'string') url = input;
+    else if(input instanceof URL) url = input.toString();
+    else url = (input as Request).url;
+
+    const replacement = REWRITE[url];
+    if(replacement) {
+      console.debug('[WebtorClient] consensus shim: rewriting', url, '→', replacement);
+      return origFetch(replacement, init);
+    }
+    return origFetch(input as any, init);
+  }) as typeof window.fetch;
+}
 
 // ---------------------------------------------------------------------------
 // Types matching TorWasmClient interface
@@ -111,8 +156,19 @@ export class WebtorClient implements TorPrivacyClient {
   }
 
   private async _init(): Promise<void> {
+    installConsensusFetchShim();
     console.debug('[WebtorClient] Initializing webtor-rs WASM module...');
     await initWebtor();
+    try {
+      if(typeof setDebugEnabled === 'function') setDebugEnabled(true);
+      if(typeof setLogCallback === 'function') {
+        setLogCallback((level: string, target: string, msg: string) => {
+          console.debug(`[webtor-rs:${level}] ${target}: ${msg}`);
+        });
+      }
+    } catch(e) {
+      console.warn('[WebtorClient] could not enable debug logging:', e);
+    }
     this._moduleReady = true;
     console.debug('[WebtorClient] webtor-rs module ready');
   }
@@ -143,8 +199,8 @@ export class WebtorClient implements TorPrivacyClient {
 
         const options = (TorClientOptions as any).snowflakeWebRtc ?
           (TorClientOptions as any).snowflakeWebRtc()
-          .withConnectionTimeout(30_000)
-          .withCircuitTimeout(45_000)
+          .withConnectionTimeout(60_000)
+          .withCircuitTimeout(120_000)
           .withCreateCircuitEarly(true) :
           new (TorClientOptions as any)();
 
@@ -160,10 +216,18 @@ export class WebtorClient implements TorPrivacyClient {
         console.info('[WebtorClient] webtor-rs connected via Tor circuit');
 
         // Start circuit health polling (for onCircuitChange events)
-        this._startCircuitPolling();
-        await this._fetchExitIp();
+        await this._startCircuitPolling();
+        // Best-effort exit IP probe, bounded so a stuck arti exit doesn't
+        // stall bootstrap indefinitely. Real Tor exits can take a few
+        // seconds on the first fetch; mocked clients resolve instantly.
+        await Promise.race([
+          this._fetchExitIp(),
+          new Promise<void>((resolve) => setTimeout(resolve, 15_000))
+        ]);
       } catch(err) {
         const msg = err instanceof Error ? err.message : String(err);
+        const stack = err instanceof Error ? err.stack : '';
+        console.error('[WebtorClient] bootstrap failed:', msg, stack);
         this._setState('error', msg);
         throw err;
       }
@@ -176,30 +240,74 @@ export class WebtorClient implements TorPrivacyClient {
     if(!this._client) return;
 
     const deadline = Date.now() + timeoutMs;
+    const client: any = this._client;
+    let attempt = 0;
+    let lastErr: unknown = null;
 
+    // Retry loop: waitForCircuit can fail mid-build (e.g. "Circuit closed"
+    // when extending to a hop). When that happens we explicitly trigger a
+    // new circuit via updateCircuit() and retry until the deadline.
     while(Date.now() < deadline) {
-      try {
-        const status = await this._client.getCircuitStatus();
+      attempt++;
+      const remaining = deadline - Date.now();
+      if(remaining <= 0) break;
 
-        if(status.has_ready_circuits) {
+      // Check current status — maybe a circuit became ready since last attempt
+      try {
+        const status = await client.getCircuitStatus();
+        if(status?.has_ready_circuits) {
           console.debug('[WebtorClient] Circuit ready:', {
             ready: status.ready ?? status.ready_circuits,
-            total: status.total ?? status.total_circuits
+            total: status.total ?? status.total_circuits,
+            attempt
           });
           return;
         }
-
-        await this._delay(500);
       } catch{
-        // getCircuitStatus may fail during bootstrap — keep polling
-        await this._delay(500);
+        // status query may fail right after a failed circuit — ignore
+      }
+
+      try {
+        if(typeof client.waitForCircuit === 'function') {
+          const waitPromise = client.waitForCircuit() as Promise<void>;
+          const attemptTimeout = Math.min(remaining, 20_000);
+          const timeoutPromise = new Promise<void>((_, reject) => {
+            setTimeout(() => reject(new Error(`waitForCircuit attempt timed out after ${attemptTimeout}ms`)), attemptTimeout);
+          });
+          await Promise.race([waitPromise, timeoutPromise]);
+          console.debug(`[WebtorClient] Circuit ready (attempt ${attempt})`);
+          return;
+        } else {
+          // No waitForCircuit — fall back to polling getCircuitStatus
+          await this._delay(500);
+          continue;
+        }
+      } catch(err) {
+        lastErr = err;
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[WebtorClient] circuit attempt ${attempt} failed: ${msg}`);
+
+        // Actively trigger a new circuit before retrying
+        if(typeof client.updateCircuit === 'function' && Date.now() < deadline) {
+          try {
+            const updateDeadline = Math.min(60_000, deadline - Date.now());
+            console.debug(`[WebtorClient] requesting new circuit (deadline ${updateDeadline}ms)`);
+            await client.updateCircuit(updateDeadline);
+          } catch(updateErr) {
+            const upMsg = updateErr instanceof Error ? updateErr.message : String(updateErr);
+            console.warn(`[WebtorClient] updateCircuit failed: ${upMsg}`);
+          }
+        }
+
+        await this._delay(1000);
       }
     }
 
-    throw new Error(`webtor-rs: circuit not ready after ${timeoutMs}ms`);
+    const lastErrMsg = lastErr instanceof Error ? lastErr.message : (lastErr ? String(lastErr) : 'unknown');
+    throw new Error(`webtor-rs: circuit not ready after ${timeoutMs}ms across ${attempt} attempts (lastErr=${lastErrMsg})`);
   }
 
-  private _startCircuitPolling(): void {
+  private async _startCircuitPolling(): Promise<void> {
     const poll = async() => {
       if(!this._client) return;
       try {
@@ -228,7 +336,9 @@ export class WebtorClient implements TorPrivacyClient {
       }
     };
 
-    poll();
+    // Await the first poll so callers (and tests) can rely on
+    // _circuitDetails being populated when bootstrap() returns.
+    await poll();
     this._pollingIntervals.set('circuit', setInterval(poll, 10_000) as any);
   }
 
@@ -237,8 +347,14 @@ export class WebtorClient implements TorPrivacyClient {
   // ---------------------------------------------------------------------------
 
   /**
-   * Fetch a URL through Tor circuit.
+   * Fetch a URL through the Tor circuit.
+   *
    * Matches TorWasmClient.fetch(url, options) → string interface.
+   *
+   * Single attempt — callers (test code, relay polls, etc.) own their retry
+   * policy. Wrapping the WASM client in a JS retry+timeout race here saturates
+   * the underlying tunnel because abandoned promises don't free the stream
+   * inside arti, leaving subsequent fetches to pile up against a wedged client.
    */
   async fetch(url: string, options: {
     method?: 'GET' | 'POST';
@@ -250,15 +366,18 @@ export class WebtorClient implements TorPrivacyClient {
     }
 
     const {method = 'GET', headers, body} = options;
+    const client: any = this._client;
 
     if(method === 'POST' && body !== undefined) {
       const headersJson = JSON.stringify(headers ?? {});
-      return this._client.post(url, new TextEncoder().encode(
+      const r = await client.post(url, new TextEncoder().encode(
         JSON.stringify({headers: headersJson, body})
-      )).then(r => r.text());
+      ));
+      return typeof r.text === 'function' ? r.text() : (typeof r.body_string === 'function' ? r.body_string() : '');
     }
 
-    return this._client.fetch(url).then(r => r.text?.() ?? r.body_string?.() ?? '');
+    const r = await client.fetch(url);
+    return typeof r.text === 'function' ? r.text() : (typeof r.body_string === 'function' ? r.body_string() : '');
   }
 
   // ---------------------------------------------------------------------------
@@ -369,8 +488,15 @@ export class WebtorClient implements TorPrivacyClient {
     this._activeSubscriptions.clear();
 
     if(this._client) {
+      const client: any = this._client;
+      // Abort any in-flight operations before close so close() can't hang on
+      // a stuck circuit/fetch.
+      try { if(typeof client.abort === 'function') client.abort(); } catch{}
       try {
-        await this._client.close();
+        await Promise.race([
+          client.close(),
+          new Promise((resolve) => setTimeout(resolve, 3000))
+        ]);
       } catch{
         // Ignore close errors
       }
@@ -387,13 +513,16 @@ export class WebtorClient implements TorPrivacyClient {
   // ---------------------------------------------------------------------------
 
   private async _fetchExitIp() {
+    // Best-effort only. Plain HTTP because arti's TLS stack frequently
+    // fails handshake negotiation against modern HTTPS endpoints.
     try {
-      const ip = await this.fetch('https://api.ipify.org');
-      if(this._circuitDetails) {
-        this._circuitDetails.exitIp = ip.trim();
+      const body = await this.fetch('http://icanhazip.com/');
+      const m = body.match(/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/);
+      if(m && this._circuitDetails) {
+        this._circuitDetails.exitIp = m[0];
       }
     } catch(_e) {
-      // Exit IP fetch is best-effort
+      // Best-effort — never throw
     }
   }
 

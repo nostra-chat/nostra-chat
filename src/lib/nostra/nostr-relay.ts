@@ -252,6 +252,10 @@ export class NostrRelay {
   disconnect(): void {
     this.log('[NostrRelay] disconnecting');
 
+    // Clear Tor polling state so any in-flight poll's `finally` block sees
+    // an inactive relay and refuses to reschedule the next iteration.
+    this.mode = 'websocket';
+    this.torFetchFn = undefined;
     this.stopHttpPolling();
 
     if(this.reconnectTimeout) {
@@ -626,6 +630,10 @@ export class NostrRelay {
     this.lastPolled = Math.floor(Date.now() / 1000) - 60;
     this.setConnectionState('connected');
 
+    let consecutiveFailures = 0;
+    const baseDelay = 3000;
+    const maxDelay = 60_000;
+
     const poll = async() => {
       if(this.mode !== 'http-polling' || !this.torFetchFn) return;
 
@@ -651,15 +659,25 @@ export class NostrRelay {
             this.handleEvent(event);
           }
         }
+        consecutiveFailures = 0;
       } catch(err) {
+        consecutiveFailures++;
         this.log.warn('[NostrRelay] HTTP poll error:', err);
+      } finally {
+        // Schedule next poll only AFTER this one finishes — never let polls
+        // pile up in parallel, otherwise a slow Tor circuit gets saturated
+        // by concurrent fetches, multiplying the backlog every cycle.
+        if(this.mode === 'http-polling' && this.torFetchFn) {
+          const delay = consecutiveFailures > 0 ?
+            Math.min(baseDelay * Math.pow(2, consecutiveFailures), maxDelay) :
+            baseDelay;
+          this.pollingInterval = setTimeout(poll, delay) as any;
+        }
       }
     };
 
-    // Poll every 3 seconds (Pitfall 1: don't poll too aggressively)
-    this.pollingInterval = setInterval(() => {
-      void poll();
-    }, 3000);
+    // Kick off the first poll — subsequent ones are chained via setTimeout
+    this.pollingInterval = setTimeout(poll, 100) as any;
   }
 
   /**
@@ -667,6 +685,7 @@ export class NostrRelay {
    */
   private stopHttpPolling(): void {
     if(this.pollingInterval) {
+      clearTimeout(this.pollingInterval as any);
       clearInterval(this.pollingInterval);
       this.pollingInterval = null;
     }

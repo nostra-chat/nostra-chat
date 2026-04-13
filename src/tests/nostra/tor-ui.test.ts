@@ -29,6 +29,8 @@ describe('WebtorClient circuit details', () => {
     vi.doMock('/webtor/webtor_wasm', () => ({
       default: vi.fn(),
       init: vi.fn(),
+      setDebugEnabled: vi.fn(),
+      setLogCallback: vi.fn(),
       TorClient: vi.fn().mockImplementation(() => ({
         getCircuitStatus: vi.fn().mockResolvedValue({
           has_ready_circuits: true,
@@ -71,6 +73,8 @@ describe('WebtorClient circuit details', () => {
     vi.doMock('/webtor/webtor_wasm', () => ({
       default: vi.fn(),
       init: vi.fn(),
+      setDebugEnabled: vi.fn(),
+      setLogCallback: vi.fn(),
       TorClient: vi.fn().mockImplementation(() => ({
         getCircuitStatus: vi.fn().mockResolvedValue({
           has_ready_circuits: true,

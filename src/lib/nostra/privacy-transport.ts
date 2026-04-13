@@ -39,10 +39,16 @@ export class PrivacyTransport {
   private webtorClient: WebtorClient;
   private state: PrivacyTransportState = 'offline';
   private offlineQueue: OfflineQueue;
+  // True when the WebtorClient was supplied via constructor (tests inject
+  // mocks). In that case the retry loop must NOT construct a fresh real
+  // WebtorClient on failure — that would wipe out the injected mock and
+  // try to load the real WASM module in a jsdom test environment.
+  private webtorInjected: boolean;
 
   constructor(relayPool: NostrRelayPool, offlineQueue: OfflineQueue, webtorClient?: WebtorClient) {
     this.relayPool = relayPool;
     this.offlineQueue = offlineQueue;
+    this.webtorInjected = !!webtorClient;
     this.webtorClient = webtorClient || new WebtorClient();
 
     // Wire circuit change callback to dispatch rootScope event
@@ -84,29 +90,49 @@ export class PrivacyTransport {
    * Bootstrap privacy transport.
    *
    * 1. Set state to bootstrapping, dispatch event
-   * 2. Create WebtorClient, attempt bootstrap (60s timeout)
-   * 3. On success: switch pool to Tor mode, set state to active
-   * 4. On failure: set state to failed (NOT direct — user must confirm)
+   * 2. Create WebtorClient, attempt bootstrap (180s per attempt)
+   * 3. On per-attempt failure: dispose the client, create a fresh one, retry
+   *    (the underlying WebRTC peer can wedge into "Channel not established"
+   *    and never recover — only a brand-new client gets a new tunnel)
+   * 4. On success: switch pool to Tor mode, set state to active
+   * 5. On final failure: set state to failed (NOT direct — user must confirm)
    */
   async bootstrap(): Promise<void> {
     this.setState('bootstrapping');
 
-    try {
-      await this.webtorClient.bootstrap(60000);
+    const maxAttempts = 4;
+    const perAttemptMs = 60_000;
+    let lastErr: unknown = null;
 
-      if(this.webtorClient.isReady()) {
-        // Switch all relays to HTTP polling via Tor
-        const fetchFn = (url: string) => this.webtorClient.fetch(url);
-        this.relayPool.setTorMode(fetchFn);
-        this.setState('active');
-      } else {
-        this.setState('failed');
+    for(let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await this.webtorClient.bootstrap(perAttemptMs);
+
+        if(this.webtorClient.isReady()) {
+          const fetchFn = (url: string) => this.webtorClient.fetch(url);
+          this.relayPool.setTorMode(fetchFn);
+          this.setState('active');
+          return;
+        }
+      } catch(err) {
+        lastErr = err;
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.warn(`[PrivacyTransport] bootstrap attempt ${attempt}/${maxAttempts} failed: ${errorMsg}`);
+
+        if(attempt < maxAttempts) {
+          // Tear down the wedged client and build a fresh one (only when
+          // we own the client lifecycle — injected test mocks stay put).
+          try { await this.webtorClient.close(); } catch{}
+          if(!this.webtorInjected) {
+            this.webtorClient = new WebtorClient();
+          }
+          continue;
+        }
       }
-    } catch(err) {
-      // Tor failed — do NOT auto-fallback (PRIV-03, Pitfall 4)
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      this.setState('failed', errorMsg);
     }
+
+    const errorMsg = lastErr instanceof Error ? lastErr.message : String(lastErr ?? 'webtor not ready');
+    this.setState('failed', errorMsg);
   }
 
   /**
@@ -123,28 +149,17 @@ export class PrivacyTransport {
 
   /**
    * Retry Tor bootstrap after previous failure.
+   * Starts from a fresh WebtorClient (unless one was injected via
+   * constructor) and reuses bootstrap()'s retry loop.
    */
   async retryTor(): Promise<void> {
-    this.setState('bootstrapping');
-
-    try {
-      // Create fresh WebtorClient
+    try { await this.webtorClient.close(); } catch{}
+    if(!this.webtorInjected) {
       this.webtorClient = new WebtorClient();
-      await this.webtorClient.bootstrap(60000);
-
-      if(this.webtorClient.isReady()) {
-        const fetchFn = (url: string) => this.webtorClient.fetch(url);
-        this.relayPool.setTorMode(fetchFn);
-        this.setState('active');
-
-        // Flush queued messages
-        this.flushQueue();
-      } else {
-        this.setState('failed');
-      }
-    } catch(err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      this.setState('failed', errorMsg);
+    }
+    await this.bootstrap();
+    if(this.state === 'active') {
+      this.flushQueue();
     }
   }
 
