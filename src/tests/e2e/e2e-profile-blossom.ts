@@ -13,7 +13,7 @@ const APP_URL = (process.env.E2E_APP_URL || 'http://localhost:8080') + '/?debug=
 
 async function dismiss(page) {
   await page.evaluate(() => {
-    document.querySelectorAll('vite-plugin-checker-error-overlay, vite-error-overlay')
+    document.querySelectorAll('vite-plugin-checker-error-overlay, vite-error-overlay, .tor-startup-banner, .tor-startup-banner-mount')
       .forEach((el) => el.remove());
   });
 }
@@ -46,7 +46,13 @@ async function completeOnboarding(page) {
       const getStarted = page.getByRole('button', {name: 'Get Started'});
       if(await getStarted.isVisible().catch(() => false)) await getStarted.click();
     }
-    await page.waitForTimeout(12000);
+    // Wait for the main chat UI (hamburger button) to appear — fixed timeout
+    // was unreliable on fresh worktrees where Vite first-compile is slower.
+    await page.waitForSelector('.sidebar-header .btn-menu-toggle', {
+      timeout: 30000,
+      state: 'visible'
+    }).catch(() => {});
+    await page.waitForTimeout(2000);
     await dismiss(page);
   }
 }
@@ -63,17 +69,10 @@ async function clickHamburger(page) {
     toggles.forEach((t) => t.classList.remove('active'));
   });
 
-  const pos = await page.evaluate(() => {
-    const btn = document.querySelector('.sidebar-header .btn-menu-toggle');
-    if(!btn) return null;
-    const r = btn.getBoundingClientRect();
-    return {x: r.left + r.width / 2, y: r.top + r.height / 2};
-  });
-  if(!pos) throw new Error('hamburger button not found');
-  await page.mouse.move(pos.x, pos.y);
-  await page.mouse.down();
-  await page.mouse.up();
-  await page.waitForTimeout(800);
+  // Real Playwright click — more reliable than raw mouse events with
+  // Solid.js event delegation and the button-menu-toggle handler.
+  await page.locator('.sidebar-header .btn-menu-toggle').first().click();
+  await page.waitForTimeout(600);
 }
 
 /** Click the first visible btn-menu-item in the sidebar hamburger menu. */
@@ -117,22 +116,33 @@ async function test1_menuEntryRenders() {
   const page = await ctx.newPage();
   await completeOnboarding(page);
 
-  await clickHamburger(page);
+  // Use a real playwright click instead of raw mouse events — more
+  // reliable with Solid.js event delegation and button-menu-toggle logic.
+  await page.locator('.sidebar-header .btn-menu-toggle').first().click();
+  await page.waitForTimeout(600);
 
-  const result = await page.evaluate(() => {
-    const items = document.querySelectorAll('.btn-menu-item');
-    for(const item of items) {
-      if(item.offsetParent !== null) {
-        const r = item.getBoundingClientRect();
-        if(r.width > 0 && r.height > 0) {
-          const avatar = item.querySelector('img.nostra-profile-menu-entry-avatar');
-          const text = item.textContent || '';
-          return {hasAvatar: !!avatar, text};
+  // Poll for the menu to actually open
+  let result: {hasAvatar: boolean; text: string} | null = null;
+  const deadline = Date.now() + 5000;
+  while(!result && Date.now() < deadline) {
+    result = await page.evaluate(() => {
+      const menu = document.querySelector('.btn-menu.active, .btn-menu.bottom-right');
+      if(!menu) return null;
+      const items = menu.querySelectorAll('.btn-menu-item');
+      for(const item of items) {
+        if(item.offsetParent !== null) {
+          const r = item.getBoundingClientRect();
+          if(r.width > 0 && r.height > 0) {
+            const avatar = item.querySelector('img.nostra-profile-menu-entry-avatar');
+            const text = item.textContent || '';
+            return {hasAvatar: !!avatar, text};
+          }
         }
       }
-    }
-    return null;
-  });
+      return null;
+    });
+    if(!result) await new Promise((r) => setTimeout(r, 150));
+  }
 
   if(!result) throw new Error('no visible menu items found');
   if(!result.hasAvatar) throw new Error('expected avatar image in first menu entry');

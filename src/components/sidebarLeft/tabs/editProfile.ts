@@ -21,6 +21,7 @@ import {toast} from '@components/toast';
 import {publishKind0Metadata} from '@lib/nostra/nostr-relay';
 import Button from '@components/button';
 import {uploadToBlossom} from '@lib/nostra/blossom-upload';
+import {saveOwnProfileLocal} from '@lib/nostra/own-profile-sync';
 import {loadEncryptedIdentity, loadBrowserKey, decryptKeys} from '@lib/nostra/key-storage';
 import {importFromMnemonic, decodePubkey} from '@lib/nostra/nostr-identity';
 import {verifyNip05, buildNip05Instructions} from '@lib/nostra/nip05';
@@ -52,23 +53,6 @@ export function purchaseUsernameCaption() {
       p.classList.toggle('hide', !username);
     }
   };
-}
-
-const PROFILE_EXTRAS_KEY = 'nostra-profile-extras';
-
-function loadProfileExtras(): {website?: string; lud16?: string} {
-  try {
-    const raw = localStorage.getItem(PROFILE_EXTRAS_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch{
-    return {};
-  }
-}
-
-function saveProfileExtras(data: {website?: string; lud16?: string}): void {
-  try {
-    localStorage.setItem(PROFILE_EXTRAS_KEY, JSON.stringify(data));
-  } catch{}
 }
 
 export default class AppEditProfileTab extends SliderSuperTab {
@@ -291,18 +275,25 @@ export default class AppEditProfileTab extends SliderSuperTab {
           }
         }
 
-        saveProfileExtras({website: website || undefined, lud16: lud16 || undefined});
+        const nowSec = Math.floor(Date.now() / 1000);
+        const existingNip05 = useNostraIdentity().nip05() || undefined;
+
+        saveOwnProfileLocal({
+          name: displayName,
+          display_name: displayName,
+          about: bio,
+          picture: pictureUrl,
+          website: website || undefined,
+          lud16: lud16 || undefined,
+          nip05: existingNip05
+        }, nowSec);
 
         if(npubValue) {
-          rootScope.dispatchEvent('nostra_identity_updated', {
-            displayName,
-            ...(pictureUrl ? {picture: pictureUrl} : {})
-          });
           await publishKind0Metadata({
             name: displayName,
             display_name: displayName,
             about: bio,
-            nip05: useNostraIdentity().nip05() || undefined,
+            nip05: existingNip05,
             picture: pictureUrl || undefined,
             website: website || undefined,
             lud16: lud16 || undefined
@@ -318,13 +309,13 @@ export default class AppEditProfileTab extends SliderSuperTab {
       }
     }, {listenerSetter: this.listenerSetter});
 
-    // Prefer the Nostra identity store for the display name
+    // Read all fields from the Nostra identity store (cache-first hydration
+    // happens at boot via own-profile-sync, relay refresh updates in place).
     const identity2 = useNostraIdentity();
-    const extras = loadProfileExtras();
     this.displayNameInputField.setOriginalValue(identity2.displayName() || '', true);
-    this.bioInputField.setOriginalValue(userFull?.about || '', true);
-    this.websiteInputField.setOriginalValue(extras.website || '', true);
-    this.lud16InputField.setOriginalValue(extras.lud16 || '', true);
+    this.bioInputField.setOriginalValue(identity2.about() || userFull?.about || '', true);
+    this.websiteInputField.setOriginalValue(identity2.website() || '', true);
+    this.lud16InputField.setOriginalValue(identity2.lud16() || '', true);
 
     this.editPeer.handleChange();
   }

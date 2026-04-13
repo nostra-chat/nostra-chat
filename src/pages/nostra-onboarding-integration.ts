@@ -116,6 +116,20 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
         protectionType: 'none'
       });
 
+      // Hydrate own profile from the local cache synchronously so the UI has
+      // name/bio/website/lud16 on first paint, then kick off a background
+      // relay fetch to pick up edits made from other devices.
+      try {
+        const {hydrateOwnProfileFromCache, refreshOwnProfileFromRelays} =
+          await import('@lib/nostra/own-profile-sync');
+        hydrateOwnProfileFromCache();
+        refreshOwnProfileFromRelays(identity.publicKey).catch((err) => {
+          console.warn('[NostraOnboardingIntegration] own profile relay refresh failed:', err);
+        });
+      } catch(err) {
+        console.warn('[NostraOnboardingIntegration] own profile sync init failed:', err);
+      }
+
       // --- Initialize ChatAPI ---
       const chatAPI = new ChatAPI(identity.publicKey);
       window.__nostraChatAPI = chatAPI;
