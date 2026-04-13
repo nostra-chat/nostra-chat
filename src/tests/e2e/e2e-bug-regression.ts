@@ -23,7 +23,7 @@ import {chromium, type Page, type BrowserContext} from 'playwright';
 import {launchOptions} from './helpers/launch-options';
 import {LocalRelay} from './helpers/local-relay';
 
-const APP_URL = 'http://localhost:8080';
+const APP_URL = process.env.E2E_APP_URL || 'http://localhost:8080';
 
 // ---------------------------------------------------------------------------
 // Helpers (reused from existing E2E tests)

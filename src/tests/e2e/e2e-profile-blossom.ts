@@ -9,7 +9,7 @@ import {chromium} from 'playwright';
 import {launchOptions} from './helpers/launch-options';
 import {LocalRelay} from './helpers/local-relay';
 
-const APP_URL = 'http://localhost:8090/?debug=1';
+const APP_URL = (process.env.E2E_APP_URL || 'http://localhost:8080') + '/?debug=1';
 
 async function dismiss(page) {
   await page.evaluate(() => {
