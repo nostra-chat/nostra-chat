@@ -12,7 +12,16 @@ import copy from '@helpers/object/copy';
 import {AppManager} from '@appManagers/manager';
 import findAndSplice from '@helpers/array/findAndSplice';
 import assumeType from '@helpers/assumeType';
-import {FOLDER_ID_ALL, FOLDER_ID_ARCHIVE, REAL_FOLDERS, REAL_FOLDER_ID, START_LOCAL_ID} from '@appManagers/constants';
+import {
+  FOLDER_ID_ALL,
+  FOLDER_ID_ARCHIVE,
+  FOLDER_ID_PERSONS,
+  FOLDER_ID_GROUPS,
+  REAL_FOLDERS,
+  REAL_FOLDER_ID,
+  START_LOCAL_ID
+} from '@appManagers/constants';
+import {buildLocalFilter, LANGPACK_PREFIX} from '@lib/storages/filtersLocal';
 import makeError from '@helpers/makeError';
 import indexOfAndSplice from '@helpers/array/indexOfAndSplice';
 import {isDialog} from '@appManagers/utils/dialogs/isDialog';
@@ -27,18 +36,6 @@ const convertment = [
 
 const PREPENDED_FILTERS = REAL_FOLDERS.size;
 
-const LOCAL_FILTER: DialogFilter.dialogFilter = {
-  _: 'dialogFilter',
-  pFlags: {},
-  id: 0,
-  title: {_: 'textWithEntities', text: '', entities: []},
-  exclude_peers: [],
-  include_peers: [],
-  pinned_peers: [],
-  excludePeerIds: [],
-  includePeerIds: [],
-  pinnedPeerIds: []
-};
 
 export default class FiltersStorage extends AppManager {
   private filters: {[filterId: string]: MyDialogFilter};
@@ -92,19 +89,61 @@ export default class FiltersStorage extends AppManager {
 
   /**
    * ! use it only with saving
+   *
+   * Ensures the 4 locally-seeded system folders (All, Persons, Groups, Archive)
+   * are present in the filter array, in that order, followed by any user custom
+   * folders. For existing users whose filtersArr already contains only [ALL, ARCHIVE],
+   * this method retroactively inserts Persons and Groups. Preserves user-renamed
+   * titles across reloads via the LANGPACK: sentinel check.
    */
   private prependFilters(filters: DialogFilter[]) {
     filters = filters.slice();
 
     const allChatsFilter = this.localFilters[FOLDER_ID_ALL];
     const archiveFilter = this.localFilters[FOLDER_ID_ARCHIVE];
+    const personsFilter = this.localFilters[FOLDER_ID_PERSONS];
+    const groupsFilter = this.localFilters[FOLDER_ID_GROUPS];
 
-    const allChatsFilterIndex = filters.findIndex((filter) => filter._ === 'dialogFilterDefault' || filter.id === FOLDER_ID_ALL);
-    if(allChatsFilterIndex !== -1) filters[allChatsFilterIndex] = allChatsFilter;
+    // ALL: replace existing or prepend
+    const allIdx = filters.findIndex(
+      (f) => f._ === 'dialogFilterDefault' || (f as MyDialogFilter).id === FOLDER_ID_ALL
+    );
+    if(allIdx !== -1) filters[allIdx] = allChatsFilter;
     else filters.unshift(allChatsFilter);
 
-    findAndSplice(filters, (filter) => (filter as MyDialogFilter).id === FOLDER_ID_ARCHIVE);
-    filters.splice(/* 1 */filters[0] === allChatsFilter ? 1 : 0, 0, archiveFilter);
+    // Helper: if a previously-persisted filter has a user-renamed literal title
+    // (not the LANGPACK sentinel), keep that title when re-seeding; otherwise
+    // use the fresh seed (which carries the current LANGPACK key).
+    const preserveRename = (
+      existing: MyDialogFilter | undefined,
+      fresh: MyDialogFilter
+    ): MyDialogFilter => {
+      if(!existing) return fresh;
+      const existingTitle = (existing as DialogFilter.dialogFilter).title?.text ?? '';
+      const isLangpack = existingTitle.startsWith(LANGPACK_PREFIX);
+      if(!isLangpack && existingTitle.length > 0) {
+        return {...fresh, title: (existing as DialogFilter.dialogFilter).title};
+      }
+      return fresh;
+    };
+
+    // PERSONS: ensure present at index 1, preserve rename
+    const existingPersons = filters.find(
+      (f) => (f as MyDialogFilter).id === FOLDER_ID_PERSONS
+    ) as MyDialogFilter | undefined;
+    findAndSplice(filters, (f) => (f as MyDialogFilter).id === FOLDER_ID_PERSONS);
+    filters.splice(1, 0, preserveRename(existingPersons, personsFilter));
+
+    // GROUPS: ensure present at index 2, preserve rename
+    const existingGroups = filters.find(
+      (f) => (f as MyDialogFilter).id === FOLDER_ID_GROUPS
+    ) as MyDialogFilter | undefined;
+    findAndSplice(filters, (f) => (f as MyDialogFilter).id === FOLDER_ID_GROUPS);
+    filters.splice(2, 0, preserveRename(existingGroups, groupsFilter));
+
+    // ARCHIVE: ensure present at index 3 (after all system folders)
+    findAndSplice(filters, (f) => (f as MyDialogFilter).id === FOLDER_ID_ARCHIVE);
+    filters.splice(3, 0, archiveFilter);
 
     this.localId = START_LOCAL_ID;
     filters.forEach((filter) => {
@@ -114,18 +153,11 @@ export default class FiltersStorage extends AppManager {
     return filters;
   }
 
-  private generateLocalFilter(id: REAL_FOLDER_ID) {
-    const filter: MyDialogFilter = {...copy(LOCAL_FILTER), id};
-    if(id === FOLDER_ID_ALL) {
-      filter.pFlags.exclude_archived = true;
-    } else if(id === FOLDER_ID_ARCHIVE) {
-      filter.pFlags.exclude_unarchived = true;
-    }
-
+  private generateLocalFilter(id: number) {
+    const filter = buildLocalFilter(id);
     if(REAL_FOLDERS.has(id)) {
-      filter.pinnedPeerIds = this.dialogsStorage.getPinnedOrders(id);
+      filter.pinnedPeerIds = this.dialogsStorage.getPinnedOrders(id as REAL_FOLDER_ID);
     }
-
     return filter;
   }
 
