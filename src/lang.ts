@@ -3591,7 +3591,7 @@ const lang = {
   'Stickers.SuggestStickers': 'Suggest Stickers by Emoji',
   'ShareModal.Search.Placeholder': 'Share to...',
   'ShareModal.Search.ForwardPlaceholder': 'Forward to...',
-  'Nostra.GeneralSettingsViewController': 'General Settings',
+  'Nostra.GeneralSettingsViewController': 'Interface Settings',
   'Nostra.InstalledStickerPacksController': 'Stickers',
   'Nostra.NotificationSettingsViewController': 'Notifications',
   'Nostra.LanguageViewController': 'Language',
