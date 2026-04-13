@@ -22,6 +22,7 @@
 import {chromium, type Page, type BrowserContext} from 'playwright';
 import {launchOptions} from './helpers/launch-options';
 import {LocalRelay} from './helpers/local-relay';
+import {dismissOverlays} from './helpers/dismiss-overlays';
 
 const APP_URL = process.env.E2E_APP_URL || 'http://localhost:8080';
 
@@ -30,9 +31,8 @@ const APP_URL = process.env.E2E_APP_URL || 'http://localhost:8080';
 // ---------------------------------------------------------------------------
 
 async function dismissViteOverlay(page: Page) {
+  await dismissOverlays(page);
   await page.evaluate(() => {
-    document.querySelectorAll('vite-plugin-checker-error-overlay, vite-error-overlay')
-      .forEach((el) => el.remove());
     if(!(window as any).__overlayObserver) {
       const obs = new MutationObserver((mutations) => {
         for(const m of mutations) {

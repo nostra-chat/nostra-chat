@@ -13,6 +13,7 @@
  */
 import {chromium, type Page} from 'playwright';
 import {launchOptions} from './helpers/launch-options';
+import {dismissOverlays} from './helpers/dismiss-overlays';
 
 const APP_URL = 'http://localhost:8080';
 
@@ -23,11 +24,7 @@ function record(id: string, passed: boolean, detail?: string) {
   console.log(`  [${passed ? 'PASS' : 'FAIL'}] ${id}${detail ? ' — ' + detail : ''}`);
 }
 
-async function dismiss(page: Page) {
-  await page.evaluate(() =>
-    document.querySelectorAll('vite-plugin-checker-error-overlay').forEach(e => e.remove())
-  );
-}
+const dismiss = dismissOverlays;
 
 async function createId(page: Page, name: string) {
   await page.goto(APP_URL);
