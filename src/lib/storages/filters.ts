@@ -25,6 +25,7 @@ import {buildLocalFilter, LANGPACK_PREFIX} from '@lib/storages/filtersLocal';
 import makeError from '@helpers/makeError';
 import indexOfAndSplice from '@helpers/array/indexOfAndSplice';
 import {isDialog} from '@appManagers/utils/dialogs/isDialog';
+import {isProtectedFolder} from '@lib/nostra/folders-protection';
 
 export type MyDialogFilter = Exclude<DialogFilter, DialogFilter.dialogFilterDefault>;
 
@@ -374,6 +375,10 @@ export default class FiltersStorage extends AppManager {
   }
 
   public updateDialogFilter(filter: MyDialogFilter, remove = false, prepend = false) {
+    if(remove && isProtectedFolder(filter.id)) {
+      return Promise.reject(makeError('FILTER_PROTECTED'));
+    }
+
     return this.apiManager.invokeApi('messages.updateDialogFilter', {
       id: filter.id,
       filter: remove ? undefined : this.getOutputDialogFilter(filter)

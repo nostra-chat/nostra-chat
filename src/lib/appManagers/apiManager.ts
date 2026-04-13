@@ -609,6 +609,8 @@ export class ApiManager extends ApiManagerMethods {
     'messages.getPinnedSavedDialogs': {_: 'messages.savedDialogs', dialogs: [], messages: [], chats: [], users: []},
     'messages.getDialogFilters': {_: 'messages.dialogFilters', pFlags: {}, filters: []},
     'messages.getSuggestedDialogFilters': [],
+    'messages.updateDialogFilter': true,
+    'messages.updateDialogFiltersOrder': true,
     'messages.getPeerDialogs': {_: 'messages.peerDialogs', dialogs: [], messages: [], chats: [], users: [], state: {_: 'updates.state', pts: 1, qts: 0, date: 0, seq: 1, unread_count: 0}},
     'messages.readHistory': {_: 'messages.affectedMessages', pts: 1, pts_count: 0},
     'messages.getStickers': {_: 'messages.stickers', hash: 0, stickers: []},

@@ -139,7 +139,7 @@ declare global {
   type StorageError = 'STORAGE_OFFLINE' | 'NO_ENTRY_FOUND' | 'IDB_CREATE_TIMEOUT';
   type ReferenceError = 'NO_NEW_CONTEXT' | 'NO_CONTEXT';
   type NetworkerError = 'NETWORK_BAD_RESPONSE' | 'NETWORK_BAD_REQUEST';
-  type FiltersError = 'PINNED_DIALOGS_TOO_MUCH';
+  type FiltersError = 'PINNED_DIALOGS_TOO_MUCH' | 'FILTER_PROTECTED';
   type RLottieError = 'FRAME_OUT_OF_RANGE' | 'ITEM_DESTROYED' | 'FILE_INVALID';
 
   type LocalFileError = ApiFileManagerError | ReferenceError | StorageError;
