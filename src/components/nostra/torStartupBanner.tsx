@@ -1,4 +1,4 @@
-import {createSignal, onCleanup, onMount, Show} from 'solid-js';
+import {createEffect, createSignal, onCleanup, onMount, Show} from 'solid-js';
 import rootScope from '@lib/rootScope';
 import classNames from '@helpers/string/classNames';
 
@@ -24,6 +24,10 @@ export default function TorStartupBanner(props: {
   const [state, setState] = createSignal<TorState>('bootstrapping');
   const [fading, setFading] = createSignal(false);
   const [hidden, setHidden] = createSignal(false);
+
+  const setBannerHeightVar = (px: number) => {
+    document.documentElement.style.setProperty('--tor-banner-height', `${px}px`);
+  };
 
   onMount(() => {
     const handler = (e: {state: TorState; error?: string}) => {
@@ -66,6 +70,28 @@ export default function TorStartupBanner(props: {
 
     onCleanup(() => {
       rootScope.removeEventListener('nostra_tor_state', handler);
+      setBannerHeightVar(0);
+    });
+  });
+
+  createEffect(() => {
+    // Track reactive deps so we re-measure on state/visibility changes.
+    const _hidden = hidden();
+    const _state = state();
+    const _fading = fading();
+    if(_hidden) {
+      setBannerHeightVar(0);
+      return;
+    }
+    // During the fade-out we keep the reserved space pinned so the UI doesn't
+    // jump before the banner finishes its opacity transition.
+    if(_fading) return;
+    // Measure on next frame so Solid has mounted the new DOM.
+    requestAnimationFrame(() => {
+      if(hidden()) return;
+      const el = document.querySelector<HTMLElement>('.tor-startup-banner');
+      const h = el?.getBoundingClientRect().height ?? 0;
+      if(h > 0) setBannerHeightVar(h);
     });
   });
 

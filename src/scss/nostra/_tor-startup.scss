@@ -1,5 +1,15 @@
 /* Tor startup banner — global, fixed-position overlay at top of viewport */
 
+:root {
+  --tor-banner-height: 0px;
+}
+
+html body .whole {
+  height: calc(100% - var(--tor-banner-height, 0px));
+  margin-top: var(--tor-banner-height, 0px);
+  transition: height 0.3s ease-out, margin-top 0.3s ease-out;
+}
+
 .tor-startup-banner {
   position: fixed;
   top: 0;
