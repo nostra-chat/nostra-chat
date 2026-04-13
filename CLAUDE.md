@@ -1,5 +1,14 @@
 # CLAUDE.md — Nostra.chat
 
+## Table of Contents
+
+- [Project Overview](#project-overview) · [Tech Stack](#tech-stack) · [Development](#development) · [Directory Structure](#directory-structure) · [Path Aliases](#path-aliases)
+- [Code Style](#code-style-enforced-by-eslint) · [TypeScript Notes](#typescript-notes) · [Key Patterns](#key-patterns) · [Important Files](#important-files) · [What NOT to Do](#what-not-to-do)
+- [Release & Deployment](#release--deployment) (full: [`docs/RELEASE.md`](docs/RELEASE.md))
+- Architecture: [Tor WASM](#tor-wasm-runtime-webtor-rs) · [Worker Context](#worker-context) · [Peer Mirroring](#peer-mirroring) · [Virtual MTProto](#virtual-mtproto-architecture-messageport-bridge) · [VMT Middleware Rules](#virtual-mtproto-middleware-rules) · [Message Receive](#message-receive-pipeline) · [Delivery Receipts](#delivery-tracker--receipts)
+- [Logout & Cleanup](#logout--data-cleanup) · [UI Components](#ui-components) · [Nostra Modules](#nostra-module-architecture) · [MTProto Intercept](#mtproto-intercept-apimanagerts) · [Own Profile Sync](#own-profile-sync-cache-first-swr) · [Profile Tab](#profile-tab-structure-editprofile) · [Blossom Upload](#blossom-avatar-upload)
+- Testing: [P2P Code](#testing-p2p-code) · [E2E (Playwright)](#e2e-testing-playwright) · [Bubble Rendering](#bubble-rendering)
+
 ## Project Overview
 
 **Nostra.chat** is a decentralized messaging client (https://nostra.chat/) built with Solid.js and TypeScript. Forked from Telegram Web K, it replaces the Telegram backend with peer-to-peer encrypted chat over Nostr relays. The codebase is large (~100k+ lines excluding vendor), mature, and highly performance-oriented. License: GPL v3.
@@ -232,12 +241,12 @@ import {Message, Chat, User, InputPeer} from '@layer';
 - Do not use `var` — use `const`/`let`
 - Do not add trailing commas in arrays/objects
 - **Ternary operators**: `?` and `:` go at END of line, not start of next: `condition ?\n  value1 :\n  value2` not `condition\n  ? value1\n  : value2`
-- Do not save screenshots or images in the project root — use `/tmp/` for temporary test artifacts. The `.gitignore` blocks `*.png` at root level
-- Do not assume a component exists in the UI just because the file exists. Grep for the import: `grep -rn 'import.*MessageRequests' src/` — `MessageRequests.tsx` is written but never mounted, so routing messages there made them invisible.
-- Do not assume a `rootScope.dispatchEvent('foo')` call is wired to a listener. Grep for the listener: `grep -rn "addEventListener('foo'" src/` — `nostra_delivery_update` had dispatches but no production listeners.
-- Do not edit `package.json` version manually — use `pnpm version patch|minor|major` (runs the `preversion` gate locally: lint + tsc) or let release-please manage it via its release PR. Either path, never by hand.
-- Do not open two Claude Code instances in the same working directory — `git worktree add ../nostra.chat-wt/<name> -b <branch> main && cd ../nostra.chat-wt/<name> && pnpm install` isolates them. One Claude per worktree.
-- Do not remove the `!public/recorder.min.js` exception in `.gitignore` — the file is a third-party UMD bundle imported statically from `src/components/chat/input.ts` and the build fails without it.
+- Do not save screenshots/images in the project root — use `/tmp/`. `.gitignore` blocks `*.png` at root.
+- Do not assume a component is mounted just because the file exists — grep for imports (`MessageRequests.tsx` existed but was never mounted).
+- Do not assume a `rootScope.dispatchEvent('foo')` is wired — grep for listeners before relying on it.
+- Do not edit `package.json` version manually — use `pnpm version` or release-please.
+- Do not open two Claude Code instances in the same working directory — use `git worktree add ../nostra.chat-wt/<name> -b <branch> main`, one Claude per worktree.
+- Do not remove the `!public/recorder.min.js` exception in `.gitignore` — it's a third-party UMD imported statically from `src/components/chat/input.ts`.
 
 ## Running Tests
 
@@ -250,92 +259,80 @@ Vitest config: `threads: false`, `globals: true`, jsdom environment, setup in `s
 
 ## Release & Deployment
 
-- **Pipeline**: `.github/workflows/deploy.yml` triggers ONLY on `push: tags: v*`. Daily commits to `main` do NOT run CI or deploy — the branch is unprotected, push directly. Tag push fires `pnpm lint` → `npx tsc --noEmit` → `pnpm build` as a server-side gate, then the 4 mirrors.
-- **Live mirrors**: `https://nostra.chat` (Cloudflare, primary) · `https://nostra-chat.pages.dev` (Cloudflare fallback) · `https://nostra-chat.github.io/nostra-chat/` (GitHub Pages) · IPFS CID per release (Filebase).
-- **Two release paths**: (a) merge the open `chore(main): release X.Y.Z` PR that `release-please` maintains — creates the tag and triggers deploy with full CHANGELOG; (b) `pnpm version patch|minor|major` locally — the `preversion` script runs lint + tsc first (local gate), then bumps `package.json`, tags, and `postversion` auto-pushes commit + tag. Never edit `package.json` version or `CHANGELOG.md` manually — one of these two paths always owns them.
-- **Conventional Commits drive release triggers**: `feat:` / `fix:` / `perf:` / `revert:` bump the version; `docs:` / `chore:` / `style:` / `build:` / `ci:` / `refactor:` / `test:` are hidden from the changelog and non-releasing. Breaking change: `feat!:` or `BREAKING CHANGE:` footer.
-- **Release-please PRs still don't trigger CI** (`GITHUB_TOKEN` anti-recursion). Under tag-triggered deploy this is harmless — there's no `build` required check to wait for on the PR itself, so you can merge it immediately.
-- **Do NOT re-add `push: branches: main` or `pull_request:` to `deploy.yml`** — the pipeline is intentionally tag-triggered. Every production update must flow through a version tag.
-- **Do NOT enable auto-merge on the release-please release PR** — it accumulates commits and you merge it manually when you want to release. Auto-merge on it = release-per-commit, which defeats the point.
-- **Required CI secrets**: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `FILEBASE_ACCESS_KEY`, `FILEBASE_SECRET_KEY`, `FILEBASE_BUCKET`. Do NOT re-add Pinata: `ipshipyard/ipfs-deploy-action@v1` rejects it as sole provider and requires a CAR upload provider (Filebase works).
-- **`deploy-ipfs` job permissions**: needs explicit `permissions: contents: read, statuses: write` — without `statuses: write` the IPFS upload succeeds but the job fails when posting the CID as a commit status.
-- **Repo settings**: "Allow GitHub Actions to create and approve pull requests" MUST stay enabled (Settings → Actions → General → Workflow permissions) or release-please can't open its release PR. "Allow auto-merge" is also on, usable on feature PRs via `gh pr merge N --auto --squash --delete-branch`, never on the release-please PR.
+Full reference: [`docs/RELEASE.md`](docs/RELEASE.md). Day-to-day rules:
+
+- Pipeline triggers **only on `v*` tags** (`.github/workflows/deploy.yml`). Push to `main` directly — no CI on main.
+- Two release paths: merge the open `chore(main): release X.Y.Z` PR from release-please, OR run `pnpm version patch|minor|major` locally. Never edit `package.json` version or `CHANGELOG.md` by hand.
+- Conventional Commits: `feat:`/`fix:`/`perf:`/`revert:` bump version; everything else is hidden from changelog.
+- Do NOT enable auto-merge on the release-please PR (accumulates commits, merge manually when releasing).
+- Do NOT re-add `push: branches: main` / `pull_request:` triggers to `deploy.yml`.
 
 ## Nostra.chat Architecture Notes
 
 ### Tor WASM runtime (webtor-rs)
-- `ChatAPI` owns its OWN `NostrRelayPool` separate from `NostraBridge._relayPool`. Any startup/privacy gate that touches one must also touch `chatAPI.initGlobalSubscription()` — it is called from `src/pages/nostra-onboarding-integration.ts` and bypasses the bridge pool entirely.
-- `PrivacyTransport.waitUntilSettled()` is the authoritative gate: it resolves on `active`/`direct`/`failed`. Use it to defer ANY network-touching init when Tor is enabled (`pool.initialize`, `chatAPI.initGlobalSubscription`, etc.) so no WebSocket leaks the user's IP during the 30-40s bootstrap window.
-- Tor consensus + microdescriptors live at `public/webtor/consensus.br.bin` and `microdescriptors.br.bin`. Refresh with `pnpm run update-tor-consensus` (runs in the prebuild hook). **Do NOT rename them to `.br`** — Vite auto-sets `Content-Encoding: br` for `.br` files, causing the browser to pre-decompress before the WASM fetch shim sees the bytes, which then fails with `Failed to decompress consensus: Invalid Data`.
-- `webtor-fallback.ts` installs a fetch shim that rewrites the hardcoded stale `https://privacy-ethereum.github.io/webtor-rs/*` URLs to the local `/webtor/*.br.bin` files and caches them in `CacheStorage` (`tor-consensus-cache.ts`) with a 2h TTL. Production staleness manifests as `Failed to extend to middle: Circuit-extension handshake authentication failed`.
-- Tor bootstrap in headless Chromium can wedge into `Internal error: Channel not established`. The only recovery is constructing a fresh `WebtorClient` — `abort()` does not help and leaves the client unusable. `PrivacyTransport.bootstrap()` already retries up to 4 times with fresh clients (unless `webtorInjected` is true for unit tests).
-- `WebtorClient.fetch()` serializes inside arti: concurrent callers queue. Never wrap it in a JS-side `Promise.race` timeout loop — abandoned promises don't free the WASM stream and the client wedges. Also never issue a background `_fetchExitIp()` during bootstrap without a `Promise.race` upper bound; it blocks every subsequent fetch.
-- Tor HTTP polling (`NostrRelay.startHttpPolling`) must chain via `setTimeout` in a `finally` block, not `setInterval`. A 3s interval with 45s per-fetch timeouts piles up unbounded in-flight requests on a slow circuit and saturates the WASM tunnel.
-- `window.__nostraTransport`, `window.__nostraPool`, and `window.__nostraPrivacyTransport` are exposed for debugging + E2E. The transport's `.webtorClient` (private in TS) is accessible via `(t as any).webtorClient` at runtime.
-
+- `ChatAPI` owns its OWN `NostrRelayPool` separate from `NostraBridge._relayPool`. Privacy/startup gates must touch BOTH — `chatAPI.initGlobalSubscription()` bypasses the bridge pool.
+- `PrivacyTransport.waitUntilSettled()` is the authoritative gate (resolves on `active`/`direct`/`failed`). Defer ALL network-touching init behind it when Tor is enabled — no WebSocket must leak the user's IP during the 30-40s bootstrap window.
+- Tor consensus files: `public/webtor/consensus.br.bin` + `microdescriptors.br.bin`. Refresh with `pnpm run update-tor-consensus` (runs in prebuild hook). **Do NOT rename to `.br`** — Vite auto-sets `Content-Encoding: br` for `.br` files, the browser pre-decompresses before the WASM fetch shim sees the bytes, and consensus load fails with `Invalid Data`.
+- `webtor-fallback.ts` rewrites stale `privacy-ethereum.github.io/webtor-rs/*` URLs to local `/webtor/*.br.bin` and caches them in `CacheStorage` (2h TTL via `tor-consensus-cache.ts`). Staleness symptom: `Failed to extend to middle: Circuit-extension handshake authentication failed`.
+- **Never timeout `WebtorClient.fetch()` with `Promise.race`** — arti serializes concurrent callers inside WASM and abandoned promises don't free the stream, wedging the client. Bootstrap retries only via fresh `WebtorClient` (not `abort()`); `PrivacyTransport.bootstrap()` already retries 4× with new clients.
+- Tor HTTP polling (`NostrRelay.startHttpPolling`) chains via `setTimeout` in a `finally` block, never `setInterval` — a 3s interval with 45s per-fetch timeouts saturates the WASM tunnel.
+- Debug handles: `window.__nostraTransport`, `__nostraPool`, `__nostraPrivacyTransport`. Access private `webtorClient` via `(t as any).webtorClient`.
 
 ### Worker Context
-- tweb runs managers in a DedicatedWorker even with `noSharedWorker=true`. Code in `src/lib/appManagers/` and `src/lib/storages/` runs in Worker context where `window` is undefined.
-- Never import modules that use `window` directly into Worker-context code. Use `typeof window !== 'undefined'` guards or keep window-dependent code in main-thread-only files (`src/components/`, `src/pages/`).
-- `getSelf()` returns `undefined` in Nostra.chat mode (no MTProto auth). Guard all `.id` access on its result.
-- `rootScope.myId` is `NULL_PEER_ID` (0) in Nostra.chat mode — `isOurMessage()` uses `pFlags.out` as fallback.
-- `rootScope` events dispatched in Worker don't reach main thread directly (separate instances). Use `message_sent`, `messages_pending` which are mirrored via MessagePort.
+- Managers run in a DedicatedWorker even with `noSharedWorker=true`. `src/lib/appManagers/` + `src/lib/storages/` run Worker-side where `window` is undefined — never import window-touching modules there without `typeof window !== 'undefined'` guards.
+- `getSelf()` returns `undefined` in Nostra mode (no MTProto auth) — guard all `.id` access.
+- `rootScope.myId === NULL_PEER_ID` (0) → `isOurMessage()` uses `pFlags.out` as fallback.
+- Worker `rootScope` events don't cross to main thread (separate instances). Only `message_sent`/`messages_pending` are mirrored via MessagePort.
 
 ### Peer Mirroring
-- Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `this.mirrorUser(user)` to sync to main thread's `apiManagerProxy.mirrors.peers` and Solid.js `peers` store.
-- Without mirroring, `apiManagerProxy.getPeer()`, `usePeer()`, and all main-thread peer lookups return `undefined`.
+Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `this.mirrorUser(user)` to sync to `apiManagerProxy.mirrors.peers` and the Solid `peers` store. Without mirroring, `getPeer()`/`usePeer()` return `undefined` on main thread.
 
 ### Virtual MTProto Architecture (MessagePort Bridge)
-- Worker calls `nostraIntercept()` in `apiManager.ts` which routes methods two ways:
-  - **Static** (`NOSTRA_STATIC`): methods that don't need real data (help.getConfig, updates.getState, account.*, stories.*)
-  - **Bridge** (`NOSTRA_BRIDGE_METHODS`): methods routed via `port.invoke('nostraBridge', {method, params})` to main thread
-- Main thread's `apiManagerProxy` receives bridge calls, forwards to `NostraMTProtoServer.handleMethod()`.
-- Server reads from `message-store.ts` (IndexedDB) and returns native MTProto response shapes.
-- Worker processes bridge responses normally via `saveMessages()` → `setMessageToStorage()` → mirror pipeline → UI.
-- Bridge methods: getHistory, getDialogs, search, deleteMessages, sendMessage, sendMedia, getContacts, getUsers, getFullUser.
-- `NostraSync` receives ChatAPI messages, persists to message-store, dispatches `nostra_new_message` rootScope event.
-- Server registered on `apiManagerProxy.setNostraMTProtoServer()`, also on `window.__nostraMTProtoServer` for debugging.
-- Design principle: tweb vanilla code should work unchanged — the bridge is transparent to the Worker.
+`nostraIntercept()` in `apiManager.ts` routes Worker method calls: **Static** (`NOSTRA_STATIC` — `help.getConfig`, `updates.getState`, `account.*`, `stories.*`) return shaped stubs; **Bridge** (`NOSTRA_BRIDGE_METHODS` — getHistory, getDialogs, search, deleteMessages, sendMessage, sendMedia, getContacts, getUsers, getFullUser, editMessage) forward via `port.invoke('nostraBridge', ...)` to main-thread `apiManagerProxy` → `NostraMTProtoServer.handleMethod()` → `message-store.ts` (IndexedDB) → native MTProto response. Worker processes normally via `saveMessages()` → `setMessageToStorage()` → mirror → UI. `NostraSync` handles incoming ChatAPI messages → persist → dispatch `nostra_new_message`. Design principle: vanilla tweb code works unchanged; the bridge is transparent. Debug: `window.__nostraMTProtoServer`.
 
 ### Virtual MTProto Middleware Rules
-- ALL `createTwebUser()` calls in `virtual-mtproto-server.ts` MUST pass `firstName: mapping?.displayName` via `getMapping()` — omitting it causes hex fallback names that overwrite correct names after reload.
-- `NOSTRA_ACTION_PREFIXES` in `apiManager.ts` must NOT contain `.get` or `.check` — these are query methods that need proper response shapes, not `return true`.
-- P2P send shortcut in `appMessagesManager.ts` must dispatch `message_sent` (not just `messages_pending`) and call `setMessageToStorage()` — needed for bubble ⏳→✓ transition and context menu.
-- `window.__nostraOwnPubkey` must be set in `nostra-onboarding-integration.ts` — `contacts.ts` needs it to persist conversations in message-store.
-- `saveApiUser()` in `appUsersManager.ts` preserves P2P synthetic user's `first_name` to prevent bridge responses from overwriting nicknames with hex fallbacks.
-- `invalidateHistoryCache(peerId)` on `appMessagesManager` resets `SlicedArray` for a peer — call from main thread via `rootScope.managers.appMessagesManager.invalidateHistoryCache(peerId)` after `nostra_new_message` arrives. Without this, reopened chats return stale cached history.
-- `nostra_new_message` handler must build tweb messages directly from event data via `mapper.createTwebMessage()` — never re-read from message-store via `server.handleMethod('messages.getHistory')`. The IndexedDB round-trip has 0-5s variable latency and can return empty (silent message drop).
-- Synthetic dialogs dispatched via `dialogs_multiupdate` must have `(dialog as any).topMessage = msg` (the message object, not just `top_message` ID). Without this, `setLastMessage` → `getLastMessageForDialog` falls back to `getMessageByPeer` which fails when `hasReachedTheEnd` is false on the dialog list.
-- `NostraSync.onIncomingMessage()` MUST save with `eventId = msg.relayEventId || msg.id` — NOT `msg.id` alone. The ChatMessage's `msg.id` is the parsed `chat-XXX-N` from content, while `chat-api-receive` stores with rumor hex. Mismatched eventIds create duplicate rows in message-store → two bubbles per incoming message.
-- `ChatAPI.connect(peerPubkey)` MUST be a lightweight `activePeer` switch when a global subscription is already active. Do NOT call `disconnect()` — it tears down the relay pool and kills the subscription that the sender's self-echo depends on for bubble rendering.
-- Pinned-message filter (`inputMessagesFilterPinned`) must be intercepted in BOTH `searchMessages` AND `getHistory` in `virtual-mtproto-server.ts`. Return empty `{messages: [], users: [], chats: [], count: 0}`. tweb's `ChatPinnedMessage` uses `getHistory` with `inputFilter`, which `requestHistory` routes to `messages.search` OR `messages.getHistory` depending on context.
-- Virtual MTProto Server's `sendMessage` must return `nostraMid` and `nostraEventId` in the response object so the Worker's P2P shortcut in `appMessagesManager.ts` can rename the temp mid (`0.0001`) to the real timestamp-based mid. Without this, outgoing bubbles sort incorrectly among received messages.
-- P2P outgoing bubble rendering: `beforeMessageSending` in `appMessagesManager.ts` MUST skip its `history_append` dispatch for P2P peers (`Number(peerId) >= 1e15`). The main-thread VMT Server's `injectOutgoingBubble` is the sole render path — dispatching from both causes duplicate DOM elements.
-- Main-thread code in `virtual-mtproto-server.ts` that dispatches rootScope events MUST use `rs.dispatchEventSingle(...)` not `rs.dispatchEvent(...)`. The latter forwards via `MTProtoMessagePort.invokeVoid('event', ...)` which throws unhandled rejections in vitest environments.
-- P2P edit-message protocol: edits are NEW NIP-17 gift-wraps carrying tag `['nostra-edit', '<originalAppMessageId>']`. The original ID is the app-level `chat-XXX-N` form, NOT the rumor hex — sender rows use it as `eventId`, receiver rows carry it in `appMessageId`, so a single `getByAppMessageId` lookup works on both sides. Receive handler upserts the original row preserving `mid`/`twebPeerId`/`timestamp` so bubble ordering does not shift; only `content` and `editedAt` change. Author verification is mandatory: receive must drop edits where `rumor.pubkey !== original.senderPubkey`. The `messages.editMessage` method MUST be in `NOSTRA_BRIDGE_METHODS` so the `.edit` action prefix does not short-circuit it.
+
+| Rule | Why |
+|---|---|
+| `createTwebUser()` in `virtual-mtproto-server.ts` MUST pass `firstName: mapping?.displayName` via `getMapping()` | Omitting → hex fallback names overwrite correct names after reload |
+| `NOSTRA_ACTION_PREFIXES` in `apiManager.ts` must NOT contain `.get` or `.check` | Query methods need shaped responses, not `return true` |
+| P2P send shortcut in `appMessagesManager.ts` must dispatch `message_sent` (not just `messages_pending`) AND call `setMessageToStorage()` | Needed for bubble ⏳→✓ transition + context menu |
+| `window.__nostraOwnPubkey` must be set in `nostra-onboarding-integration.ts` | `contacts.ts` needs it to persist conversations |
+| `saveApiUser()` preserves P2P synthetic user's `first_name` | Prevents bridge responses overwriting nicknames with hex fallbacks |
+| `nostra_new_message` handler must build messages via `mapper.createTwebMessage()` directly | Never re-read from message-store — IndexedDB round-trip has 0-5s latency and silently drops messages |
+| Call `rs.managers.appMessagesManager.invalidateHistoryCache(peerId)` after `nostra_new_message` arrives | Resets `SlicedArray`; without it, reopened chats return stale history |
+| Synthetic dialogs via `dialogs_multiupdate` must carry `(dialog as any).topMessage = msg` (full object) | Else `setLastMessage` falls back to `getMessageByPeer` and fails when `hasReachedTheEnd=false` |
+| `NostraSync.onIncomingMessage()` MUST save with `eventId = msg.relayEventId \|\| msg.id` | Mismatched eventIds (parsed `chat-XXX-N` vs rumor hex) → duplicate rows → two bubbles |
+| `ChatAPI.connect(peerPubkey)` MUST be a lightweight `activePeer` switch, NOT `disconnect()` + reconnect | `disconnect()` tears down the relay pool and kills the self-echo subscription |
+| `inputMessagesFilterPinned` intercepted in BOTH `searchMessages` AND `getHistory`, return empty | `ChatPinnedMessage` routes via either depending on context |
+| VMT `sendMessage` must return `nostraMid` + `nostraEventId` | Worker's P2P shortcut renames temp mid `0.0001` → real timestamp mid; without this, outgoing bubbles sort wrong |
+| `beforeMessageSending` MUST skip `history_append` dispatch for P2P peers (`peerId >= 1e15`) | Main-thread `injectOutgoingBubble` is sole render path; dual dispatch → duplicate DOM |
+| Main-thread VMT code MUST use `rs.dispatchEventSingle(...)`, never `rs.dispatchEvent(...)` | The latter forwards via `MTProtoMessagePort` and throws unhandled rejections in vitest |
+| `messages.editMessage` MUST be in `NOSTRA_BRIDGE_METHODS` | Otherwise `.edit` action prefix short-circuits it |
+
+**P2P edit protocol**: edits are new NIP-17 gift-wraps carrying `['nostra-edit', '<originalAppMessageId>']` — the `chat-XXX-N` form, NOT rumor hex. Sender rows use it as `eventId`, receiver rows as `appMessageId`, so a single `getByAppMessageId` lookup works on both sides. Receive handler upserts the original row preserving `mid`/`twebPeerId`/`timestamp`; only `content` + `editedAt` change. Author verification mandatory: drop edits where `rumor.pubkey !== original.senderPubkey`.
 
 ### Message Receive Pipeline
-- At boot, `initGlobalSubscription()` in `chat-api.ts` subscribes to gift-wrap events (kind 1059) on all relays. Without this, only peers connected via `chatAPI.connect()` are heard.
-- Relay echo handling: own sent messages come back via relay subscription. `handleRelayMessage` checks `msg.from === this.ownId` early. Same-device echoes are skipped via `store.getByEventId()`. Cross-device echoes are saved as `isOutgoing: true` and fire `onMessage` for real-time bubble rendering. This is multi-device ready.
-- Full receive chain: relay WebSocket → `NostrRelay.handleEvent()` → gift-wrap decrypt → `RelayPool.handleIncomingMessage()` → `ChatAPI.handleRelayMessage()` → `NostraSync.onIncomingMessage()` → `message-store` → `nostra_new_message` event → `history_append` → bubble render.
-- `NostrRelay.handleDisconnect()` uses infinite backoff: fast burst (1s, 2s, 4s) then steady 10s retries. Only explicit `disconnect()` stops retries. A relay glitch should never permanently kill the subscription.
+- `initGlobalSubscription()` in `chat-api.ts` subscribes to kind 1059 on all relays at boot. Without it, only peers from `chatAPI.connect()` are heard.
+- **Receive chain**: relay WS → `NostrRelay.handleEvent()` → gift-wrap decrypt → `RelayPool.handleIncomingMessage()` → `ChatAPI.handleRelayMessage()` → `NostraSync.onIncomingMessage()` → `message-store` → `nostra_new_message` → `history_append` → bubble.
+- **Relay echo**: own sent messages come back via subscription. `handleRelayMessage` checks `msg.from === this.ownId` — same-device echoes skipped via `store.getByEventId()`, cross-device saved as `isOutgoing: true` (multi-device ready).
+- `NostrRelay.handleDisconnect()` uses infinite backoff: `1s, 2s, 4s, …` then steady 10s. Only explicit `disconnect()` stops retries.
 
 ### Delivery Tracker & Receipts
-- `DeliveryTracker.states` Map is keyed by the app messageId (`chat-XXX-N`), NOT the Nostr rumor ID. When sending a delivery/read receipt from `handleRelayMessage`, use `chatMessage.id` (parsed from content) not `msg.id` (the rumor ID) — otherwise the sender's tracker can't find the entry and `handleReceipt` silently no-ops.
-- `deliveryTracker` must be initialized in BOTH `ChatAPI.connect(peer)` AND `initGlobalSubscription()`. Without the second init, reload-then-receive-receipt drops all receipts silently.
-- `chatAPI.markRead(eventId, senderPubkey)` exists but no production code calls it — the receiver never publishes read receipts, so the sender's bubble stays at "delivered" (✓✓) instead of blue "read". A listener on `peer_changed` should iterate visible `is-in` bubbles and call `markRead` per message.
-- `nostra_delivery_update` events are handled by `nostra-delivery-ui.ts` (extracted module). It maps `eventId → mid` via `NostraPeerMapper.mapEventId(eventId, timestamp)` and updates the bubble's class + icon.
+- `DeliveryTracker.states` is keyed by app messageId (`chat-XXX-N`), NOT rumor hex. Receipts from `handleRelayMessage` must use `chatMessage.id` (parsed from content), not `msg.id` — else `handleReceipt` silently no-ops.
+- `deliveryTracker` must be initialized in BOTH `ChatAPI.connect(peer)` AND `initGlobalSubscription()` — else reload-then-receive-receipt drops all receipts silently.
+- `chatAPI.markRead(eventId, senderPubkey)` exists but no production code calls it — sender bubbles stay at ✓✓ (delivered) instead of blue (read). A `peer_changed` listener should iterate visible `is-in` bubbles and call it.
+- `nostra_delivery_update` handled by `nostra-delivery-ui.ts`, maps `eventId → mid` via `NostraPeerMapper.mapEventId(eventId, timestamp)`.
 
 ### Logout & Data Cleanup
-- Settings logout button in `settings.ts` calls `showLogOutPopup()` from `@components/popups/logOut` — never inline `indexedDB.deleteDatabase + reload`.
-- `nostra-cleanup.ts` is the centralized cleanup module. It closes singleton DB connections, force-closes orphan connections (version upgrade trick), deletes all 6 Nostra IndexedDB databases, and clears 4 localStorage keys.
-- Nostra DB cleanup MUST run in the main thread — the Worker has no `localStorage` and can't close main-thread DB connections. `apiManager.logOut()` (Worker) only handles `deleteEncryptedIdentity()`.
-- `indexedDB.deleteDatabase()` blocks silently if any connection is open. Always close connections first via `destroy()` on singletons, then `forceCloseDB()` for orphan connections (`key-storage.ts`, `identity.ts` open DBs on-demand without closing).
-- `VirtualPeersDB` has TWO DB connections: `this._db` (class-level, from constructor) and `_dbPromise` (module-level singleton). `destroy()` must close both.
-- Nostra IndexedDB databases: `nostra-messages`, `nostra-message-requests`, `nostra-virtual-peers`, `nostra-groups`, `NostraPool`, `Nostra.chat`.
-- Nostra localStorage keys: `nostra_identity`, `nostra-relay-config`, `nostra-last-seen-timestamp`, `nostra:read-receipts-enabled`.
-- `.toasts-container` has `z-index: 5` — too low for feedback during popup transitions. Use a dedicated overlay with `z-index: 9999` for critical full-screen feedback (logout, destructive actions).
-- E2E logout test: `npx tsx src/tests/e2e/e2e-logout.ts` — verifies popup → overlay → reload → onboarding → DB cleanup.
+- Settings logout calls `showLogOutPopup()` from `@components/popups/logOut` — never inline `indexedDB.deleteDatabase + reload`. `nostra-cleanup.ts` is the centralized module.
+- Cleanup MUST run in the main thread (Worker has no `localStorage`). `apiManager.logOut()` only handles `deleteEncryptedIdentity()`.
+- `indexedDB.deleteDatabase()` blocks silently if any connection is open. Close singletons via `destroy()` first, then `forceCloseDB()` for orphan connections (`key-storage.ts`, `identity.ts` open DBs on-demand).
+- `VirtualPeersDB` has TWO connections (`this._db` class-level + `_dbPromise` module-level singleton) — `destroy()` must close both.
+- Nostra IndexedDB: `nostra-messages`, `nostra-message-requests`, `nostra-virtual-peers`, `nostra-groups`, `NostraPool`, `Nostra.chat`.
+- Nostra localStorage: `nostra_identity`, `nostra-relay-config`, `nostra-last-seen-timestamp`, `nostra:read-receipts-enabled`.
+- `.toasts-container` has `z-index: 5` — too low for popup transitions. Use a dedicated overlay with `z-index: 9999` for destructive-action feedback.
+- E2E: `npx tsx src/tests/e2e/e2e-logout.ts`.
 
 ### UI Components
 - The active "Add Contact" dialog is in `src/components/sidebarLeft/tabs/contacts.ts` (imperative DOM), NOT `src/components/nostra/AddContact.tsx` (Solid.js — unused).
@@ -343,13 +340,7 @@ Vitest config: `threads: false`, `globals: true`, jsdom environment, setup in `s
 - All `notDirect` flags were removed from `contextMenu.ts` — all chats are Nostra, there are no Telegram DMs. The type field, invocation logic, and all 10 button properties were deleted.
 
 ### Nostra Module Architecture
-- `nostra-onboarding-integration.ts` is a thin orchestrator (~240 lines) that imports and wires these extracted modules:
-  - `nostra-message-handler.ts` — incoming message builder (buildTwebMessage, injectIntoMirrors, dispatchDialogUpdate, handleIncomingMessage)
-  - `nostra-pending-flush.ts` — pending message queue for peers whose chat isn't open (createPendingFlush → enqueue/flush/attachListener)
-  - `nostra-read-receipts.ts` — batch read receipts on peer open (createReadReceiptSender → sendForPeer)
-  - `nostra-delivery-ui.ts` — sent/delivered/read bubble UI updates (createDeliveryUI → attach)
-- `chat-api-receive.ts` — extracted handleRelayMessage logic with ReceiveContext DI. Pure step functions: isDeleteNotification, parseMessageContent, extractFileMetadata, isDuplicate.
-- All Nostra rootScope events are typed in BroadcastEvents (rootScope.ts) — no `as any` casts needed. Events: nostra_new_message, nostra_delivery_update, nostra_profile_update, nostra_presence_update, nostra_backfill_complete, nostra_conversation_deleted, nostra_message_request, nostra_recovery_requested, nostra_read_receipts_toggle, nostra_relay_state, nostra_relay_list_changed, nostra_tor_state, nostra_message_queued, nostra_identity_loaded/locked/unlocked/updated, nostra_contact_accepted.
+`nostra-onboarding-integration.ts` is a thin orchestrator (~240 lines) wiring: `nostra-message-handler.ts` (incoming message builder), `nostra-pending-flush.ts` (queue for closed-chat peers), `nostra-read-receipts.ts` (batch on peer open), `nostra-delivery-ui.ts` (bubble sent/delivered/read icons). `chat-api-receive.ts` extracts `handleRelayMessage` with `ReceiveContext` DI as pure step functions (`isDeleteNotification`, `parseMessageContent`, `extractFileMetadata`, `isDuplicate`). All Nostra rootScope events are typed in `BroadcastEvents` (rootScope.ts) — no `as any` casts.
 
 ### MTProto Intercept (`apiManager.ts`)
 - `nostraIntercept()` tries dynamic server first (main thread only), then checks `NOSTRA_STATIC`, then `NOSTRA_BRIDGE_METHODS` (Worker→Main via MessagePort), then action prefixes, then fallback `{pFlags: {}}`.
@@ -359,60 +350,67 @@ Vitest config: `threads: false`, `globals: true`, jsdom environment, setup in `s
 - `users.getFullUser` must include `profile_photo: {_: 'photoEmpty'}` — `appProfileManager` accesses it.
 
 ### Testing P2P Code
-- Always check TS errors with `npx tsc --noEmit 2>&1 | grep "error TS"` — Vite checker may show stale cached errors.
-- P2P unit tests: `npx vitest run src/tests/nostra/` — covers peer mapper, virtual MTProto server, sync, relay pool, crypto.
-- New unit tests under `src/tests/nostra/*.test.ts` are picked up automatically by `pnpm test:nostra`, but `pnpm test:nostra:quick` lists files explicitly — add your new test there too or it won't run in the fast path.
-- New E2E tests in `src/tests/e2e/e2e-*.ts` do NOT auto-run — add the filename to the `TESTS` array in `src/tests/e2e/run-all.sh` or `pnpm test:e2e:all` will skip them silently.
-- Worktrees need `pnpm install` before running tests. Expect ~30 pre-existing TS errors from `@vendor/emoji`, `@vendor/bezierEasing` (missing vendor builds).
-- When extracting files from a worktree/branch to main, use `git show <commit>:<path> > <path>` — never `cp` from a worktree directory, which may contain unresolved merge conflict markers from aborted merges.
-- Worktrees need BOTH `.env.local` AND `.env.local.example` copied from main repo. Vite copies `.env.local.example` → `.env.local` on start and fails with ENOENT if either is missing.
-- Do not `git rm` or delete `src/langPackLocalVersion.ts` — it is gitignored and auto-regenerated by the Vite lang watcher. Deleting it without the watcher running (e.g. cleaning unmerged git state) breaks `npx tsc --noEmit` with `Cannot find module '@/langPackLocalVersion'`. Recovery: `cp` from the main repo copy.
-- Parallel dev servers on worktrees: `pnpm exec vite --force --port <free-port> --strictPort`. Port 8080 is typically held by the main repo dev server. Free range observed: 8090-8099.
-- Vitest runs with `isolate: false` + `threads: false` — all test files share one module registry. `vi.mock()` factories persist across files. Use `mockImplementation()` in `beforeEach` instead of relying on shared mock state. Tests may pass individually but fail in batch due to mock contamination.
-- When `vi.mock('@lib/rootScope')` is used in a test file, add `afterAll(() => { vi.unmock('@lib/rootScope'); vi.restoreAllMocks(); })` — without this, later test files in the shared registry get the mock instead of the real rootScope, causing cascading failures (e.g. `MTProtoMessagePort.getInstance().invokeVoid` undefined).
-- For `fake-indexeddb/auto` tests: use unique IDs per test (e.g. `uniqueConvId()`) instead of shared constants — with `isolate: false`, IndexedDB state persists across test files and stale data causes count mismatches.
-- Don't mock `MOUNT_CLASS_TO` via `vi.mock('@config/debug')` — it's a mutable singleton. Set `MOUNT_CLASS_TO.apiManagerProxy = {...}` directly in `beforeEach` instead.
-- Playwright console capture filter must exclude `MTPROTO`, `relay_state`, `nostra_relay_state` noise — Worker floods these on every relay state change. Include only explicit prefixes: `[ChatAPI]`, `[NostrRelay]`, `[NostraSync]`, `[NostraOnboarding`, `[VirtualMTProto`.
-- `pnpm test:nostra:quick` exits code 1 due to 2 pre-existing unhandled rejections in `tor-ui.test.ts` (rootScope.dispatchEvent path) even when all 275+ tests pass — verify the `Tests  N passed (N)` line instead of the exit code before concluding there's a regression.
-- `apiManagerProxy.managers` is NOT the manager namespace — it's the IPC proxy class. Use `rs.managers.appMessagesManager.*` after `import rootScope from '@lib/rootScope'`. Note that `rs.managers` can be undefined during early boot before the chat initializes — wait until `window.__nostraChatAPI` is populated before calling.
-- Injecting synthetic P2P peers in live-browser tests requires `storeMapping(pubkey, peerId, displayName)` from `virtual-peers-db.ts` — `NostraPeerMapper.mapPubkey()` alone only computes the peerId in-memory. Without persistence, the VMT server's `getPubkey(peerId)` returns null and every bridge call for that peer silently returns `emptyUpdates`.
+
+**Commands:**
+- TS check: `npx tsc --noEmit 2>&1 | grep "error TS"` (Vite checker may show stale cached errors). Expect ~30 pre-existing errors from `@vendor/emoji`, `@vendor/bezierEasing`.
+- Unit tests: `npx vitest run src/tests/nostra/` — peer mapper, VMT server, sync, relay pool, crypto.
+- `pnpm test:nostra:quick` lists files explicitly — add new tests there or they won't run in the fast path. It exits code 1 due to 2 pre-existing unhandled rejections in `tor-ui.test.ts`; verify the `Tests N passed (N)` line, not the exit code.
+
+**Vitest quirks** (`isolate: false` + `threads: false` — shared module registry across files):
+- `vi.mock()` factories persist across files. Use `mockImplementation()` in `beforeEach`, not shared state.
+- Always pair `vi.mock('@lib/rootScope')` with `afterAll(() => { vi.unmock('@lib/rootScope'); vi.restoreAllMocks(); })` — else later tests get the mock instead of real rootScope and cascade-fail.
+- `fake-indexeddb/auto`: use unique IDs per test (e.g. `uniqueConvId()`) — IndexedDB state persists across files.
+- Don't mock `MOUNT_CLASS_TO` via `vi.mock('@config/debug')` — it's a mutable singleton. Set `MOUNT_CLASS_TO.apiManagerProxy = {...}` directly in `beforeEach`.
+
+**Worktrees:**
+- Need `pnpm install` + both `.env.local` AND `.env.local.example` copied from main repo (Vite fails with ENOENT otherwise).
+- Parallel dev servers: `pnpm exec vite --force --port <8090-8099> --strictPort`.
+
+**Runtime access:**
+- Use `rs.managers.appMessagesManager.*` (imported from `@lib/rootScope`). `apiManagerProxy.managers` is the IPC proxy class, NOT the namespace. `rs.managers` is undefined during early boot — wait for `window.__nostraChatAPI` first.
+- Injecting synthetic P2P peers needs `storeMapping(pubkey, peerId, displayName)` from `virtual-peers-db.ts`. Without persistence, VMT's `getPubkey(peerId)` returns null and bridge calls silently return `emptyUpdates`.
+- Playwright console filter must exclude `MTPROTO`, `relay_state`, `nostra_relay_state` noise. Include only: `[ChatAPI]`, `[NostrRelay]`, `[NostraSync]`, `[NostraOnboarding`, `[VirtualMTProto`.
 
 ### E2E Testing (Playwright)
-- **Launch options:** All E2E tests use `launchOptions` from `helpers/launch-options.ts`. Env vars: `E2E_HEADED=1` (visible browser), `E2E_SLOWMO=N` (slow motion ms), `E2E_DEVTOOLS=1` (open DevTools, implies headed). Never hardcode `headless: true` in test files.
-- **Vite HMR fails on first headless load** with `ERR_NETWORK_CHANGED`. Workaround: `page.goto(APP_URL, {waitUntil: 'load'})` → `waitForTimeout(5000)` → `page.reload({waitUntil: 'load'})` → `waitForTimeout(15000)`. See `e2e-bug-regression.ts` for the pattern.
-- **tweb markdown italic trap:** underscores in message text (e.g. `Bug3_reply_reply_...`) are parsed as italic (`_reply_`), which wraps them in `<i>` and breaks `textContent.includes(msg)` assertions. Always use dashes in test message strings (`Bug1-first-msg-${Date.now()}`).
-- **Bubble text extraction** for assertions: `.message` contains `.time`, `.time-inner`, `.reactions`, `.bubble-pin` children that pollute `textContent`. Clone the element and `.querySelectorAll('.time, .time-inner, .reactions, .bubble-pin').forEach(e => e.remove())` before reading text.
-- `e2e-bug-regression.ts` is the canonical regression suite for the 4 P2P bugs (duplicate first message, missing reply bubble, out-of-order, auto-pin). Run it after any change to the message pipeline or virtual-mtproto-server.
-- **Run all E2E:** `pnpm test:e2e:all` (bail on first failure), `pnpm test:e2e:all:no-bail` (run all). Single test: `pnpm test:e2e src/tests/e2e/e2e-foo.ts`. Debug: `pnpm test:e2e:debug src/tests/e2e/e2e-foo.ts`.
-- NEVER use `document.body.textContent.includes()` to check received messages — it matches chat list preview. Use `.bubble .message, .bubble .inner, .bubble-content` selectors.
-- Relay propagation needs 30s timeout (not 15s). damus.io and nos.lol are reliable; snort.social and nostr.band are frequently offline.
-- Two separate `browser.newContext()` for bidirectional tests (isolated IndexedDB/localStorage).
-- Dismiss Vite overlay first: `page.evaluate(() => document.querySelector('vite-plugin-checker-error-overlay')?.remove())`
-- Open chats via `appImManager.setPeer({peerId})` not click — headless Chromium click on `.chatlist-chat a` doesn't navigate reliably.
-- ChatAPI publish log is `[ChatAPI] message published` not `[NostraSendBridge] text sent` (old bridge was removed).
-- ALWAYS run `e2e-bidirectional.ts` after changes — it's the only test that verifies actual message delivery between two users. Sender-only tests (`e2e-contacts-and-sending.ts`) do NOT verify the receive pipeline.
-- Use `// @ts-nocheck` at top of E2E files (playwright types not in tsconfig).
-- `msgArea.pressSequentially(text)` does NOT clear the input. Before each new message, press `Control+A` then `Delete` — otherwise consecutive sends concatenate the previous text and produce merged bubbles.
-- Use `.bubble[data-mid]` + `Set<mid>` dedup for counting unique bubbles. Plain `.bubble` catches nested reply/reaction elements. Filter `.message` selectors with `.closest('.reply, .quote') == null` to skip quoted text.
-- P2P mids encode timestamp in high bits: `mid = timestamp * 1_000_000 + (hash % 1_000_000)`. This guarantees chronological ordering in SlicedArray's descending sort. `mapEventIdToMid(eventId, timestamp)` and `mapEventId(eventId, timestamp)` both require the message timestamp.
-- `peer_changing`/`peer_changed` are dispatched on `appImManager`, not `rootScope`. Access via `MOUNT_CLASS_TO.appImManager.addEventListener(...)`.
-- **Local relay for E2E:** `LocalRelay` class in `src/tests/e2e/helpers/local-relay.ts` manages a strfry Docker container on `ws://localhost:7777`. Use `relay.injectInto(ctx)` to override `DEFAULT_RELAYS` via `window.__nostraTestRelays`. Requires Docker installed. Uses `--user $(id -u):$(id -g)` and `--tmpfs /app/strfry-db` — data files are owned by host user (no root cleanup issues) and stored in RAM (no stale data between runs).
-- `nostr-relay-pool.ts` checks `window.__nostraTestRelays` at module init — set it via Playwright `addInitScript` before page load. Production ignores the property.
-- `keyboard.press('Delete')` after `Control+A` can eat the first character of the NEXT `keyboard.type()` call. Use `Backspace` instead: `Control+A` → `Backspace` → `type(text)`.
-- E2E onboarding "Get Started" button may hang (profile publish to relays). Click the "SKIP" link below it as fallback: `page.getByText('SKIP').click()`.
-- Solid.js uses event delegation — `dispatchEvent(new MouseEvent('click'))` does NOT trigger Solid onClick handlers. Use `page.mouse.click(x, y)` with coordinates from `getBoundingClientRect()` for SVG/icon clicks in E2E tests.
-- `HTMLElement.click()` inside `page.evaluate()` has the same problem as synthetic `dispatchEvent` — Solid's delegated handlers do not fire. For button clicks in popups/dialogs, always compute `getBoundingClientRect()` in `page.evaluate()` and then `await page.mouse.click(x, y)` from the test side.
-- `onClick={(e) => e.stopPropagation()}` on a parent container breaks Solid event delegation for every descendant `onClick` — the delegated handlers never fire because the event never reaches `document`. Don't wrap popup containers with `stopPropagation`; handle dismiss-on-outside-click elsewhere.
-- When filtering WebSocket traffic in E2E (`page.on('websocket')`), exclude `ws://localhost:*` — Vite's HMR socket will otherwise pollute any assertion about "relay connections opened".
-- To catch transient DOM elements in E2E (overlays, toasts that vanish on reload), register a `MutationObserver` via `page.evaluate()` BEFORE the triggering action, not after — otherwise the element may appear and disappear between the action and the check.
-- **Shared overlay dismiss**: `import {dismissOverlays} from './helpers/dismiss-overlays'` in new E2E tests. `BLOCKING_SELECTORS` in that helper is the single source of truth for overlays that intercept Playwright clicks. Add new blocking overlays (modals, banners) there, not inline per file. Tests that LEGITIMATELY need a dismissed overlay present (e.g. `e2e-tor-privacy-flow.ts` which queries `.tor-startup-banner`) must NOT call the helper.
-- **Tor startup banner** (`.tor-startup-banner`, `.tor-startup-banner-mount`) intercepts pointer events during bootstrap and silently eats Playwright clicks. Already covered by `dismissOverlays`. If a test fails with `intercepts pointer events`, check Tor bootstrap state or dismiss.
-- **Hamburger click**: use `page.locator('.sidebar-header .btn-menu-toggle').click()` — raw `page.mouse.down/up` at computed coordinates does not reliably trigger Solid.js delegated handlers on the button-menu-toggle.
-- **Onboarding wait**: prefer `page.waitForSelector('button:has-text("Create New Identity")', {timeout: 30000, state: 'visible'})` over fixed `waitForTimeout(Ns)`. Fresh worktrees compile slower on first Vite run and fixed timeouts become flaky. Post-onboarding: wait on `.sidebar-header .btn-menu-toggle` selector.
-- **APP_URL override**: `e2e-profile-blossom.ts` and `e2e-bug-regression.ts` read `process.env.E2E_APP_URL` — set for worktree runs on alternate ports: `E2E_APP_URL=http://localhost:8090 npx tsx src/tests/e2e/<file>`.
-- For manual bidirectional UI verification when the Playwright LocalRelay harness is flaky (bubble-render timing or container issues), use chrome-devtools MCP with `new_page({url, isolatedContext: "userA"})` + `new_page({url, isolatedContext: "userB"})`. Isolated contexts give fully separate IndexedDB/localStorage like `browser.newContext()`. Select via `select_page({pageId})` between pages — faster and more deterministic than the Playwright harness for one-off verification.
-- To trigger tweb edit mode in a test without hunting the context menu DOM, call `appImManager.chat.input.initMessageEditing(mid)` directly — it pre-fills the message input with the draft and sets `editMsgId`, exactly as `onEditClick` does. Then fill the input and click `button.btn-send` to commit the edit.
-- With multiple worktrees open, `pnpm start` picks the next free port (8081, 8082, ...) instead of 8080. Check actual port via `ss -tlnp | grep 808` or `tail /tmp/vite-*.log`. E2E tests should honor an `APP_URL` env var (default `http://localhost:8080`) — `e2e-p2p-edit.ts` is the reference pattern.
+
+**Running tests:**
+- `pnpm test:e2e:all` (bail on first failure) / `:all:no-bail` / `pnpm test:e2e <file>` / `pnpm test:e2e:debug <file>`.
+- Launch via `launchOptions` from `helpers/launch-options.ts`. Env: `E2E_HEADED=1`, `E2E_SLOWMO=N`, `E2E_DEVTOOLS=1`. Never hardcode `headless: true`.
+- New tests must be added to `TESTS` array in `src/tests/e2e/run-all.sh` or they're skipped silently.
+- `// @ts-nocheck` at top of E2E files (playwright types not in tsconfig).
+- `APP_URL`/`E2E_APP_URL` env var for worktree runs on alternate ports (`e2e-p2p-edit.ts` / `e2e-bug-regression.ts` reference pattern).
+
+**Page boot:**
+- **Vite HMR fails on first headless load** (`ERR_NETWORK_CHANGED`). Pattern: `goto({waitUntil: 'load'})` → `waitForTimeout(5000)` → `reload({waitUntil: 'load'})` → `waitForTimeout(15000)`.
+- Wait on selectors, not fixed timeouts: onboarding `button:has-text("Create New Identity")` (30s); post-onboarding `.sidebar-header .btn-menu-toggle`. Fresh worktrees compile slower.
+- "Get Started" onboarding button may hang on relay publish — click `SKIP` link as fallback.
+- Dismiss overlays via shared helper: `import {dismissOverlays} from './helpers/dismiss-overlays'`. `BLOCKING_SELECTORS` is the single source of truth — add new blocking overlays there. Tests that need an overlay present (e.g. `e2e-tor-privacy-flow.ts` querying `.tor-startup-banner`) must NOT call it.
+
+**Clicking in Solid.js (critical):**
+Solid uses event delegation, so **synthetic clicks do not fire delegated handlers**. This covers `element.dispatchEvent(new MouseEvent('click'))`, `HTMLElement.click()` inside `page.evaluate()`, and raw `page.mouse.down/up` at computed coordinates. Always either (a) use Playwright's `locator.click()`, or (b) compute `getBoundingClientRect()` in `page.evaluate()` and then `await page.mouse.click(x, y)` from the test side. Also: never wrap popup containers with `onClick={e => e.stopPropagation()}` — it breaks delegation for all descendants; handle dismiss-on-outside-click elsewhere.
+
+**Input handling:**
+- `msgArea.pressSequentially(text)` does NOT clear input. Between sends: `Control+A` → `Backspace` → `type(text)`. **Never use `Delete`** after `Control+A` — it eats the first char of the next `type()` call.
+- **Markdown italic trap:** underscores in test strings (e.g. `Bug3_reply_`) get parsed as `<i>`. Use dashes: `Bug1-first-msg-${Date.now()}`.
+
+**Assertions & selectors:**
+- NEVER `document.body.textContent.includes()` — matches chat list preview. Use `.bubble .message, .bubble .inner, .bubble-content`.
+- **Bubble text extraction:** `.message` contains `.time`, `.time-inner`, `.reactions`, `.bubble-pin`. Clone + `querySelectorAll('.time, .time-inner, .reactions, .bubble-pin').forEach(e => e.remove())` before reading text.
+- Count unique bubbles via `.bubble[data-mid]` + `Set<mid>`. Filter `.message` selectors with `.closest('.reply, .quote') == null` to skip quoted text.
+- Open chats via `appImManager.setPeer({peerId})` — headless click on `.chatlist-chat a` is unreliable.
+- `peer_changing`/`peer_changed` dispatch on `appImManager`, not `rootScope` (`MOUNT_CLASS_TO.appImManager.addEventListener`).
+- To trigger edit mode: call `appImManager.chat.input.initMessageEditing(mid)` directly, then fill input and click `button.btn-send`.
+
+**Local relay & network:**
+- `LocalRelay` (`src/tests/e2e/helpers/local-relay.ts`) manages a strfry Docker container on `ws://localhost:7777`. `relay.injectInto(ctx)` overrides `DEFAULT_RELAYS` via `window.__nostraTestRelays` (set before page load via `addInitScript`). Uses `--user $(id -u):$(id -g)` + `--tmpfs /app/strfry-db` (RAM-backed, no stale data, no root cleanup).
+- Public relay propagation needs **30s** timeout. damus.io + nos.lol reliable; snort.social + nostr.band frequently down.
+- Bidirectional tests need two separate `browser.newContext()` for isolated storage.
+- When filtering WebSocket traffic (`page.on('websocket')`), exclude `ws://localhost:*` — Vite HMR pollutes assertions.
+- `MutationObserver` for transient DOM (toasts, overlays) must be registered BEFORE the triggering action.
+- ALWAYS run `e2e-bidirectional.ts` after pipeline changes — sender-only tests don't verify receive.
+- Canonical regression suite: `e2e-bug-regression.ts` (4 P2P bugs).
+
+**Manual alternative:** When Playwright LocalRelay harness is flaky, use chrome-devtools MCP with `new_page({url, isolatedContext: "userA"})` + `new_page({url, isolatedContext: "userB"})` — isolated contexts give fully separate storage, faster and more deterministic for one-off verification.
 
 ### Bubble Rendering
 - Kind 0 profile must be PUBLISHED during onboarding (not just saved locally) for other users to fetch it.
@@ -423,27 +421,23 @@ Vitest config: `threads: false`, `globals: true`, jsdom environment, setup in `s
 - For new dialogs from unknown senders, `dialogs_multiupdate` must be dispatched TWICE: first dispatch adds the dialog via `sortedList.add()` (returns early, skips `setLastMessageN`), second dispatch hits the "existing dialog" branch which renders the preview text. A single dispatch shows the peer title but no message preview.
 
 ### Own Profile Sync (cache-first SWR)
-- User's own kind 0 metadata lives in `localStorage.nostra-profile-cache` (`{profile, created_at}`) as a read-through cache. Source of truth is the relay.
-- `src/lib/nostra/own-profile-sync.ts` exposes `hydrateOwnProfileFromCache()` (sync read + dispatch `nostra_identity_updated`), `refreshOwnProfileFromRelays(pubkey)` (background fetch, picks newest `created_at`, updates cache + store if newer), `saveOwnProfileLocal(profile, created_at)` (optimistic local update before the kind 0 publish).
-- At boot, `nostra-onboarding-integration.ts` calls hydrate then refresh in background. At save, `editProfile` calls `saveOwnProfileLocal` before `publishKind0Metadata`.
-- `useNostraIdentity()` exposes `about`, `website`, `lud16`, `banner` in addition to `npub`, `displayName`, `nip05`, `picture` — all driven by `nostra_identity_loaded` / `nostra_identity_updated` events in `src/stores/nostraIdentity.ts`.
-- Legacy `nostra-profile-extras` localStorage key is auto-migrated and deleted on first read.
-- Conflict resolution: `fetchOwnKind0(pubkey)` in `nostr-profile.ts` queries all configured relays in parallel and returns `NostrProfileWithMeta` with the highest `created_at`. Cache update only happens if relay newer than cache.
-- Do NOT re-introduce a plain `loadProfileExtras`-style localStorage stopgap — any new profile field must flow through `saveOwnProfileLocal` so it reaches the kind 0 publish and survives multi-device scenarios.
+- Source of truth: relay. Cache: `localStorage.nostra-profile-cache` (`{profile, created_at}`).
+- `src/lib/nostra/own-profile-sync.ts` exposes `hydrateOwnProfileFromCache()` (sync read + dispatch `nostra_identity_updated`), `refreshOwnProfileFromRelays(pubkey)` (background fetch, newest `created_at` wins), `saveOwnProfileLocal(profile, created_at)` (optimistic update before publish).
+- Boot: `nostra-onboarding-integration.ts` hydrates then refreshes in background. Save: `editProfile` calls `saveOwnProfileLocal` before `publishKind0Metadata`.
+- `useNostraIdentity()` exposes `about`, `website`, `lud16`, `banner` alongside `npub`, `displayName`, `nip05`, `picture` — driven by `nostra_identity_loaded`/`_updated` in `src/stores/nostraIdentity.ts`.
+- Conflict resolution: `fetchOwnKind0(pubkey)` queries all relays in parallel, returns highest `created_at`; cache updates only when relay is newer.
+- **Do NOT add plain localStorage stopgaps** for new profile fields — they must flow through `saveOwnProfileLocal` → kind 0 publish to survive multi-device.
+- Legacy `nostra-profile-extras` key auto-migrates and deletes on first read.
 
 ### Profile Tab Structure (`editProfile/`)
-- `src/components/sidebarLeft/tabs/editProfile/` is a DIRECTORY, not a single file. Consumers still import from `@components/sidebarLeft/tabs/editProfile` unchanged (TypeScript/Vite resolve the directory to `index.ts`).
-- `editProfile/index.ts` — `AppEditProfileTab` orchestrator: boot, save flow, focus routing, pubkey row (~245 lines).
-- `editProfile/basic-info-section.ts` — `createBasicInfoSection({bioMaxLength})` returns InputFields for Name / Bio / Website / Lightning Address with `setInitialValues` / `getValues` / `fieldsByName`.
-- `editProfile/nip05-section.ts` — `createNip05Section({npub, initialAlias, listenerSetter})` returns the NIP-05 alias input + dynamic setup instructions + verify button + status indicator. No shared state with the orchestrator beyond its return value.
-- To add a new profile input: extend `BasicInfoSection` (or create a new section file if it's a distinct concern), wire it through `setInitialValues` / `getValues`, and extend the `publishKind0Metadata` call in `index.ts` `save()`.
+- `src/components/sidebarLeft/tabs/editProfile/` is a directory; consumers still `import from '@components/sidebarLeft/tabs/editProfile'` (resolves to `index.ts`).
+- Files: `index.ts` (orchestrator — boot, save, focus, pubkey row) / `basic-info-section.ts` (Name/Bio/Website/Lightning via `createBasicInfoSection`) / `nip05-section.ts` (alias + setup + verify).
+- Add a new input: extend `BasicInfoSection` (or new section file), wire via `setInitialValues`/`getValues`, extend `publishKind0Metadata` in `index.ts` `save()`.
 
 ### Blossom Avatar Upload
-- `src/lib/nostra/blossom-upload.ts` exposes `uploadToBlossom(blob, privkeyHex): Promise<{url, sha256}>`. Signs a NIP-24242 (kind 24242) auth event, PUTs to a fallback chain: `blossom.primal.net` → `cdn.satellite.earth` → `blossom.band`.
-- The avatar `Blob` is exposed by `EditPeer.lastAvatarBlob` (added to `src/components/editPeer.ts` via a widened `AvatarEdit.onChange` signature) — `EditPeer.uploadAvatar()` is NOT used in Nostra mode (it's MTProto-only).
-- SHA-256 via Web Crypto (`crypto.subtle.digest('SHA-256', ...)`), not `@noble/hashes` (not a direct dep). Hex conversion inlined. No `blossom-client-sdk` dependency.
+- `src/lib/nostra/blossom-upload.ts` → `uploadToBlossom(blob, privkeyHex)`. Signs NIP-24242 (kind 24242), PUTs to fallback chain: `blossom.primal.net` → `cdn.satellite.earth` → `blossom.band`.
+- Avatar `Blob` exposed via `EditPeer.lastAvatarBlob` (widened `AvatarEdit.onChange`). `EditPeer.uploadAvatar()` is MTProto-only, NOT used here.
+- SHA-256 via Web Crypto (`crypto.subtle.digest`), no `@noble/hashes` / `blossom-client-sdk` deps.
 
 ### Ralph Loop Integration
-- `docs/RALPH_PROMPT_v2.md` contains the master prompt for automated bug fixing via ralph-loop.
-- `docs/CHECKLIST_v2.md` is the single source of truth for all P2P feature status, bug reports, file references, and verification commands.
-- Ralph-loop completion uses `<promise>TAG</promise>` exact string matching.
+- `docs/RALPH_PROMPT_v2.md` — master prompt for automated bug fixing. `docs/CHECKLIST_v2.md` — single source of truth for P2P feature status, bugs, verification commands. Completion uses `<promise>TAG</promise>` exact match.
