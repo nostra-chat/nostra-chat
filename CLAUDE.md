@@ -263,6 +263,17 @@ Vitest config: `threads: false`, `globals: true`, jsdom environment, setup in `s
 
 ## Nostra.chat Architecture Notes
 
+### Tor WASM runtime (webtor-rs)
+- `ChatAPI` owns its OWN `NostrRelayPool` separate from `NostraBridge._relayPool`. Any startup/privacy gate that touches one must also touch `chatAPI.initGlobalSubscription()` — it is called from `src/pages/nostra-onboarding-integration.ts` and bypasses the bridge pool entirely.
+- `PrivacyTransport.waitUntilSettled()` is the authoritative gate: it resolves on `active`/`direct`/`failed`. Use it to defer ANY network-touching init when Tor is enabled (`pool.initialize`, `chatAPI.initGlobalSubscription`, etc.) so no WebSocket leaks the user's IP during the 30-40s bootstrap window.
+- Tor consensus + microdescriptors live at `public/webtor/consensus.br.bin` and `microdescriptors.br.bin`. Refresh with `pnpm run update-tor-consensus` (runs in the prebuild hook). **Do NOT rename them to `.br`** — Vite auto-sets `Content-Encoding: br` for `.br` files, causing the browser to pre-decompress before the WASM fetch shim sees the bytes, which then fails with `Failed to decompress consensus: Invalid Data`.
+- `webtor-fallback.ts` installs a fetch shim that rewrites the hardcoded stale `https://privacy-ethereum.github.io/webtor-rs/*` URLs to the local `/webtor/*.br.bin` files and caches them in `CacheStorage` (`tor-consensus-cache.ts`) with a 2h TTL. Production staleness manifests as `Failed to extend to middle: Circuit-extension handshake authentication failed`.
+- Tor bootstrap in headless Chromium can wedge into `Internal error: Channel not established`. The only recovery is constructing a fresh `WebtorClient` — `abort()` does not help and leaves the client unusable. `PrivacyTransport.bootstrap()` already retries up to 4 times with fresh clients (unless `webtorInjected` is true for unit tests).
+- `WebtorClient.fetch()` serializes inside arti: concurrent callers queue. Never wrap it in a JS-side `Promise.race` timeout loop — abandoned promises don't free the WASM stream and the client wedges. Also never issue a background `_fetchExitIp()` during bootstrap without a `Promise.race` upper bound; it blocks every subsequent fetch.
+- Tor HTTP polling (`NostrRelay.startHttpPolling`) must chain via `setTimeout` in a `finally` block, not `setInterval`. A 3s interval with 45s per-fetch timeouts piles up unbounded in-flight requests on a slow circuit and saturates the WASM tunnel.
+- `window.__nostraTransport`, `window.__nostraPool`, and `window.__nostraPrivacyTransport` are exposed for debugging + E2E. The transport's `.webtorClient` (private in TS) is accessible via `(t as any).webtorClient` at runtime.
+
+
 ### Worker Context
 - tweb runs managers in a DedicatedWorker even with `noSharedWorker=true`. Code in `src/lib/appManagers/` and `src/lib/storages/` runs in Worker context where `window` is undefined.
 - Never import modules that use `window` directly into Worker-context code. Use `typeof window !== 'undefined'` guards or keep window-dependent code in main-thread-only files (`src/components/`, `src/pages/`).
@@ -349,6 +360,8 @@ Vitest config: `threads: false`, `globals: true`, jsdom environment, setup in `s
 ### Testing P2P Code
 - Always check TS errors with `npx tsc --noEmit 2>&1 | grep "error TS"` — Vite checker may show stale cached errors.
 - P2P unit tests: `npx vitest run src/tests/nostra/` — covers peer mapper, virtual MTProto server, sync, relay pool, crypto.
+- New unit tests under `src/tests/nostra/*.test.ts` are picked up automatically by `pnpm test:nostra`, but `pnpm test:nostra:quick` lists files explicitly — add your new test there too or it won't run in the fast path.
+- New E2E tests in `src/tests/e2e/e2e-*.ts` do NOT auto-run — add the filename to the `TESTS` array in `src/tests/e2e/run-all.sh` or `pnpm test:e2e:all` will skip them silently.
 - Worktrees need `pnpm install` before running tests. Expect ~30 pre-existing TS errors from `@vendor/emoji`, `@vendor/bezierEasing` (missing vendor builds).
 - When extracting files from a worktree/branch to main, use `git show <commit>:<path> > <path>` — never `cp` from a worktree directory, which may contain unresolved merge conflict markers from aborted merges.
 - Worktrees also need `.env.local.example` copied from main repo — Vite config copies it to `.env.local` on start and fails with ENOENT if missing.
@@ -382,6 +395,9 @@ Vitest config: `threads: false`, `globals: true`, jsdom environment, setup in `s
 - `keyboard.press('Delete')` after `Control+A` can eat the first character of the NEXT `keyboard.type()` call. Use `Backspace` instead: `Control+A` → `Backspace` → `type(text)`.
 - E2E onboarding "Get Started" button may hang (profile publish to relays). Click the "SKIP" link below it as fallback: `page.getByText('SKIP').click()`.
 - Solid.js uses event delegation — `dispatchEvent(new MouseEvent('click'))` does NOT trigger Solid onClick handlers. Use `page.mouse.click(x, y)` with coordinates from `getBoundingClientRect()` for SVG/icon clicks in E2E tests.
+- `HTMLElement.click()` inside `page.evaluate()` has the same problem as synthetic `dispatchEvent` — Solid's delegated handlers do not fire. For button clicks in popups/dialogs, always compute `getBoundingClientRect()` in `page.evaluate()` and then `await page.mouse.click(x, y)` from the test side.
+- `onClick={(e) => e.stopPropagation()}` on a parent container breaks Solid event delegation for every descendant `onClick` — the delegated handlers never fire because the event never reaches `document`. Don't wrap popup containers with `stopPropagation`; handle dismiss-on-outside-click elsewhere.
+- When filtering WebSocket traffic in E2E (`page.on('websocket')`), exclude `ws://localhost:*` — Vite's HMR socket will otherwise pollute any assertion about "relay connections opened".
 - To catch transient DOM elements in E2E (overlays, toasts that vanish on reload), register a `MutationObserver` via `page.evaluate()` BEFORE the triggering action, not after — otherwise the element may appear and disappear between the action and the check.
 
 ### Bubble Rendering
