@@ -198,6 +198,36 @@ export class PrivacyTransport {
   }
 
   /**
+   * Resolve when the transport reaches a "settled" state —
+   * `active`, `direct`, or `failed`. `bootstrapping` and `offline`
+   * are considered in-flight.
+   *
+   * Used by the startup flow to gate `pool.initialize()` so no
+   * WebSocket is opened while Tor is still building its circuit.
+   *
+   * Resolves immediately if already settled.
+   */
+  waitUntilSettled(): Promise<PrivacyTransportState> {
+    const isSettled = (s: PrivacyTransportState) =>
+      s === 'active' || s === 'direct' || s === 'failed';
+
+    if(isSettled(this.state)) {
+      return Promise.resolve(this.state);
+    }
+
+    return new Promise((resolve) => {
+      const handler = (e: {state: string; error?: string}) => {
+        const s = e.state as PrivacyTransportState;
+        if(isSettled(s)) {
+          rootScope.removeEventListener('nostra_tor_state', handler);
+          resolve(s);
+        }
+      };
+      rootScope.addEventListener('nostra_tor_state', handler);
+    });
+  }
+
+  /**
    * Disconnect — clean up all resources.
    */
   disconnect(): void {

@@ -116,7 +116,15 @@ export class NostraBridge {
 
   /**
    * Initialize NostrRelayPool, OfflineQueue, and PrivacyTransport.
-   * Bootstraps Tor in fire-and-forget mode (non-blocking).
+   *
+   * Privacy-critical ordering:
+   *   - Tor enabled (default): start PrivacyTransport.bootstrap() FIRST and
+   *     wait until it reaches a settled state ('active', 'direct', or
+   *     'failed') before calling pool.initialize(). This guarantees no
+   *     WebSocket is ever opened while the Tor circuit is still building.
+   *     During bootstrap the app is still usable — chats read from the
+   *     local IndexedDB store and outgoing messages queue in OfflineQueue.
+   *   - Tor disabled: pool.initialize() runs immediately (legacy path).
    */
   private initTransport(): void {
     const pool = new NostrRelayPool({
@@ -139,12 +147,27 @@ export class NostraBridge {
       (window as any).__nostraTransport = transport;
     }
 
-    // Initialize pool then bootstrap transport (fire-and-forget)
-    pool.initialize().then(() => {
+    const torEnabled = PrivacyTransport.isTorEnabled();
+
+    if(!torEnabled) {
+      // Legacy path: no Tor, go direct immediately.
+      pool.initialize().catch(() => {
+        // Pool init failure — transport stays offline
+      });
+    } else {
+      // Tor-first path: mount the startup banner, kick off bootstrap, and
+      // only connect relays once the transport has settled.
+      if(typeof window !== 'undefined') {
+        void this.mountTorStartupBanner();
+      }
+
       transport.bootstrap();
-    }).catch(() => {
-      // Pool init failure — transport stays offline
-    });
+      transport.waitUntilSettled().then(() => {
+        return pool.initialize();
+      }).catch(() => {
+        // Pool init failure — transport stays offline
+      });
+    }
 
     // Initialize mini-relay worker
     if(typeof window !== 'undefined') {
@@ -378,6 +401,68 @@ export class NostraBridge {
     const hue = Math.abs(hash) % 360;
     const hue2 = (hue + 40) % 360;
     return `linear-gradient(135deg, hsl(${hue}, 70%, 60%), hsl(${hue2}, 70%, 45%))`;
+  }
+
+  /**
+   * Mount the Tor startup banner on document.body. Lazy-loads the Solid
+   * component so the extra weight only lands when Tor is actually enabled.
+   * Also wires the Skip button to open the confirmation popup which, on
+   * confirm, calls transport.confirmDirectFallback() so waitUntilSettled()
+   * resolves and pool.initialize() proceeds in WebSocket mode.
+   */
+  private async mountTorStartupBanner(): Promise<void> {
+    const transport = this._privacyTransport;
+    if(!transport) return;
+
+    const [{default: TorStartupBanner}, {default: TorStartupSkipConfirm}, {render}] = await Promise.all([
+      import('@components/nostra/torStartupBanner'),
+      import('@components/popups/torStartupSkipConfirm'),
+      import('solid-js/web')
+    ]);
+
+    const bannerEl = document.createElement('div');
+    bannerEl.classList.add('tor-startup-banner-mount');
+    document.body.append(bannerEl);
+
+    const openSkipPopup = () => {
+      const overlay = document.createElement('div');
+      overlay.classList.add('tor-startup-skip-mount');
+      const dispose = render(() => TorStartupSkipConfirm({
+        onCancel: () => {
+          dispose();
+          overlay.remove();
+        },
+        onConfirm: () => {
+          transport.confirmDirectFallback();
+          dispose();
+          overlay.remove();
+        },
+        onOpenSettings: () => {
+          dispose();
+          overlay.remove();
+          // Navigate to the Privacy & Security tab. We access the singleton
+          // via the global appSidebarLeft which is exposed by the shell.
+          const sidebar = (window as any).appSidebarLeft;
+          if(sidebar && typeof sidebar.createTab === 'function') {
+            // Lazy load — avoids pulling the tab into the initial bundle.
+            import('@components/sidebarLeft/tabs/privacyAndSecurity').then(({default: AppPrivacyAndSecurityTab}) => {
+              sidebar.createTab(AppPrivacyAndSecurityTab).open();
+            }).catch(() => {/* ignore */});
+          }
+        }
+      }), overlay);
+      document.body.append(overlay);
+    };
+
+    render(() => TorStartupBanner({
+      onSkip: openSkipPopup,
+      onRetry: () => {
+        void transport.retryTor();
+      },
+      onContinueDirect: () => {
+        transport.confirmDirectFallback();
+      }
+    }), bannerEl);
   }
 
   /**

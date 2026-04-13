@@ -89,8 +89,6 @@ import PopupPremium from '@components/popups/premium';
 import showNoForwardsPopup from '@components/popups/noForwards';
 import {render} from 'solid-js/web';
 import TorShield from '@components/nostra/torShield';
-import TorBanner from '@components/nostra/torBanner';
-import TorFallbackConfirm from '@components/popups/torFallbackConfirm';
 import TorStatus from '@components/popups/torStatus';
 
 type ButtonToVerify = {element?: HTMLElement, verify: () => boolean | Promise<boolean>};
@@ -266,23 +264,9 @@ export default class ChatTopbar {
     this.chatInfoContainer.append(this.btnBack, this.chatInfo, this.chatUtils);
     this.container.append(this.chatInfoContainer);
 
-    // * Nostra.chat: mount TorBanner below topbar
-    const torBannerEl = document.createElement('div');
-    torBannerEl.classList.add('topbar-tor-banner');
-    render(() => TorBanner({
-      onRetryTor: () => {
-        const transport = (window as any).__nostraTransport;
-        if(transport) transport.retryTor();
-      }
-    }), torBannerEl);
-    this.container.append(torBannerEl);
-
-    // * Nostra.chat: listen for Tor failure → show fallback confirmation popup
-    this.listenerSetter.add(rootScope)('nostra_tor_state', (e: {state: string; error?: string}) => {
-      if(e.state === 'failed') {
-        this.showTorFallbackPopup();
-      }
-    });
+    // * Nostra.chat: Tor state UI is owned by the global startup banner
+    // mounted in nostra-bridge.initTransport(). The topbar keeps only the
+    // TorShield icon (which opens the dashboard popup on click).
 
     if(this.pinnedMessage) {
       this.appendPinnedMessage(this.pinnedMessage);
@@ -395,21 +379,6 @@ export default class ChatTopbar {
     render(() => TorStatus({
       relayStates,
       torState,
-      onClose: () => overlay.remove()
-    }), overlay);
-    document.body.append(overlay);
-  }
-
-  // * Nostra.chat: Tor fallback confirmation popup
-  private showTorFallbackPopup(): void {
-    const transport = (window as any).__nostraTransport;
-    if(!transport) return;
-
-    const overlay = document.createElement('div');
-    overlay.classList.add('topbar-tor-fallback-popup');
-    render(() => TorFallbackConfirm({
-      onRetry: () => transport.retryTor(),
-      onConfirmDirect: () => transport.confirmDirectFallback(),
       onClose: () => overlay.remove()
     }), overlay);
     document.body.append(overlay);

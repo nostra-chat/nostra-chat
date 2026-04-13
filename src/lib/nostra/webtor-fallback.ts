@@ -13,6 +13,12 @@
  */
 
 import initWebtor, {TorClient, TorClientOptions, setDebugEnabled, setLogCallback} from '/webtor/webtor_wasm';
+import {
+  getCachedConsensus,
+  saveCachedConsensus,
+  getCachedMicrodescs,
+  saveCachedMicrodescs
+} from './tor-consensus-cache';
 
 // ---------------------------------------------------------------------------
 // Fresh Tor consensus shim
@@ -23,8 +29,10 @@ import initWebtor, {TorClient, TorClientOptions, setDebugEnabled, setLogCallback
 // A stale consensus has out-of-date relay keys, so circuit construction fails
 // at the middle hop with "Circuit-extension handshake authentication failed".
 //
-// We install a one-time fetch shim that rewrites those URLs to /webtor/*
-// served from public/, kept fresh by scripts/update-tor-consensus.mjs.
+// We install a one-time fetch shim that:
+//   1. Rewrites the stale github.io URLs to /webtor/* served from public/
+//   2. Serves from Cache Storage (tor-consensus-cache) when a recent copy
+//      is available so subsequent launches skip the network + parse hot path
 //
 // The shim is idempotent and only patches in browser contexts.
 let _fetchShimInstalled = false;
@@ -35,27 +43,51 @@ function installConsensusFetchShim() {
 
   const STALE_PREFIX = 'https://privacy-ethereum.github.io/webtor-rs/';
   const LOCAL_PREFIX = '/webtor/';
+  const CONSENSUS_KEY = STALE_PREFIX + 'consensus.txt.br';
+  const MICRODESCS_KEY = STALE_PREFIX + 'microdescriptors.txt.br';
   // Local copies use a .bin suffix so Vite (and other static hosts) do NOT
   // auto-add Content-Encoding: br, which would make the browser pre-decode
   // the body before the WASM sees it.
   const REWRITE: Record<string, string> = {
-    [STALE_PREFIX + 'consensus.txt.br']: LOCAL_PREFIX + 'consensus.br.bin',
-    [STALE_PREFIX + 'microdescriptors.txt.br']: LOCAL_PREFIX + 'microdescriptors.br.bin'
+    [CONSENSUS_KEY]: LOCAL_PREFIX + 'consensus.br.bin',
+    [MICRODESCS_KEY]: LOCAL_PREFIX + 'microdescriptors.br.bin'
   };
 
   const origFetch = window.fetch.bind(window);
-  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  window.fetch = (async(input: RequestInfo | URL, init?: RequestInit) => {
     let url: string;
     if(typeof input === 'string') url = input;
     else if(input instanceof URL) url = input.toString();
     else url = (input as Request).url;
 
     const replacement = REWRITE[url];
-    if(replacement) {
-      console.debug('[WebtorClient] consensus shim: rewriting', url, '→', replacement);
-      return origFetch(replacement, init);
+    if(!replacement) {
+      return origFetch(input as any, init);
     }
-    return origFetch(input as any, init);
+
+    // Cache hit? Hand the arti fetch the stored Response directly.
+    if(url === CONSENSUS_KEY) {
+      const cached = await getCachedConsensus();
+      if(cached) {
+        console.debug('[WebtorClient] consensus shim: consensus cache hit');
+        return cached;
+      }
+    } else if(url === MICRODESCS_KEY) {
+      const cached = await getCachedMicrodescs();
+      if(cached) {
+        console.debug('[WebtorClient] consensus shim: microdescs cache hit');
+        return cached;
+      }
+    }
+
+    // Cache miss — fetch the fresh local copy and populate the cache.
+    console.debug('[WebtorClient] consensus shim: rewriting', url, '→', replacement);
+    const resp = await origFetch(replacement, init);
+    if(resp.ok) {
+      if(url === CONSENSUS_KEY) void saveCachedConsensus(resp);
+      else if(url === MICRODESCS_KEY) void saveCachedMicrodescs(resp);
+    }
+    return resp;
   }) as typeof window.fetch;
 }
 

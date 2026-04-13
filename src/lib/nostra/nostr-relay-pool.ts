@@ -170,6 +170,15 @@ export class NostrRelayPool {
     // Connect all relays
     await this.connectAll();
 
+    // Flush any NIP-65 request that was queued before initialization
+    // (happens on the Tor-first startup path, where publishNip65 is
+    // called while we are still waiting for the circuit to settle).
+    if(this._pendingNip65PrivateKey) {
+      const pk = this._pendingNip65PrivateKey;
+      this._pendingNip65PrivateKey = null;
+      this._publishNip65Now(pk);
+    }
+
     // History backfill
     if(this.lastSeenTimestamp > 0) {
       await this.backfill();
@@ -454,6 +463,21 @@ export class NostrRelayPool {
 
   publishNip65(privateKey: Uint8Array): void {
     this.privateKeyBytes = privateKey;
+
+    // If the pool hasn't been initialized yet (Tor-first flow defers this
+    // until the circuit is ready), stash the request and replay it after
+    // initialize() finishes connecting the relays.
+    if(this.relayEntries.length === 0) {
+      this._pendingNip65PrivateKey = privateKey;
+      return;
+    }
+
+    this._publishNip65Now(privateKey);
+  }
+
+  private _pendingNip65PrivateKey: Uint8Array | null = null;
+
+  private _publishNip65Now(privateKey: Uint8Array): void {
     const enabledConfigs = this.configs.filter(c => this.enabled.get(c.url) !== false);
     const event = buildNip65Event(enabledConfigs, privateKey);
 

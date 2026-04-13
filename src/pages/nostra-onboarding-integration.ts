@@ -148,9 +148,23 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
       };
       console.log('[NostraOnboardingIntegration] NostraSync wired to ChatAPI');
 
-      chatAPI.initGlobalSubscription().catch((err) => {
-        console.warn('[NostraOnboardingIntegration] global subscription failed:', err);
-      });
+      // Defer the ChatAPI's global subscription until the PrivacyTransport
+      // has settled when Tor is enabled. ChatAPI owns its own NostrRelayPool
+      // which would otherwise open direct WebSockets to every relay the
+      // moment initGlobalSubscription runs — leaking the user IP for the
+      // full duration of the Tor bootstrap.
+      const startChatAPI = () => {
+        chatAPI.initGlobalSubscription().catch((err) => {
+          console.warn('[NostraOnboardingIntegration] global subscription failed:', err);
+        });
+      };
+      const transport = (window as any).__nostraTransport;
+      const torEnabled = typeof localStorage !== 'undefined' && localStorage.getItem('nostra-tor-enabled') !== 'false';
+      if(torEnabled && transport && typeof transport.waitUntilSettled === 'function') {
+        transport.waitUntilSettled().then(startChatAPI).catch(startChatAPI);
+      } else {
+        startChatAPI();
+      }
 
       // --- Wire extracted modules ---
       const pendingFlush = createPendingFlush();
