@@ -105,7 +105,6 @@ if(USE_OWN_SOLID) {
 }
 
 export default defineConfig({
-  cacheDir: path.join(rootDir, 'node_modules/.vite-profile-blossom'),
   define: {
     'import.meta.env.VITE_VERSION': JSON.stringify(pkgVersion),
     'import.meta.env.VITE_VERSION_FULL': JSON.stringify(pkgVersion)
