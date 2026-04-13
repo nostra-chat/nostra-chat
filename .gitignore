@@ -61,3 +61,4 @@ ignore
 .superpowers
 .claude/ralph-loop.local.md
 .claude/worktrees
+.claude/scheduled_tasks.lock
