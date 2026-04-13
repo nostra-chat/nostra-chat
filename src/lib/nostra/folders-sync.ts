@@ -20,9 +20,9 @@ export type FoldersSyncDeps = {
     queryLatestEvent: (filter: {kinds: number[], '#d': string[], limit: number}) => Promise<{kind: number, created_at: number, content: string} | null>;
   };
   filtersStore: {
-    getFilters: () => MyDialogFilter[];
-    setFilters: (next: MyDialogFilter[]) => void;
-    reseedSystemFolders: () => void;
+    getFilters: () => MyDialogFilter[] | Promise<MyDialogFilter[]>;
+    setFilters: (next: MyDialogFilter[]) => void | Promise<void>;
+    reseedSystemFolders: () => void | Promise<void>;
   };
   encrypt: (plaintext: string) => string;
   decrypt: (ciphertext: string) => string;
@@ -40,7 +40,7 @@ export class FoldersSync {
 
   async reconcile(): Promise<ReconcileResult> {
     const remote = await this.fetchRemote();
-    const filters = this.deps.filtersStore.getFilters();
+    const filters = await this.deps.filtersStore.getFilters();
     const hasCustom = filters.some((f) => f.id >= START_LOCAL_ID);
 
     const decision = decideMerge({
@@ -60,8 +60,8 @@ export class FoldersSync {
         this.applyingRemote = true;
         try {
           const next = applySnapshotToFilters(filters, remote!.snapshot);
-          this.deps.filtersStore.setFilters(next);
-          this.deps.filtersStore.reseedSystemFolders();
+          await this.deps.filtersStore.setFilters(next);
+          await this.deps.filtersStore.reseedSystemFolders();
           if(decision.showToast) {
             const msg = this.deps.i18n ?
               this.deps.i18n('FoldersSyncOverwritten') :
@@ -82,7 +82,7 @@ export class FoldersSync {
 
   async publish(): Promise<void> {
     if(this.applyingRemote) return;
-    const filters = this.deps.filtersStore.getFilters();
+    const filters = await this.deps.filtersStore.getFilters();
     const snapshot = buildSnapshotFromFilters(filters);
     const plaintext = JSON.stringify(snapshot);
     const ciphertext = this.deps.encrypt(plaintext);

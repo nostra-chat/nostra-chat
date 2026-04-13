@@ -344,6 +344,49 @@ export default class FiltersStorage extends AppManager {
     }
   }
 
+  /**
+   * Atomically replace all filters with a new set. Used by FoldersSync
+   * when applying a remote snapshot. Dispatches filter_delete for filters
+   * that disappear, filter_update for each new/changed filter, and
+   * filter_order for the final ordering.
+   */
+  public replaceAllFilters(next: MyDialogFilter[]) {
+    const nextIds = new Set(next.map((f) => f.id));
+    // Delete removed filters
+    for(const idStr in this.filters) {
+      const id = +idStr;
+      if(!nextIds.has(id)) {
+        this.rootScope.dispatchEvent('filter_delete', this.filters[id]);
+        delete this.filters[id];
+      }
+    }
+    // Upsert new / changed filters
+    this.filtersArr = [];
+    for(const filter of next) {
+      this.filters[filter.id] = filter;
+      this.filtersArr.push(filter);
+      this.rootScope.dispatchEvent('filter_update', filter);
+    }
+    // Notify order
+    this.rootScope.dispatchEvent('filter_order', next.map((f) => f.id));
+    this.pushToState();
+  }
+
+  /**
+   * Ensure the 4 system folders (All/Persons/Groups/Archive) are present
+   * in filtersArr after a replaceAllFilters call. Re-runs prependFilters
+   * and updates the in-memory maps.
+   */
+  public reseedSystemFolders() {
+    const seeded = this.prependFilters(this.filtersArr) as MyDialogFilter[];
+    this.filtersArr = seeded;
+    this.filters = {};
+    for(const f of seeded) {
+      this.filters[f.id] = f;
+    }
+    this.pushToState();
+  }
+
   public async toggleDialogPin(peerId: PeerId, filterId: number) {
     const filter = this.filters[filterId];
 

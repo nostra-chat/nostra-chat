@@ -306,6 +306,86 @@ export class ChatAPI {
   }
 
   /**
+   * Publish an arbitrary Nostr event authored by the current user.
+   * Signs the provided `{kind, created_at, tags, content}` with the
+   * identity held by the relay pool, then fans out to all write relays
+   * via publishRawEvent().
+   *
+   * Used by FoldersSync to publish kind 30078 snapshots.
+   */
+  async publishEvent(unsigned: {
+    kind: number;
+    created_at: number;
+    tags: any[];
+    content: string;
+  }): Promise<void> {
+    const sk = this.relayPool.getPrivateKey?.();
+    if(!sk) {
+      throw new Error('[ChatAPI] cannot publish event: relay pool has no private key');
+    }
+    if(!this.relayPool.isConnected()) {
+      // Initialize lazily — callers may invoke this before initGlobalSubscription resolves.
+      await this.relayPool.initialize();
+    }
+    const {finalizeEvent} = await import('nostr-tools/pure');
+    const signed = finalizeEvent({
+      kind: unsigned.kind,
+      created_at: unsigned.created_at,
+      tags: unsigned.tags as string[][],
+      content: unsigned.content
+    }, sk);
+    await this.relayPool.publishRawEvent(signed as any);
+  }
+
+  /**
+   * Query relays for the single latest event matching a filter, ordered
+   * by created_at descending. Returns null if no events match.
+   *
+   * Used by FoldersSync to fetch the latest kind 30078 folder snapshot
+   * authored by the current user.
+   */
+  async queryLatestEvent(filter: {
+    kinds: number[];
+    '#d'?: string[];
+    authors?: string[];
+    limit?: number;
+  }): Promise<{kind: number; created_at: number; content: string; tags: string[][]; id?: string} | null> {
+    const authors = filter.authors && filter.authors.length > 0 ?
+      filter.authors :
+      [this.ownId];
+    const req: Record<string, unknown> = {
+      kinds: filter.kinds,
+      authors,
+      limit: filter.limit ?? 1
+    };
+    if(filter['#d']) req['#d'] = filter['#d'];
+
+    if(!this.relayPool.isConnected()) {
+      try {
+        await this.relayPool.initialize();
+      } catch(err) {
+        this.log.warn('[ChatAPI] queryLatestEvent: relay init failed', err);
+        return null;
+      }
+    }
+
+    const events = await this.relayPool.queryRawEvents(req);
+    if(!events.length) return null;
+
+    let latest = events[0];
+    for(const ev of events) {
+      if(ev.created_at > latest.created_at) latest = ev;
+    }
+    return {
+      kind: latest.kind,
+      created_at: latest.created_at,
+      content: latest.content,
+      tags: latest.tags,
+      id: latest.id
+    };
+  }
+
+  /**
    * Disconnect from the current peer
    */
   disconnect(): void {

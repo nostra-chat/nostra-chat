@@ -24,6 +24,11 @@ import {handleIncomingMessage, handleIncomingEdit} from '@lib/nostra/nostra-mess
 import {createPendingFlush} from '@lib/nostra/nostra-pending-flush';
 import {createReadReceiptSender} from '@lib/nostra/nostra-read-receipts';
 import {createDeliveryUI} from '@lib/nostra/nostra-delivery-ui';
+import {FoldersSync} from '@lib/nostra/folders-sync';
+import {setLastModifiedAt} from '@lib/nostra/folders-sync-state';
+import {getConversationKey, nip44Encrypt, nip44Decrypt} from '@lib/nostra/nostr-crypto';
+import {toast} from '@components/toast';
+import I18n from '@lib/langPack';
 // tweb-contained CSS no longer needed — onboarding uses native tweb styles
 
 declare global {
@@ -219,6 +224,57 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
 
       // Delivery status UI
       deliveryUI.attach();
+
+      // --- Initialize folders sync (kind 30078, self-encrypted) ---
+      try {
+        const privKeyBytes = new Uint8Array(
+          identity.privateKey.match(/.{2}/g)!.map((b) => parseInt(b, 16))
+        );
+        const convKey = getConversationKey(privKeyBytes, identity.publicKey);
+
+        const foldersSync = new FoldersSync({
+          chatAPI: {
+            publishEvent: (event) => chatAPI.publishEvent(event),
+            queryLatestEvent: (filter) => chatAPI.queryLatestEvent(filter) as any
+          },
+          filtersStore: {
+            getFilters: async() => {
+              const map = await rootScope.managers.filtersStorage.getFilters();
+              return Object.values(map) as any[];
+            },
+            setFilters: (next) => rootScope.managers.filtersStorage.replaceAllFilters(next),
+            reseedSystemFolders: () => rootScope.managers.filtersStorage.reseedSystemFolders()
+          },
+          encrypt: (plain) => nip44Encrypt(plain, convKey),
+          decrypt: (cipher) => nip44Decrypt(cipher, convKey),
+          nowSeconds: () => Math.floor(Date.now() / 1000),
+          toast: (msg) => toast(msg),
+          i18n: (key) => I18n.format(key as any, true)
+        });
+
+        // Bounded 5s reconcile — never block onboarding on relay latency
+        await Promise.race([
+          foldersSync.reconcile().catch((e) => console.warn('[FoldersSync] reconcile failed', e)),
+          new Promise<void>((resolve) => setTimeout(resolve, 5000))
+        ]);
+
+        // Debounced publish on filter events
+        let publishTimer: ReturnType<typeof setTimeout> | null = null;
+        const schedulePublish = () => {
+          setLastModifiedAt(Math.floor(Date.now() / 1000));
+          if(publishTimer) clearTimeout(publishTimer);
+          publishTimer = setTimeout(() => {
+            foldersSync.publish().catch((e) => console.warn('[FoldersSync] publish failed', e));
+          }, 2000);
+        };
+
+        rootScope.addEventListener('filter_update', schedulePublish);
+        rootScope.addEventListener('filter_delete', schedulePublish);
+        rootScope.addEventListener('filter_order', schedulePublish);
+        console.log('[NostraOnboardingIntegration] FoldersSync wired');
+      } catch(err) {
+        console.warn('[NostraOnboardingIntegration] FoldersSync init failed:', err);
+      }
 
       // Trigger initial dialog refresh
       setTimeout(() => {
