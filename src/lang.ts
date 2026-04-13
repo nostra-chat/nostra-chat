@@ -1640,6 +1640,8 @@ const lang = {
   'ClearButton': 'Clear',
   'FilterAllChats': 'All Chats',
   'FilterAllChatsShort': 'All',
+  'FilterContacts': 'Contacts',
+  'FilterGroups': 'Groups',
   'Call': 'Call',
   'VideoCall': 'Video Call',
   'CallMessageOutgoing': 'Outgoing Call',

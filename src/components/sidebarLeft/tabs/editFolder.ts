@@ -42,6 +42,7 @@ import EditFolderInput from '@components/sidebarLeft/tabs/editFolderInput';
 import SolidJSHotReloadGuardProvider from '@lib/solidjs/hotReloadGuardProvider';
 import getRichValueWithCaret from '@helpers/dom/getRichValueWithCaret';
 import trimRichText from '@lib/richTextProcessor/trimRichText';
+import {isProtectedFolder} from '@lib/nostra/folders-protection';
 
 const MAX_FOLDER_NAME_LENGTH = 12;
 
@@ -589,7 +590,7 @@ export default class AppEditFolderTab extends SliderSuperTab {
     this.setTitle(this.type === 'create' ? 'FilterNew' : 'FilterHeaderEdit');
 
     if(this.type === 'edit') {
-      this.menuBtn.classList.remove('hide');
+      this.menuBtn.classList.toggle('hide', isProtectedFolder(this.filter.id));
       this.confirmBtn.classList.add('hide');
     }
 
