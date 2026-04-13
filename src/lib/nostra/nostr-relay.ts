@@ -374,6 +374,38 @@ export class NostrRelay {
   }
 
   /**
+   * Generic raw query — returns unwrapped NostrEvents matching a filter.
+   * Unlike getMessages(), this does NOT assume gift-wrap and does not decrypt.
+   * Used for querying replaceable events (e.g., kind 30078 folder snapshots).
+   */
+  async queryRawEvents(filter: Record<string, unknown>): Promise<NostrEvent[]> {
+    if(this.connectionState !== 'connected') {
+      return [];
+    }
+
+    const queryId = `nostra-raw-query-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const collected: NostrEvent[] = [];
+
+    return new Promise<NostrEvent[]>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.rawQueryResolvers.delete(queryId);
+        try { this.ws?.send(JSON.stringify(['CLOSE', queryId])); } catch{}
+        resolve(collected);
+      }, 10_000);
+
+      this.rawQueryResolvers.set(queryId, {
+        events: collected,
+        resolve: (events) => {
+          clearTimeout(timeout);
+          resolve(events);
+        }
+      });
+
+      this.ws?.send(JSON.stringify(['REQ', queryId, filter]));
+    });
+  }
+
+  /**
    * Subscribe to incoming messages
    *
    * Sets up a subscription to receive kind 1059 gift-wrap events addressed to us
@@ -701,6 +733,12 @@ export class NostrRelay {
     resolve: (events: DecryptedMessage[]) => void;
   }> = new Map();
 
+  // Pending raw query resolvers (non-giftwrap queries): queryId -> {events, resolve}
+  private rawQueryResolvers: Map<string, {
+    events: NostrEvent[];
+    resolve: (events: NostrEvent[]) => void;
+  }> = new Map();
+
   /**
    * Handle incoming WebSocket messages
    */
@@ -719,8 +757,11 @@ export class NostrRelay {
           const [, subId, event] = message as [string, string, NostrEvent];
           // Check if this event belongs to a pending query
           const queryResolver = this.queryResolvers.get(subId);
+          const rawResolver = this.rawQueryResolvers.get(subId);
           if(queryResolver) {
             this.collectQueryEvent(event, queryResolver.events);
+          } else if(rawResolver) {
+            rawResolver.events.push(event);
           } else {
             this.handleEvent(event);
           }
@@ -730,12 +771,18 @@ export class NostrRelay {
           const [, subId] = message as [string, string];
           // Resolve any pending query for this subscription
           const queryResolver = this.queryResolvers.get(subId);
+          const rawResolver = this.rawQueryResolvers.get(subId);
           if(queryResolver) {
             this.log('[NostrRelay] EOSE received for query:', subId, 'with', queryResolver.events.length, 'events');
             // Close the query subscription
             this.ws?.send(JSON.stringify(['CLOSE', subId]));
             this.queryResolvers.delete(subId);
             queryResolver.resolve(queryResolver.events);
+          } else if(rawResolver) {
+            this.log('[NostrRelay] EOSE received for raw query:', subId, 'with', rawResolver.events.length, 'events');
+            this.ws?.send(JSON.stringify(['CLOSE', subId]));
+            this.rawQueryResolvers.delete(subId);
+            rawResolver.resolve(rawResolver.events);
           } else {
             this.log.debug('[NostrRelay] EOSE received for subscription:', subId);
           }

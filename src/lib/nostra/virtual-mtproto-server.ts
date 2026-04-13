@@ -23,7 +23,7 @@ const ACTION_PATTERNS = [
 
 // ─── Known method fallback shapes ───────────────────────────────────
 
-const KNOWN_METHOD_SHAPES: Record<string, any> = {
+export const NOSTRA_STATIC: Record<string, any> = {
   'updates.getState': {
     _: 'updates.state',
     pts: 1,
@@ -119,6 +119,8 @@ const KNOWN_METHOD_SHAPES: Record<string, any> = {
   },
   'messages.getDialogFilters': [],
   'messages.getSuggestedDialogFilters': [],
+  'messages.updateDialogFilter': true,
+  'messages.updateDialogFiltersOrder': true,
   'messages.getPinnedDialogs': {
     _: 'messages.peerDialogs',
     dialogs: [],
@@ -981,8 +983,8 @@ export class NostraMTProtoServer {
     }
 
     // Known method shapes
-    if(KNOWN_METHOD_SHAPES[method]) {
-      return KNOWN_METHOD_SHAPES[method];
+    if(NOSTRA_STATIC[method]) {
+      return NOSTRA_STATIC[method];
     }
 
     // Default

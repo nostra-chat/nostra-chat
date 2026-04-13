@@ -18,7 +18,9 @@ const NOSTRA_LS_KEYS = [
   'nostra_identity',
   'nostra-relay-config',
   'nostra-last-seen-timestamp',
-  'nostra:read-receipts-enabled'
+  'nostra:read-receipts-enabled',
+  'nostra-folders-last-published',
+  'nostra-folders-last-modified'
 ];
 
 /**

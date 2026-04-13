@@ -5,6 +5,7 @@ import type {AppSidebarLeft} from '@components/sidebarLeft';
 import {FOLDER_ID_ALL, REAL_FOLDERS} from '@appManagers/constants';
 import createContextMenu from '@helpers/dom/createContextMenu';
 import findUpClassName from '@helpers/dom/findUpClassName';
+import {isProtectedFolder} from '@lib/nostra/folders-protection';
 
 export default function createFolderContextMenu({
   appSidebarLeft,
@@ -64,7 +65,7 @@ export default function createFolderContextMenu({
       onClick: () => {
         _AppEditFolderTab.deleteFolder(clickFilterId);
       },
-      verify: () => clickFilterId !== FOLDER_ID_ALL
+      verify: () => !isProtectedFolder(clickFilterId)
     }],
     listenTo,
     findElement: (e) => findUpClassName(e.target, className),

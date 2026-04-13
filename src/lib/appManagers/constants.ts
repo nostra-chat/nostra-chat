@@ -12,6 +12,9 @@ import type {MyDialogFilter} from '@lib/storages/filters';
 export type UserAuth = {dcID: number | string, date: number, id: PeerId};
 export type REAL_FOLDER_ID = 0 | 1;
 
+// Represents locally-seeded system folder IDs (not Telegram dialog.folder_id)
+export type SYSTEM_FOLDER_ID = 0 | 1 | 2 | 3;
+
 export const NULL_PEER_ID: PeerId = 0;
 export const REPLIES_PEER_ID: PeerId = 1271266957;
 export const VERIFICATION_CODES_BOT_ID = 489000;
@@ -42,7 +45,20 @@ export const PEER_FULL_TTL = 3 * 60e3;
 
 export const FOLDER_ID_ALL: REAL_FOLDER_ID = 0;
 export const FOLDER_ID_ARCHIVE: REAL_FOLDER_ID = 1;
-export const REAL_FOLDERS: Set<number> = new Set([FOLDER_ID_ALL, FOLDER_ID_ARCHIVE]);
+export const FOLDER_ID_PERSONS: SYSTEM_FOLDER_ID = 2;
+export const FOLDER_ID_GROUPS: SYSTEM_FOLDER_ID = 3;
+export const REAL_FOLDERS: Set<number> = new Set([
+  FOLDER_ID_ALL,
+  FOLDER_ID_ARCHIVE,
+  FOLDER_ID_PERSONS,
+  FOLDER_ID_GROUPS
+]);
+export const PROTECTED_FOLDERS: Set<number> = new Set([
+  FOLDER_ID_ALL,
+  FOLDER_ID_ARCHIVE,
+  FOLDER_ID_PERSONS,
+  FOLDER_ID_GROUPS
+]);
 export const START_LOCAL_ID = Math.max(...Array.from(REAL_FOLDERS)) + 1 as MyDialogFilter['localId'];
 
 export const TEST_NO_STORIES = false;

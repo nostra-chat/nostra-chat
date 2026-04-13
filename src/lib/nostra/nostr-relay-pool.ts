@@ -380,6 +380,38 @@ export class NostrRelayPool {
     return results;
   }
 
+  /**
+   * Fan-out generic raw query across all enabled read relays.
+   * Dedupes by event.id. Used by ChatAPI.queryLatestEvent to fetch
+   * replaceable events (e.g., kind 30078 folder snapshots) that
+   * getMessages() does not support.
+   */
+  async queryRawEvents(filter: Record<string, unknown>): Promise<NostrEvent[]> {
+    const readEntries = this.relayEntries.filter(e =>
+      e.config.read && this.enabled.get(e.config.url) !== false
+    );
+
+    const seenIds = new Set<string>();
+    const results: NostrEvent[] = [];
+
+    const promises = readEntries.map(async(entry) => {
+      try {
+        const events = await entry.instance.queryRawEvents(filter);
+        for(const ev of events) {
+          if(ev.id && !seenIds.has(ev.id)) {
+            seenIds.add(ev.id);
+            results.push(ev);
+          }
+        }
+      } catch(err) {
+        this.log.error('[NostrRelayPool] queryRawEvents failed for:', entry.config.url, err);
+      }
+    });
+
+    await Promise.all(promises);
+    return results;
+  }
+
   subscribeMessages(): void {
     this.isSubscribedFlag = true;
     for(const entry of this.relayEntries) {
