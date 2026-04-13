@@ -107,6 +107,15 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
       const pageIm = await import('./pageIm');
       pageIm.default.mount();
 
+      // Re-dispatch identity_loaded so stores registered inside pageIm module graph
+      // (e.g. nostraIdentity.ts) pick up the npub after their module is loaded.
+      rootScope.dispatchEventSingle('nostra_identity_loaded', {
+        npub: identity.npub,
+        displayName: record.displayName || null,
+        nip05: undefined,
+        protectionType: 'none'
+      });
+
       // --- Initialize ChatAPI ---
       const chatAPI = new ChatAPI(identity.publicKey);
       window.__nostraChatAPI = chatAPI;

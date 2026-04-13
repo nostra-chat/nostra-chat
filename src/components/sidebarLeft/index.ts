@@ -758,15 +758,23 @@ export class AppSidebarLeft extends SidebarSlider {
         buttons.splice(targetIdx, 0, ...attachMenuBotsButtons);
         buttons[targetIdx].separator = true;
 
+        // [Nostra.chat] AccountController calls may hang in Nostra mode. Wrap with timeouts.
+        const withTimeout500 = <T>(p: Promise<T>, fallback: T): Promise<T> =>
+          Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), 500))]);
         const [totalAccounts, notificationsCount] = await Promise.all([
-          AccountController.getTotalAccounts(),
-          uiNotificationsManager.getNotificationsCountForAllAccounts()
+          withTimeout500(AccountController.getTotalAccounts(), 1),
+          withTimeout500(uiNotificationsManager.getNotificationsCountForAllAccounts(), {})
         ]);
         const accountButtons: typeof buttons = [];
         for(let i = 1; i <= totalAccounts; i++) {
           const accountNumber = i as ActiveAccountNumber;
           if(accountNumber === getCurrentAccount()) {
-            const user = await this.managers.appUsersManager.getSelf();
+            // [Nostra.chat] getSelf() may hang in Nostra mode (no MTProto auth).
+            // Wrap with a timeout so the menu renders regardless.
+            const user = await Promise.race([
+              this.managers.appUsersManager.getSelf(),
+              new Promise<undefined>((r) => setTimeout(r, 500))
+            ]);
             accountButtons.push({
               avatarInfo: {
                 accountNumber: getCurrentAccount(),
@@ -863,25 +871,49 @@ export class AppSidebarLeft extends SidebarSlider {
     avatar.classList.add('nostra-profile-menu-entry-avatar');
     avatar.style.cssText = 'width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0';
 
-    const picture = identity.picture?.();
-    const npub = identity.npub() || '';
-    if(picture) {
-      avatar.src = picture;
-    } else if(npub) {
-      try {
-        const hex = decodePubkey(npub);
-        generateDicebearAvatar(hex).then((url) => { avatar.src = url; });
-      } catch{}
-    }
-
     const text = document.createElement('div');
     text.style.cssText = 'display:flex;flex-direction:column;min-width:0;line-height:1.2';
     const nameEl = document.createElement('span');
-    nameEl.textContent = identity.displayName() || 'Profile';
     nameEl.style.cssText = 'font-weight:600;font-size:0.9375rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
     const npubEl = document.createElement('span');
-    npubEl.textContent = npub ? `${npub.slice(0, 12)}…${npub.slice(-4)}` : '';
     npubEl.style.cssText = 'font-size:0.75rem;opacity:0.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+
+    const updateContent = () => {
+      const picture = identity.picture?.();
+      const npub = identity.npub() || '';
+      if(picture) {
+        avatar.src = picture;
+      } else if(npub) {
+        try {
+          const hex = decodePubkey(npub);
+          generateDicebearAvatar(hex).then((url) => { if(!avatar.src || !identity.picture?.()) avatar.src = url; });
+        } catch{}
+      }
+      nameEl.textContent = identity.displayName() || 'Profile';
+      npubEl.textContent = npub ? `${npub.slice(0, 12)}…${npub.slice(-4)}` : '';
+    };
+
+    updateContent();
+
+    // Re-render when identity loads or updates
+    rootScope.addEventListener('nostra_identity_loaded', updateContent);
+    rootScope.addEventListener('nostra_identity_updated', updateContent);
+
+    // If signals are empty at build time, load identity from storage as fallback.
+    // This handles the race where nostraIdentity.ts listeners were registered AFTER
+    // nostra_identity_loaded was dispatched (pageIm dynamic-import delay).
+    if(!identity.npub()) {
+      (async() => {
+        try {
+          const {loadEncryptedIdentity} = await import('@lib/nostra/key-storage');
+          const record = await loadEncryptedIdentity();
+          if(record?.npub && !identity.npub()) {
+            npubEl.textContent = `${record.npub.slice(0, 12)}…${record.npub.slice(-4)}`;
+            nameEl.textContent = record.displayName || 'Profile';
+          }
+        } catch{}
+      })();
+    }
 
     text.append(nameEl, npubEl);
     wrap.append(avatar, text);

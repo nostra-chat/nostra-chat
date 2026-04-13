@@ -66,10 +66,27 @@ export default class AppEditProfileTab extends SliderSuperTab {
   private editPeer: EditPeer;
 
   public static getInitArgs() {
+    // In Nostra mode getSelf() / getProfile() may hang (no MTProto auth).
+    // Wrap each promise with a 3 s timeout so the UI renders regardless.
+    const withTimeout = <T>(p: Promise<T>, ms = 500, fallback: T): Promise<T> =>
+      Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
+
     return {
-      bioMaxLength: rootScope.managers.apiManager.getLimit('bio'),
-      user: rootScope.managers.appUsersManager.getSelf(),
-      userFull: rootScope.managers.appProfileManager.getProfile(rootScope.myId.toUserId())
+      bioMaxLength: withTimeout(
+        rootScope.managers.apiManager.getLimit('bio'),
+        500,
+        255
+      ),
+      user: withTimeout(
+        rootScope.managers.appUsersManager.getSelf(),
+        500,
+        {first_name: '', last_name: ''} as any
+      ),
+      userFull: withTimeout(
+        rootScope.managers.appProfileManager.getProfile(rootScope.myId.toUserId()),
+        500,
+        {about: ''} as any
+      )
     };
   }
 
@@ -89,12 +106,14 @@ export default class AppEditProfileTab extends SliderSuperTab {
       this.firstNameInputField = new InputField({
         label: 'EditProfile.FirstNameLabel',
         name: 'first-name',
-        maxLength: 70
+        maxLength: 70,
+        plainText: true
       });
       this.lastNameInputField = new InputField({
         label: 'Login.Register.LastName.Placeholder',
         name: 'last-name',
-        maxLength: 64
+        maxLength: 64,
+        plainText: true
       });
       this.bioInputField = new InputField({
         label: 'EditProfile.BioLabel',
@@ -272,9 +291,12 @@ export default class AppEditProfileTab extends SliderSuperTab {
       }
     }, {listenerSetter: this.listenerSetter});
 
-    this.firstNameInputField.setOriginalValue(user.first_name, true);
-    this.lastNameInputField.setOriginalValue(user.last_name, true);
-    this.bioInputField.setOriginalValue(userFull.about, true);
+    // In Nostra mode user may be a fallback empty object; prefer identity display name
+    const identity2 = useNostraIdentity();
+    const displayNameFallback = identity2.displayName() || '';
+    this.firstNameInputField.setOriginalValue(user?.first_name || displayNameFallback, true);
+    this.lastNameInputField.setOriginalValue(user?.last_name || '', true);
+    this.bioInputField.setOriginalValue(userFull?.about || '', true);
 
     this.editPeer.handleChange();
   }
