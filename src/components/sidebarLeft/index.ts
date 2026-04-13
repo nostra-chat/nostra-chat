@@ -1179,24 +1179,25 @@ export class AppSidebarLeft extends SidebarSlider {
       import('@components/popups/torStatus'),
       import('solid-js/web')
     ]).then(([{default: TorStatus}, {render}]) => {
-      // Gather relay states from pool
+      // Gather relay states from pool. Prefer getRelayStates() (canonical
+      // {url, connected, latencyMs, read, write} shape) and fall back to
+      // getRelayEntries() + config unpacking for older pool builds.
       const pool = (window as any).__nostraPool;
-      const relayStates: any[] = [];
+      let relayStates: any[] = [];
       try {
-        const entries = pool?.getRelayEntries?.();
-        if(entries) {
-          const iter = typeof entries.entries === 'function' ? entries.entries() :
-            typeof entries[Symbol.iterator] === 'function' ? entries :
-              Object.entries(entries);
-          for(const item of iter) {
-            const entry = Array.isArray(item) ? item[1] || item[0] : item;
+        if(typeof pool?.getRelayStates === 'function') {
+          relayStates = pool.getRelayStates();
+        } else {
+          const entries = pool?.getRelayEntries?.() ?? [];
+          for(const entry of entries) {
             const inst = entry?.instance;
+            const cfg = entry?.config || {};
             relayStates.push({
-              url: entry?.url || '',
-              connected: inst?.isConnected?.() ?? false,
+              url: cfg.url || '',
+              connected: inst?.getState?.() === 'connected',
               latencyMs: inst?.getLatency?.() ?? -1,
-              read: entry?.read ?? true,
-              write: entry?.write ?? true
+              read: cfg.read ?? true,
+              write: cfg.write ?? true
             });
           }
         }

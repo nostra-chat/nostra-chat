@@ -1,8 +1,8 @@
 /**
  * AppNostraStatusTab — Status page in hamburger menu
  *
- * Displays Tor status and Nostr relay connection status.
- * Accessible from hamburger menu and search bar status icons.
+ * Displays Tor status and Nostr relay connection status with
+ * per-layer transport detail (WebSocket direct vs Tor HTTP polling).
  */
 
 import SliderSuperTab from '@components/sliderTab';
@@ -10,6 +10,42 @@ import SettingSection from '@components/settingSection';
 import Row from '@components/row';
 import rootScope from '@lib/rootScope';
 import {DEFAULT_RELAYS} from '@lib/nostra/nostr-relay-pool';
+
+type TorState = 'bootstrapping' | 'active' | 'direct' | 'failed';
+
+const TOR_STATE_LABELS: Record<TorState, string> = {
+  active: '🟢 Active — traffic routed through Tor',
+  bootstrapping: '⏳ Bootstrapping Tor circuit...',
+  direct: '🟠 Direct connection (IP visible to relays)',
+  failed: '🔴 Tor bootstrap failed'
+};
+
+const MODE_ICONS: Record<string, string> = {
+  'websocket': '🌐',
+  'http-polling': '🧅'
+};
+
+function latencyBadge(ms: number): string {
+  if(!ms || ms <= 0) return '';
+  if(ms < 500) return `🟢 ${ms}ms`;
+  if(ms < 1500) return `🟡 ${ms}ms`;
+  return `🔴 ${ms}ms`;
+}
+
+function formatConnectionState(state: string, latencyMs: number, mode: string): string {
+  const modeIcon = MODE_ICONS[mode] || '';
+  switch(state) {
+    case 'connected':
+      return `${modeIcon} Connected · ${latencyBadge(latencyMs) || 'online'}`;
+    case 'connecting':
+      return `${modeIcon} ⏳ Connecting...`;
+    case 'reconnecting':
+      return `${modeIcon} ⏳ Reconnecting...`;
+    case 'disconnected':
+    default:
+      return '🔴 Disconnected';
+  }
+}
 
 export default class AppNostraStatusTab extends SliderSuperTab {
   public static getInitArgs() {
@@ -33,24 +69,68 @@ export default class AppNostraStatusTab extends SliderSuperTab {
       icon: 'lock'
     });
 
-    // Update Tor status
-    const updateTorStatus = (state: string) => {
-      const subtitles: Record<string, string> = {
-        active: '🟢 Active — traffic routed through Tor',
-        bootstrap: '⏳ Bootstrapping...',
-        direct: '🟠 Direct connection (IP visible)',
-        error: '🔴 Tor failed'
-      };
-      torStatusRow.subtitle.textContent = subtitles[state] || state;
-    };
-
-    updateTorStatus('direct'); // default
-
-    rootScope.addEventListener('nostra_tor_state', (state) => {
-      updateTorStatus(typeof state === 'string' ? state : state?.state || 'direct');
+    const torTransportRow = new Row({
+      title: 'Transport',
+      subtitle: 'Unknown',
+      icon: 'settings'
     });
 
-    torSection.content.append(torStatusRow.container);
+    const torErrorRow = new Row({
+      title: 'Last error',
+      subtitle: '—',
+      icon: 'info'
+    });
+    torErrorRow.container.style.display = 'none';
+
+    const updateTorState = (state: TorState, error?: string) => {
+      torStatusRow.subtitle.textContent = TOR_STATE_LABELS[state] || state;
+
+      const transport = state === 'active' ?
+        '🧅 Tor SOCKS (WebSocket over Tor)' :
+        state === 'bootstrapping' ?
+          '⏳ Waiting for Tor bootstrap...' :
+          '🌐 Direct WebSocket (no Tor)';
+      torTransportRow.subtitle.textContent = transport;
+
+      if(state === 'failed' && error) {
+        torErrorRow.subtitle.textContent = error;
+        torErrorRow.container.style.display = '';
+      } else {
+        torErrorRow.container.style.display = 'none';
+      }
+    };
+
+    // Seed from the live transport if available, else assume direct
+    const initialTor = (window as any).__nostraPrivacyTransport?.getState?.() as TorState | undefined;
+    updateTorState(initialTor || 'direct');
+
+    rootScope.addEventListener('nostra_tor_state', (payload) => {
+      const state = (typeof payload === 'string' ? payload : payload?.state) as TorState;
+      const error = typeof payload === 'object' ? payload?.error : undefined;
+      updateTorState(state || 'direct', error);
+    });
+
+    // "View Tor Circuit" entry — routes to the AppNostraTorDashboardTab.
+    // Uses the Row `clickable` callback so it matches the rest of the tab.
+    const torCircuitRow = new Row({
+      title: 'View Tor Circuit',
+      subtitle: 'Guard → Middle → Exit, rebuild, exit IP',
+      icon: 'forward',
+      clickable: () => {
+        import('@components/sidebarLeft/tabs/nostraTorDashboard').then(
+          ({default: AppNostraTorDashboardTab}) => {
+            this.slider.createTab(AppNostraTorDashboardTab).open();
+          }
+        );
+      }
+    });
+
+    torSection.content.append(
+      torStatusRow.container,
+      torTransportRow.container,
+      torErrorRow.container,
+      torCircuitRow.container
+    );
 
     // ─── Section: Relay Status ───────────────────────────────
 
@@ -86,23 +166,26 @@ export default class AppNostraStatusTab extends SliderSuperTab {
         if(!pool) return;
 
         const entries = pool.getRelayEntries?.() || [];
+        let connectedCount = 0;
         entries.forEach((entry: any, i: number) => {
           if(i >= relayRows.length) return;
           const row = relayRows[i];
           const instance = entry.instance;
           const connected = instance?.isConnected?.() ?? false;
-          const latency = instance?.getLatency?.();
+          const latency = instance?.getLatency?.() ?? 0;
+          const state = instance?.getConnectionState?.() || 'disconnected';
+          const mode = instance?.getMode?.() || 'websocket';
 
-          if(connected) {
-            const latStr = latency ? `${latency}ms` : '';
-            row.subtitle.textContent = `🟢 Connected ${latStr}`;
-          } else {
-            const state = instance?.getConnectionState?.() || 'disconnected';
-            row.subtitle.textContent = state === 'connecting' || state === 'reconnecting' ?
-              `⏳ ${state.charAt(0).toUpperCase() + state.slice(1)}...` :
-              '🔴 Disconnected';
-          }
+          if(connected) connectedCount++;
+          row.subtitle.textContent = formatConnectionState(state, latency, mode);
         });
+
+        // Update relay section caption with live connected count
+        const total = relayRows.length;
+        if(relaySection.caption) {
+          relaySection.caption.textContent =
+            `${connectedCount}/${total} connected · routing and storage`;
+        }
       } catch(err) {
         console.debug('[NostraStatus] relay status update failed:', err);
       }

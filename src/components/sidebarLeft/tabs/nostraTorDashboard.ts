@@ -110,6 +110,38 @@ export default class AppNostraTorDashboardTab extends SliderSuperTab {
 
     rootScope.addEventListener('nostra_tor_circuit_update', onCircuitUpdate);
 
+    // ─── Initial hydration ───────────────────────────────────
+    // Pull current circuit details synchronously — the dashboard is usually
+    // opened after bootstrap has completed, so the onCircuitChange callback
+    // already fired before the listener above was registered. Without this
+    // pull, hop/exit/latency rows would stay blank until the next 10s poll.
+    try {
+      const transport = (window as any).__nostraPrivacyTransport;
+      const webtorClient = transport?.webtorClient;
+      const details = webtorClient?.getCircuitDetails?.();
+      const torState = transport?.getState?.();
+
+      if(details && (details.guard || details.middle || details.exit)) {
+        onCircuitUpdate({
+          guard: details.guard || '',
+          middle: details.middle || '',
+          exit: details.exit || '',
+          latency: details.latency > 0 ? details.latency : 0,
+          exitIp: details.exitIp || '',
+          healthy: details.healthy ?? false
+        });
+      } else if(torState === 'direct' || torState === 'failed') {
+        // Show the user WHY there are no hops, instead of a silent "—"
+        this.exitIpEl.textContent = torState === 'failed' ?
+          '(Tor failed — direct mode)' :
+          '(Direct mode — Tor disabled)';
+      } else if(torState === 'bootstrapping') {
+        this.exitIpEl.textContent = 'Bootstrapping…';
+      }
+    } catch(err) {
+      console.debug('[TorDashboard] initial hydration failed:', err);
+    }
+
     // ─── Circuit Age Timer ───────────────────────────────────
 
     this.circuitAgeInterval = setInterval(() => {
