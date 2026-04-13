@@ -113,6 +113,13 @@ A feature-by-feature comparison with other privacy-focused messengers and the ma
 | **Group chats** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Media / file sharing** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Voice / video calls** | ❌ | ✅ | ⚠️ | ✅ | ✅ | ✅ | ✅ |
+| **Message editing** | ⏳ [¹¹] | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Bot platform** | ⏳ [¹¹] | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Scheduled messages** | ⏳ [¹¹] | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **Delete messages for everyone** | ⏳ [¹¹] | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Auto-delete / disappearing messages** | ⏳ [¹¹] | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| **Secret notifications by default** | ⏳ [¹¹] | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **Multiplatform (iOS, Android, Windows, Linux, macOS)** | ✅ [¹²] | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Works without installing a native app** | ✅ [¹⁰] | ❌ | ❌ | ❌ | ❌ | ⚠️ | ⚠️ |
 | **Censorship-resistant distribution (multi-mirror, IPFS)** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
@@ -128,6 +135,8 @@ A feature-by-feature comparison with other privacy-focused messengers and the ma
 8. Nostra.chat has **not yet been independently audited** — see [SECURITY.md](SECURITY.md). A formal audit is planned before leaving alpha. Do not rely on Nostra.chat for high-risk threat models today.
 9. WhatsApp uses the audited Signal protocol, but the closed-source implementation and the surrounding Meta infrastructure have not been publicly audited.
 10. Nostra.chat runs as a PWA — open the URL and start using it. WhatsApp Web and Telegram Web both require a linked mobile device, so "installation-free" is only half true for them.
+11. ⏳ = UI layer present (inherited from Telegram Web K), P2P Nostr transport under active development. See the [roadmap](https://github.com/nostra-chat/nostra-chat/issues) for progress.
+12. Nostra.chat works as a PWA on all major platforms — iOS (Safari), Android (Chrome), Windows, Linux, and macOS — without a native app install.
 
 **This is not a "Nostra.chat wins everything" chart.** Different tools are good at different things:
 
