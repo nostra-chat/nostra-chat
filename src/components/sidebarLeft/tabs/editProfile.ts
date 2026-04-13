@@ -54,11 +54,29 @@ export function purchaseUsernameCaption() {
   };
 }
 
+const PROFILE_EXTRAS_KEY = 'nostra-profile-extras';
+
+function loadProfileExtras(): {website?: string; lud16?: string} {
+  try {
+    const raw = localStorage.getItem(PROFILE_EXTRAS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch{
+    return {};
+  }
+}
+
+function saveProfileExtras(data: {website?: string; lud16?: string}): void {
+  try {
+    localStorage.setItem(PROFILE_EXTRAS_KEY, JSON.stringify(data));
+  } catch{}
+}
+
 export default class AppEditProfileTab extends SliderSuperTab {
   public static noSame = true;
-  private firstNameInputField: InputField;
-  private lastNameInputField: InputField;
+  private displayNameInputField: InputField;
   private bioInputField: InputField;
+  private websiteInputField: InputField;
+  private lud16InputField: InputField;
   private nip05InputField: InputField;
   private nip05Status: Nip05Status = 'unverified';
   private nip05StatusEl: HTMLElement | null = null;
@@ -77,11 +95,6 @@ export default class AppEditProfileTab extends SliderSuperTab {
         500,
         255
       ),
-      user: withTimeout(
-        rootScope.managers.appUsersManager.getSelf(),
-        500,
-        {first_name: '', last_name: ''} as any
-      ),
       userFull: withTimeout(
         rootScope.managers.appProfileManager.getProfile(rootScope.myId.toUserId()),
         500,
@@ -96,23 +109,17 @@ export default class AppEditProfileTab extends SliderSuperTab {
 
     const inputFields: InputField[] = [];
 
-    const [bioMaxLength, user, userFull] = await Promise.all([p.bioMaxLength, p.user, p.userFull]);
+    const [bioMaxLength, userFull] = await Promise.all([p.bioMaxLength, p.userFull]);
 
     {
       const section = generateSection(this.scrollable, undefined, 'Bio.Description');
       const inputWrapper = document.createElement('div');
       inputWrapper.classList.add('input-wrapper');
 
-      this.firstNameInputField = new InputField({
-        label: 'EditProfile.FirstNameLabel',
-        name: 'first-name',
+      this.displayNameInputField = new InputField({
+        label: 'Name' as any,
+        name: 'display-name',
         maxLength: 70,
-        plainText: true
-      });
-      this.lastNameInputField = new InputField({
-        label: 'Login.Register.LastName.Placeholder',
-        name: 'last-name',
-        maxLength: 64,
         plainText: true
       });
       this.bioInputField = new InputField({
@@ -120,17 +127,31 @@ export default class AppEditProfileTab extends SliderSuperTab {
         name: 'bio',
         maxLength: bioMaxLength
       });
+      this.websiteInputField = new InputField({
+        label: 'Website' as any,
+        name: 'website',
+        maxLength: 256,
+        plainText: true
+      });
+      this.lud16InputField = new InputField({
+        label: 'Lightning Address' as any,
+        name: 'lud16',
+        maxLength: 256,
+        plainText: true
+      });
 
       inputWrapper.append(
-        this.firstNameInputField.container,
-        this.lastNameInputField.container,
-        this.bioInputField.container
+        this.displayNameInputField.container,
+        this.bioInputField.container,
+        this.websiteInputField.container,
+        this.lud16InputField.container
       );
 
       inputFields.push(
-        this.firstNameInputField,
-        this.lastNameInputField,
-        this.bioInputField
+        this.displayNameInputField,
+        this.bioInputField,
+        this.websiteInputField,
+        this.lud16InputField
       );
 
       this.editPeer = new EditPeer({
@@ -249,8 +270,10 @@ export default class AppEditProfileTab extends SliderSuperTab {
     attachClickEvent(this.editPeer.nextBtn, async() => {
       this.editPeer.nextBtn.disabled = true;
       try {
-        const fullName = [this.firstNameInputField.value, this.lastNameInputField.value].filter(Boolean).join(' ');
+        const displayName = this.displayNameInputField.value.trim();
         const bio = this.bioInputField.value;
+        const website = this.websiteInputField.value.trim();
+        const lud16 = this.lud16InputField.value.trim();
 
         let pictureUrl: string | undefined;
         if(this.editPeer.lastAvatarBlob) {
@@ -268,17 +291,21 @@ export default class AppEditProfileTab extends SliderSuperTab {
           }
         }
 
+        saveProfileExtras({website: website || undefined, lud16: lud16 || undefined});
+
         if(npubValue) {
           rootScope.dispatchEvent('nostra_identity_updated', {
-            displayName: fullName,
+            displayName,
             ...(pictureUrl ? {picture: pictureUrl} : {})
           });
           await publishKind0Metadata({
-            name: fullName,
-            display_name: fullName,
+            name: displayName,
+            display_name: displayName,
             about: bio,
             nip05: useNostraIdentity().nip05() || undefined,
-            picture: pictureUrl || undefined
+            picture: pictureUrl || undefined,
+            website: website || undefined,
+            lud16: lud16 || undefined
           }).catch((err) => {
             console.error('[EditProfile] kind 0 publish failed:', err);
             toast('Profile saved locally but relay publish failed');
@@ -291,12 +318,13 @@ export default class AppEditProfileTab extends SliderSuperTab {
       }
     }, {listenerSetter: this.listenerSetter});
 
-    // In Nostra mode user may be a fallback empty object; prefer identity display name
+    // Prefer the Nostra identity store for the display name
     const identity2 = useNostraIdentity();
-    const displayNameFallback = identity2.displayName() || '';
-    this.firstNameInputField.setOriginalValue(user?.first_name || displayNameFallback, true);
-    this.lastNameInputField.setOriginalValue(user?.last_name || '', true);
+    const extras = loadProfileExtras();
+    this.displayNameInputField.setOriginalValue(identity2.displayName() || '', true);
     this.bioInputField.setOriginalValue(userFull?.about || '', true);
+    this.websiteInputField.setOriginalValue(extras.website || '', true);
+    this.lud16InputField.setOriginalValue(extras.lud16 || '', true);
 
     this.editPeer.handleChange();
   }
@@ -304,9 +332,10 @@ export default class AppEditProfileTab extends SliderSuperTab {
   public focus(on: string) {
     getHeavyAnimationPromise().then(() => {
       const focusMap: {[key: string]: InputField} = {
-        'first-name': this.firstNameInputField,
-        'last-name': this.lastNameInputField,
-        'bio': this.bioInputField
+        'display-name': this.displayNameInputField,
+        'bio': this.bioInputField,
+        'website': this.websiteInputField,
+        'lud16': this.lud16InputField
       };
 
       if(focusMap[on]) {

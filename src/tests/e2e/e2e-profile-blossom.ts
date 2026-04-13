@@ -22,7 +22,11 @@ async function completeOnboarding(page) {
   await page.goto(APP_URL, {waitUntil: 'load'});
   await page.waitForTimeout(5000);
   await page.reload({waitUntil: 'load'});
-  await page.waitForTimeout(10000);
+  // Wait until the onboarding button is visible OR a pre-existing session renders the sidebar — whichever comes first
+  await Promise.race([
+    page.waitForSelector('button:has-text("Create New Identity")', {timeout: 30000, state: 'visible'}),
+    page.waitForSelector('.sidebar-header .btn-menu-toggle', {timeout: 30000, state: 'visible'})
+  ]).catch(() => {});
   await dismiss(page);
 
   const createBtn = page.getByRole('button', {name: 'Create New Identity'});
@@ -155,13 +159,13 @@ async function test2_clickOpensMergedTab() {
   await clickFirstMenuItem(page);
 
   // Wait for the async init() to finish rendering inputs (Worker calls have 500ms timeout in Nostra mode)
-  await page.waitForSelector('input[name="first-name"]', {timeout: 5000});
+  await page.waitForSelector('input[name="display-name"]', {timeout: 5000});
   await page.waitForSelector('[data-section="nip05"]', {timeout: 5000});
 
-  const firstNameInput = await page.locator('input[name="first-name"]').count();
+  const firstNameInput = await page.locator('input[name="display-name"]').count();
   const nip05Section = await page.locator('[data-section="nip05"]').count();
 
-  if(firstNameInput !== 1) throw new Error('missing first-name input in merged tab');
+  if(firstNameInput !== 1) throw new Error('missing display-name input in merged tab');
   if(nip05Section !== 1) throw new Error('missing nip05 section in merged tab');
 
   console.log('[test2] PASS');
@@ -194,9 +198,9 @@ async function test3_saveWithBlossomMock() {
   await clickFirstMenuItem(page);
 
   const newName = `E2EName${Date.now()}`;
-  // Wait for first-name input to appear (init() has 500ms Worker-call timeout)
-  await page.waitForSelector('input[name="first-name"]', {timeout: 5000});
-  await page.locator('input[name="first-name"]').fill(newName);
+  // Wait for display-name input to appear (init() has 500ms Worker-call timeout)
+  await page.waitForSelector('input[name="display-name"]', {timeout: 5000});
+  await page.locator('input[name="display-name"]').fill(newName);
 
   const pngBytes = Buffer.from(
     '89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4' +
@@ -268,8 +272,8 @@ async function test4_blossomFallback() {
   await clickHamburger(page);
   await clickFirstMenuItem(page);
 
-  // Wait for first-name input (init() has 500ms Worker-call timeout)
-  await page.waitForSelector('input[name="first-name"]', {timeout: 5000});
+  // Wait for display-name input (init() has 500ms Worker-call timeout)
+  await page.waitForSelector('input[name="display-name"]', {timeout: 5000});
 
   const pngBytes = Buffer.from(
     '89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4' +

@@ -74,6 +74,8 @@ export async function publishKind0Metadata(metadata: {
   nip05?: string;
   about?: string;
   picture?: string;
+  website?: string;
+  lud16?: string;
 }): Promise<string> {
   if(!activeRelay) {
     throw new Error('No active relay connection. Connect to a relay first.');
