@@ -51,6 +51,8 @@ TESTS=(
   e2e-back-and-forth.ts
   e2e-stress-1to1.ts
   e2e-tor-ui.ts
+  e2e-tor-wasm.ts
+  e2e-tor-privacy-flow.ts
   e2e-bidirectional.ts
 )
 
