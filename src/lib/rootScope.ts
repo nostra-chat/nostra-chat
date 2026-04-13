@@ -243,10 +243,10 @@ export type BroadcastEvents = {
 
   'auto_delete_period_update': {peerId: PeerId, period: number},
 
-  'nostra_identity_loaded': {npub: string, displayName?: string, nip05?: string, picture?: string, protectionType: 'none' | 'pin' | 'passphrase'},
+  'nostra_identity_loaded': {npub: string, displayName?: string, nip05?: string, picture?: string, about?: string, website?: string, lud16?: string, banner?: string, protectionType: 'none' | 'pin' | 'passphrase'},
   'nostra_identity_locked': void,
   'nostra_identity_unlocked': {npub: string},
-  'nostra_identity_updated': {displayName?: string, nip05?: string, picture?: string},
+  'nostra_identity_updated': {displayName?: string, nip05?: string, picture?: string, about?: string, website?: string, lud16?: string, banner?: string},
 
   'nostra_tor_state': {
     state: 'bootstrapping' | 'active' | 'direct' | 'failed';
