@@ -116,10 +116,10 @@ A feature-by-feature comparison with other privacy-focused messengers and the ma
 | **Message editing** | ⏳ [¹¹] | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **Bot platform** | ⏳ [¹¹] | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | **Scheduled messages** | ⏳ [¹¹] | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| **Delete messages for everyone** | ⏳ [¹¹] | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Delete messages for everyone** | ⏳ [¹¹] | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
 | **Auto-delete / disappearing messages** | ⏳ [¹¹] | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
 | **Secret notifications by default** | ⏳ [¹¹] | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
-| **Multiplatform (iOS, Android, Windows, Linux, macOS)** | ✅ [¹²] | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Multiplatform (iOS, Android, Windows, Linux, macOS)** | ✅ [¹²] | ✅ | ✅ | ⚠️ [¹³] | ✅ | ⚠️ [¹⁴] | ✅ |
 | **Works without installing a native app** | ✅ [¹⁰] | ❌ | ❌ | ❌ | ❌ | ⚠️ | ⚠️ |
 | **Censorship-resistant distribution (multi-mirror, IPFS)** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
@@ -137,6 +137,8 @@ A feature-by-feature comparison with other privacy-focused messengers and the ma
 10. Nostra.chat runs as a PWA — open the URL and start using it. WhatsApp Web and Telegram Web both require a linked mobile device, so "installation-free" is only half true for them.
 11. ⏳ = UI layer present (inherited from Telegram Web K), P2P Nostr transport under active development. See the [roadmap](https://github.com/nostra-chat/nostra-chat/issues) for progress.
 12. Nostra.chat works as a PWA on all major platforms — iOS (Safari), Android (Chrome), Windows, Linux, and macOS — without a native app install.
+13. SimpleX has no account system — each installation is a separate identity. No automatic conversation sync between devices; every contact must be re-linked manually.
+14. WhatsApp requires a phone number and the mobile app to link web/desktop clients. Without the phone, multiplatform is non-functional.
 
 **This is not a "Nostra.chat wins everything" chart.** Different tools are good at different things:
 
