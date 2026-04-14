@@ -338,6 +338,8 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 - The active "Add Contact" dialog is in `src/components/sidebarLeft/tabs/contacts.ts` (imperative DOM), NOT `src/components/nostra/AddContact.tsx` (Solid.js — unused).
 - `bubbles.ts` is 11000+ lines. `appMessagesManager.ts` is 8500+ lines. Changes to these files risk cascading side effects.
 - All `notDirect` flags were removed from `contextMenu.ts` — all chats are Nostra, there are no Telegram DMs. The type field, invocation logic, and all 10 button properties were deleted.
+- **Dev-mode multi-instance rootScope**: in `pnpm start`, HMR/dynamic imports can create separate `rootScope` instances — `window.rootScope.listeners['nostra_identity_loaded']?.length` can be `0` even though `src/stores/nostraIdentity.ts` is statically imported. Store listeners registered on one instance won't receive dispatches sent to another. Before adding layers of defense to code that depends on Solid signals, verify the listeners actually exist on the same rootScope the app dispatches on. Production builds don't hit this.
+- Hamburger profile entry (`buildNostraProfileMenuContent` in `sidebarLeft/index.ts`): the async storage-read path must generate a dicebear avatar from the stored npub *before* calling `fetchOwnKind0`, otherwise fresh-onboarding (no cache, no kind 0 picture) leaves `avatar.src=""` until the user opens the profile tab.
 
 ### Nostra Module Architecture
 `nostra-onboarding-integration.ts` is a thin orchestrator (~240 lines) wiring: `nostra-message-handler.ts` (incoming message builder), `nostra-pending-flush.ts` (queue for closed-chat peers), `nostra-read-receipts.ts` (batch on peer open), `nostra-delivery-ui.ts` (bubble sent/delivered/read icons). `chat-api-receive.ts` extracts `handleRelayMessage` with `ReceiveContext` DI as pure step functions (`isDeleteNotification`, `parseMessageContent`, `extractFileMetadata`, `isDuplicate`). All Nostra rootScope events are typed in `BroadcastEvents` (rootScope.ts) — no `as any` casts.
@@ -370,6 +372,7 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 - Use `rs.managers.appMessagesManager.*` (imported from `@lib/rootScope`). `apiManagerProxy.managers` is the IPC proxy class, NOT the namespace. `rs.managers` is undefined during early boot — wait for `window.__nostraChatAPI` first.
 - Injecting synthetic P2P peers needs `storeMapping(pubkey, peerId, displayName)` from `virtual-peers-db.ts`. Without persistence, VMT's `getPubkey(peerId)` returns null and bridge calls silently return `emptyUpdates`.
 - Playwright console filter must exclude `MTPROTO`, `relay_state`, `nostra_relay_state` noise. Include only: `[ChatAPI]`, `[NostrRelay]`, `[NostraSync]`, `[NostraOnboarding`, `[VirtualMTProto`.
+- **Tests can pass for the wrong reason.** Seeding `nostra-profile-cache` via `localStorage.setItem` and reloading bypasses the entire signal/dispatch chain via `loadCachedProfile()`. A green test here does NOT prove the fresh-onboarding path works — verify in a real browser (chrome-devtools MCP with `new_page`/`isolatedContext`) before claiming a signal-dependent bug is fixed.
 
 ### E2E Testing (Playwright)
 
@@ -388,6 +391,7 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 
 **Clicking in Solid.js (critical):**
 Solid uses event delegation, so **synthetic clicks do not fire delegated handlers**. This covers `element.dispatchEvent(new MouseEvent('click'))`, `HTMLElement.click()` inside `page.evaluate()`, and raw `page.mouse.down/up` at computed coordinates. Always either (a) use Playwright's `locator.click()`, or (b) compute `getBoundingClientRect()` in `page.evaluate()` and then `await page.mouse.click(x, y)` from the test side. Also: never wrap popup containers with `onClick={e => e.stopPropagation()}` — it breaks delegation for all descendants; handle dismiss-on-outside-click elsewhere.
+**Exception — sidebar hamburger (`ButtonMenuToggle`)**: uses plain `addEventListener`, NOT Solid delegation. Playwright's `.click()` often fails here because the search input overlays intercept pointer events. Instead, dispatch synthetic `mousedown` + `click` on the same button element via `page.evaluate()` — both events MUST share the target or `hasMouseMovedSinceDown` rejects the handler.
 
 **Input handling:**
 - `msgArea.pressSequentially(text)` does NOT clear input. Between sends: `Control+A` → `Backspace` → `type(text)`. **Never use `Delete`** after `Control+A` — it eats the first char of the next `type()` call.
@@ -428,6 +432,7 @@ Solid uses event delegation, so **synthetic clicks do not fire delegated handler
 - Conflict resolution: `fetchOwnKind0(pubkey)` queries all relays in parallel, returns highest `created_at`; cache updates only when relay is newer.
 - **Do NOT add plain localStorage stopgaps** for new profile fields — they must flow through `saveOwnProfileLocal` → kind 0 publish to survive multi-device.
 - Legacy `nostra-profile-extras` key auto-migrates and deletes on first read.
+- **Kind 0 republish on boot must merge cached fields.** `nostra-onboarding-integration.ts` publishes kind 0 ~3s after mount. Sending only `display_name`+`name` clobbers `picture`/`about`/`nip05`/`website`/`lud16`/`banner` on the relay — then `refreshOwnProfileFromRelays` overwrites the local cache with the stripped version on the next boot. Always merge `loadCachedProfile()` fields into the republish, and skip entirely when `fetchOwnKind0` shows the relay is already current.
 
 ### Profile Tab Structure (`editProfile/`)
 - `src/components/sidebarLeft/tabs/editProfile/` is a directory; consumers still `import from '@components/sidebarLeft/tabs/editProfile'` (resolves to `index.ts`).

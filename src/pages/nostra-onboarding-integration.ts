@@ -108,9 +108,8 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
       (window as any).__nostraOwnPubkey = identity.publicKey;
       console.log('[NostraOnboardingIntegration] Virtual MTProto Server registered');
 
-      // --- Mount chat page ---
+      // --- Import chat page (loads the module graph incl. nostraIdentity store) ---
       const pageIm = await import('./pageIm');
-      pageIm.default.mount();
 
       // Re-dispatch identity_loaded so stores registered inside pageIm module graph
       // (e.g. nostraIdentity.ts) pick up the npub after their module is loaded.
@@ -121,19 +120,27 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
         protectionType: 'none'
       });
 
-      // Hydrate own profile from the local cache synchronously so the UI has
-      // name/bio/website/lud16 on first paint, then kick off a background
-      // relay fetch to pick up edits made from other devices.
+      // Hydrate own profile from the local cache BEFORE mounting so the
+      // sidebar menu (avatar, name, bio) renders with the correct values on
+      // the very first read — otherwise the hamburger profile entry would
+      // show a dicebear placeholder until the background relay fetch lands.
+      let refreshOwnProfileFromRelaysFn: ((pk: string) => Promise<unknown>) | null = null;
       try {
         const {hydrateOwnProfileFromCache, refreshOwnProfileFromRelays} =
           await import('@lib/nostra/own-profile-sync');
         hydrateOwnProfileFromCache();
-        refreshOwnProfileFromRelays(identity.publicKey).catch((err) => {
-          console.warn('[NostraOnboardingIntegration] own profile relay refresh failed:', err);
-        });
+        refreshOwnProfileFromRelaysFn = refreshOwnProfileFromRelays;
       } catch(err) {
         console.warn('[NostraOnboardingIntegration] own profile sync init failed:', err);
       }
+
+      // --- Mount chat page ---
+      pageIm.default.mount();
+
+      // Kick off background relay fetch to pick up edits made from other devices.
+      refreshOwnProfileFromRelaysFn?.(identity.publicKey).catch((err) => {
+        console.warn('[NostraOnboardingIntegration] own profile relay refresh failed:', err);
+      });
 
       // --- Initialize ChatAPI ---
       const chatAPI = new ChatAPI(identity.publicKey);
@@ -290,7 +297,11 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
         console.warn('[NostraOnboardingIntegration] presence init failed:', err);
       }
 
-      // --- Publish kind 0 metadata ---
+      // --- Publish kind 0 metadata (first boot only) ---
+      // Historically this republished on every boot with only display_name,
+      // which silently wiped picture/about/website/lud16/nip05 from the
+      // relay. Now we only publish if the relay has no kind 0 yet OR the
+      // cached profile is strictly newer than the relay (cross-device push).
       if(record.displayName) {
         setTimeout(async() => {
           try {
@@ -298,6 +309,19 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
             if(!pool || !pool.isConnected()) {
               await new Promise((r) => setTimeout(r, 3000));
             }
+            const {fetchOwnKind0} = await import('../lib/nostra/nostr-profile');
+            const {loadCachedProfile} = await import('../lib/nostra/profile-cache');
+
+            const relayResult = await fetchOwnKind0(identity.publicKey).catch((): null => null);
+            const cached = loadCachedProfile();
+
+            // If the relay already has a kind 0 and the cache is not newer,
+            // there is nothing to publish — the relay is already current.
+            if(relayResult && (!cached || cached.created_at <= relayResult.created_at)) {
+              console.log('[NostraOnboardingIntegration] kind 0 already on relay, skipping republish');
+              return;
+            }
+
             const {finalizeEvent} = await import('nostr-tools/pure');
             const {loadEncryptedIdentity: loadEI, loadBrowserKey: loadBK, decryptKeys: dK} = await import('../lib/nostra/key-storage');
             const {importFromMnemonic: iFM} = await import('../lib/nostra/nostr-identity');
@@ -310,11 +334,25 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
             const id = iFM(s);
             const sk = hexToBytes(id.privateKey);
 
+            // Merge cached profile fields so we don't clobber picture/about/
+            // website/lud16/nip05 when republishing.
+            const cachedProfile = cached?.profile ?? {};
+            const content = JSON.stringify({
+              display_name: cachedProfile.display_name || record.displayName,
+              name: cachedProfile.name || cachedProfile.display_name || record.displayName,
+              picture: cachedProfile.picture || undefined,
+              about: cachedProfile.about || undefined,
+              nip05: cachedProfile.nip05 || undefined,
+              website: cachedProfile.website || undefined,
+              lud16: cachedProfile.lud16 || undefined,
+              banner: cachedProfile.banner || undefined
+            });
+
             const event = finalizeEvent({
               kind: 0,
               created_at: Math.floor(Date.now() / 1000),
               tags: [],
-              content: JSON.stringify({display_name: record.displayName, name: record.displayName})
+              content
             }, sk);
 
             await pool.publishRawEvent(event);

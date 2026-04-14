@@ -100,9 +100,9 @@ import {useAppSettings} from '@stores/appSettings';
 import {openEmojiStatusPicker} from '@components/sidebarLeft/emojiStatusPicker';
 import {animateValue} from '@helpers/animateValue';
 import AppEditProfileTab from '@components/sidebarLeft/tabs/editProfile';
-import useNostraIdentity from '@stores/nostraIdentity';
 import {generateDicebearAvatar} from '@helpers/generateDicebearAvatar';
 import {decodePubkey} from '@lib/nostra/nostr-identity';
+import {loadCachedProfile} from '@lib/nostra/profile-cache';
 
 export const LEFT_COLUMN_ACTIVE_CLASSNAME = 'is-left-column-shown';
 
@@ -684,8 +684,7 @@ export class AppSidebarLeft extends SidebarSlider {
       options: {
         text: 'CreateANew',
         icon: 'edit',
-        verify: () => this.isCollapsed(),
-        separator: true
+        verify: () => this.isCollapsed()
       },
       createSubmenu: () => this.createNewChatsSubmenu()
     });
@@ -697,7 +696,7 @@ export class AppSidebarLeft extends SidebarSlider {
           this.createTab(AppEditProfileTab).open();
         });
       },
-      separator: true
+      separatorDown: true
     };
 
     const menuButtons: (ButtonMenuItemOptions & {verify?: () => boolean | Promise<boolean>})[] = [profileEntry, newSubmenu, {
@@ -937,7 +936,6 @@ export class AppSidebarLeft extends SidebarSlider {
 
 
   private buildNostraProfileMenuContent(): HTMLElement {
-    const identity = useNostraIdentity();
     const wrap = document.createElement('div');
     wrap.classList.add('nostra-profile-menu-entry');
     wrap.style.cssText = 'display:flex;align-items:center;gap:0.75rem;padding:0.25rem 0';
@@ -952,46 +950,53 @@ export class AppSidebarLeft extends SidebarSlider {
     nameEl.style.cssText = 'font-weight:600;font-size:0.9375rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
     const npubEl = document.createElement('span');
     npubEl.style.cssText = 'font-size:0.75rem;opacity:0.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
-
-    const updateContent = () => {
-      const picture = identity.picture?.();
-      const npub = identity.npub() || '';
-      if(picture) {
-        avatar.src = picture;
-      } else if(npub) {
-        try {
-          const hex = decodePubkey(npub);
-          generateDicebearAvatar(hex).then((url) => { if(!avatar.src || !identity.picture?.()) avatar.src = url; });
-        } catch{}
-      }
-      nameEl.textContent = identity.displayName() || 'Profile';
-      npubEl.textContent = npub ? `${npub.slice(0, 12)}…${npub.slice(-4)}` : '';
-    };
-
-    updateContent();
-
-    // Re-render when identity loads or updates
-    rootScope.addEventListener('nostra_identity_loaded', updateContent);
-    rootScope.addEventListener('nostra_identity_updated', updateContent);
-
-    // If signals are empty at build time, load identity from storage as fallback.
-    // This handles the race where nostraIdentity.ts listeners were registered AFTER
-    // nostra_identity_loaded was dispatched (pageIm dynamic-import delay).
-    if(!identity.npub()) {
-      (async() => {
-        try {
-          const {loadEncryptedIdentity} = await import('@lib/nostra/key-storage');
-          const record = await loadEncryptedIdentity();
-          if(record?.npub && !identity.npub()) {
-            npubEl.textContent = `${record.npub.slice(0, 12)}…${record.npub.slice(-4)}`;
-            nameEl.textContent = record.displayName || 'Profile';
-          }
-        } catch{}
-      })();
-    }
-
     text.append(nameEl, npubEl);
     wrap.append(avatar, text);
+
+    // Does NOT depend on the Solid identity store — dev-mode HMR can create
+    // a second rootScope instance whose store listeners never fire. We read
+    // the profile cache directly (localStorage-backed, same key that
+    // `saveOwnProfileLocal` writes) and listen to `nostra_identity_updated`
+    // to react when the cache is refreshed (save / relay hydrate).
+    let hasRealPicture = false;
+
+    const render = () => {
+      const cached = loadCachedProfile()?.profile;
+      if(cached) {
+        const name = cached.display_name || cached.name;
+        if(name) nameEl.textContent = name;
+        if(cached.picture && avatar.src !== cached.picture) {
+          avatar.src = cached.picture;
+          hasRealPicture = true;
+        }
+      }
+    };
+
+    render();
+    rootScope.addEventListener('nostra_identity_updated', render);
+    rootScope.addEventListener('nostra_identity_loaded', render);
+
+    // First-paint guarantee: decode the npub from encrypted storage and
+    // render a dicebear avatar immediately so the slot is never blank on
+    // fresh onboarding (no cache, no kind 0 picture yet).
+    (async() => {
+      try {
+        const {loadEncryptedIdentity} = await import('@lib/nostra/key-storage');
+        const record = await loadEncryptedIdentity();
+        if(!record?.npub) return;
+
+        npubEl.textContent = `${record.npub.slice(0, 12)}…${record.npub.slice(-4)}`;
+        if(!nameEl.textContent) nameEl.textContent = record.displayName || 'Profile';
+
+        if(hasRealPicture || avatar.src) return;
+        try {
+          const hex = decodePubkey(record.npub);
+          const url = await generateDicebearAvatar(hex);
+          if(!hasRealPicture) avatar.src = url;
+        } catch{}
+      } catch{}
+    })();
+
     return wrap;
   }
 
