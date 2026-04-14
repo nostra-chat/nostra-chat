@@ -88,6 +88,17 @@ export default class AppSettingsTab extends SliderSuperTab {
       listenerSetter: this.listenerSetter
     });
 
+    const notificationsRow = new Row({
+      titleLangKey: 'Nostra.NotificationSettingsViewController',
+      icon: 'unmute',
+      clickable: async() => {
+        const {AppNotificationsTab} = await import('@components/solidJsTabs');
+        const tab = this.slider.createTab(AppNotificationsTab);
+        tab.open();
+      },
+      listenerSetter: this.listenerSetter
+    });
+
     const generalRow = new Row({
       titleLangKey: 'Nostra.GeneralSettingsViewController',
       icon: 'settings',
@@ -102,6 +113,7 @@ export default class AppSettingsTab extends SliderSuperTab {
       identityRow.container,
       relayRow.container,
       privacyRow.container,
+      notificationsRow.container,
       generalRow.container
     );
 

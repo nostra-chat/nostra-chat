@@ -12,10 +12,28 @@ import RangeSettingSelector from '@components/rangeSettingSelector';
 import Row from '@components/rowTsx';
 import Section from '@components/section';
 import {createEffect, createMemo, createSignal, getOwner, onCleanup, runWithOwner} from 'solid-js';
-import {toastNew} from '@components/toast';
+import {toast, toastNew} from '@components/toast';
 import Button from '@components/buttonTsx';
 import cancelEvent from '@helpers/dom/cancelEvent';
 import {useHotReloadGuard} from '@lib/solidjs/hotReloadGuard';
+import {IconTsx} from '@components/iconTsx';
+
+const NotImplementedBadge = () => (
+  <IconTsx
+    icon="close"
+    title="Funzionalità non ancora implementata"
+    style={{
+      'cursor': 'not-allowed',
+      'color': '#e53935',
+      'font-size': '1.125rem',
+      'pointer-events': 'auto'
+    }}
+    onClick={(e: MouseEvent) => {
+      cancelEvent(e);
+      toast('Funzionalità non ancora implementata');
+    }}
+  />
+);
 
 type InputNotifyKey = Exclude<InputNotifyPeer['_'], 'inputNotifyPeer' | 'inputNotifyForumTopic'>;
 
@@ -88,7 +106,7 @@ const NotifySection = (props: {
   } catch{}
 
   return (
-    <Section name={props.name}>
+    <Section name={props.name} nameRight={<NotImplementedBadge />}>
       <Row>
         <Row.CheckboxFieldToggle>
           <CheckboxFieldTsx checked={enabled()} onChange={setEnabled} toggle />
@@ -122,7 +140,7 @@ const OtherSection = () => {
   }).catch(() => {});
 
   return (
-    <Section name="NotificationsOther">
+    <Section name="NotificationsOther" nameRight={<NotImplementedBadge />}>
       <Row>
         <Row.CheckboxFieldToggle>
           <CheckboxFieldTsx
