@@ -689,8 +689,9 @@ export class AppSidebarLeft extends SidebarSlider {
       createSubmenu: () => this.createNewChatsSubmenu()
     });
 
-    const profileEntry: ButtonMenuItemOptions & {verify?: () => boolean | Promise<boolean>} = {
+    const profileEntry: ButtonMenuItemOptions & {verify?: () => boolean | Promise<boolean>, className?: string} = {
       regularText: this.buildNostraProfileMenuContent(),
+      className: 'nostra-profile-menu-item',
       onClick: () => {
         closeTabsBefore(() => {
           this.createTab(AppEditProfileTab).open();
@@ -936,9 +937,27 @@ export class AppSidebarLeft extends SidebarSlider {
 
 
   private buildNostraProfileMenuContent(): HTMLElement {
+    // Inject the per-item style tag once (idempotent: keyed by id).
+    // Overrides the fixed 32px height of .btn-menu-item so the profile
+    // entry's larger avatar fits within the selection rectangle.
+    if(!document.getElementById('nostra-profile-menu-item-style')) {
+      const style = document.createElement('style');
+      style.id = 'nostra-profile-menu-item-style';
+      style.textContent = `
+        .btn-menu-item.nostra-profile-menu-item {
+          height: auto;
+          min-height: 52px;
+          padding-top: 0.5rem;
+          padding-bottom: 0.5rem;
+          padding-right: 1rem;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
     const wrap = document.createElement('div');
     wrap.classList.add('nostra-profile-menu-entry');
-    wrap.style.cssText = 'display:flex;align-items:center;gap:0.75rem;padding:0.25rem 0';
+    wrap.style.cssText = 'display:flex;align-items:center;gap:0.75rem;padding:0;width:100%';
 
     const avatar = document.createElement('img');
     avatar.classList.add('nostra-profile-menu-entry-avatar');
