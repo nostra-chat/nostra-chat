@@ -2,7 +2,7 @@ import type {AppManagers} from '@lib/managers';
 import type AppChatFoldersTab from '@components/sidebarLeft/tabs/chatFolders';
 import type AppEditFolderTab from '@components/sidebarLeft/tabs/editFolder';
 import type {AppSidebarLeft} from '@components/sidebarLeft';
-import {FOLDER_ID_ALL, REAL_FOLDERS} from '@appManagers/constants';
+import {FOLDER_ID_ALL, FOLDER_ID_ARCHIVE} from '@appManagers/constants';
 import createContextMenu from '@helpers/dom/createContextMenu';
 import findUpClassName from '@helpers/dom/findUpClassName';
 import {isProtectedFolder} from '@lib/nostra/folders-protection';
@@ -23,7 +23,10 @@ export default function createFolderContextMenu({
   listenTo: HTMLElement
 }) {
   async function openSettingsForFilter(filterId: number) {
-    if(REAL_FOLDERS.has(filterId)) return;
+    // All Chats is handled by FilterEditAll; Archive has no editable UI.
+    // Protected system folders (Persons/Groups) ARE editable — users can
+    // rename them. Deletion is still blocked via the Delete button's verify.
+    if(filterId === FOLDER_ID_ALL || filterId === FOLDER_ID_ARCHIVE) return;
     const filter = await managers.filtersStorage.getFilter(filterId);
 
     appSidebarLeft.closeTabsBefore(() => {
