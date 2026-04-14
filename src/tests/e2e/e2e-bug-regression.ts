@@ -116,17 +116,42 @@ async function openChatByName(page: Page, name: string): Promise<boolean> {
     im.setPeer({peerId: pid});
     return true;
   }, peerId);
-  await page.waitForTimeout(3000);
-  return result;
+  if(!result) return false;
+  // Wait for the chat view's input to mount — setPeer is async and
+  // the bubble/input pipeline can take variable time on Solid.js reactivity.
+  // Without this, sendMessage later races with an unmounted contenteditable.
+  try {
+    await page.locator('[contenteditable="true"]').first()
+      .waitFor({state: 'visible', timeout: 20000});
+  } catch{
+    // fallthrough — sendMessage will retry and surface a clearer error
+  }
+  await page.waitForTimeout(500);
+  return true;
 }
 
 async function sendMessage(page: Page, text: string) {
   await dismissViteOverlay(page);
   const msgArea = page.locator('[contenteditable="true"]').first();
+  // Explicit wait: the chat input can take a few seconds to mount after
+  // appImManager.setPeer — without this, click() blocks on the default
+  // 30s timeout and the entire test scenario fails spuriously.
+  await msgArea.waitFor({state: 'visible', timeout: 15000});
   await msgArea.click();
+  await page.waitForTimeout(150);
   await page.keyboard.press('Control+A');
   await page.keyboard.press('Backspace');
-  await msgArea.pressSequentially(text);
+  // Retry typing if content is truncated: Solid.js event delegation +
+  // pressSequentially races can drop the first few characters, producing
+  // bubble text like "eply-reply-..." instead of "Bug3-reply-reply-...".
+  for(let attempt = 0; attempt < 3; attempt++) {
+    await msgArea.pressSequentially(text, {delay: 15});
+    const typed = ((await msgArea.textContent()) || '').trim();
+    if(typed === text) break;
+    await page.keyboard.press('Control+A');
+    await page.keyboard.press('Backspace');
+    await page.waitForTimeout(100);
+  }
   await page.keyboard.press('Enter');
   await page.waitForTimeout(300);
 }
