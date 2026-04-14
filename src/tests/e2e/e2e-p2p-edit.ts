@@ -197,11 +197,11 @@ async function main() {
   const logsB: string[] = [];
   pageA.on('console', (msg) => {
     const t = msg.text();
-    if(t.includes('[ChatAPI]') || t.includes('[VirtualMTProto') || t.includes('edit')) logsA.push(`[A] ${t}`);
+    if(t.includes('[ChatAPI]') || t.includes('[VirtualMTProto') || t.includes('[MessageHandler]') || t.includes('edit') || t.includes('message_edit')) logsA.push(`[A] ${t}`);
   });
   pageB.on('console', (msg) => {
     const t = msg.text();
-    if(t.includes('[ChatAPI]') || t.includes('[NostraSync]') || t.includes('edit') || t.includes('message_edit')) logsB.push(`[B] ${t}`);
+    if(t.includes('[ChatAPI]') || t.includes('[NostraSync]') || t.includes('[MessageHandler]') || t.includes('[VirtualMTProto') || t.includes('edit') || t.includes('message_edit')) logsB.push(`[B] ${t}`);
   });
 
   try {
@@ -226,8 +226,13 @@ async function main() {
     await pageB.waitForTimeout(5000);
 
     // Step 1: Alice sends original message
+    //
+    // IMPORTANT: original and editedText must NOT share a substring. tweb
+    // bubbles render the new text, and waitForBubble uses .includes() — if
+    // the edited text is a superstring, E6 falsely reports "old text still
+    // present".
     const ts = Date.now();
-    const original = `Edit-target-${ts}`;
+    const original = `OrigAAA-${ts}`;
     await sendMessage(pageA, original);
     console.log(`  A sent: "${original}"`);
     await pageA.waitForTimeout(RELAY_PROPAGATION_MS);
@@ -240,31 +245,72 @@ async function main() {
       throw new Error('original bubble missing — cannot proceed');
     }
 
-    // Step 2: Alice edits the message via appMessagesManager.editMessage
-    const editedText = `Edit-target-${ts}-EDITED`;
+    const aSawOriginal = await waitForBubble(pageA, original, 5000);
+    if(aSawOriginal) {
+      record('E1b', 'Sender sees own original bubble', 'PASS');
+    } else {
+      const diag = await pageA.evaluate(() => {
+        const bubbles = [...document.querySelectorAll('.bubble[data-mid]')].map(b => ({
+          mid: b.dataset.mid,
+          peerId: b.dataset.peerId,
+          text: (b.querySelector('.message')?.textContent || '').slice(0, 80)
+        }));
+        const im = (window as any).appImManager;
+        return {
+          chatPeer: im?.chat?.peerId,
+          storageKey: im?.chat?.messagesStorageKey,
+          bubbleCount: bubbles.length,
+          bubbles
+        };
+      });
+      record('E1b', 'Sender sees own original bubble', 'FAIL', JSON.stringify(diag).slice(0, 400));
+      throw new Error('sender original bubble missing — cannot proceed');
+    }
 
-    const editResult = await pageA.evaluate(async(newText) => {
+    // Step 2: Alice edits the message via the real UI path
+    //   initMessageEditing(mid) → fill input → click send
+    // This exercises the same flow a user triggers by right-click → Edit.
+    const editedText = `ChangedBBB-${ts}`;
+
+    // Find mid by bubble text (reliable across Worker/main-thread boundaries)
+    const targetMid = await getMidByBubbleText(pageA, original);
+    if(!targetMid) {
+      record('E2', 'Sender invokes editMessage', 'FAIL', 'no target mid on sender side');
+      throw new Error('no target mid for edit');
+    }
+
+    const editResult = await pageA.evaluate(async(mid) => {
       try {
         const im = (window as any).appImManager;
-        const peerId = im?.chat?.peerId;
-        if(!peerId) return {ok: false, reason: 'no peerId'};
-
-        const proxy = (window as any).apiManagerProxy ||
-          (await import('@lib/apiManagerProxy')).default;
-        const storage = proxy?.mirrors?.messages?.[`${peerId}_history`] || {};
-        let target: any = null;
-        for(const k of Object.keys(storage)) {
-          const m = storage[k];
-          if(m?.message && /Edit-target-\d+$/.test(m.message)) { target = m; break; }
+        if(!im?.chat?.input?.initMessageEditing) {
+          return {ok: false, reason: 'initMessageEditing not available'};
         }
-        if(!target) return {ok: false, reason: 'no target message in mirror'};
-
-        await proxy.managers.appMessagesManager.editMessage(target, newText, {});
-        return {ok: true, mid: target.mid};
+        im.chat.input.initMessageEditing(mid);
+        return {ok: true, mid};
       } catch(err: any) {
         return {ok: false, reason: err?.message || String(err)};
       }
-    }, editedText);
+    }, targetMid);
+
+    if(editResult.ok) {
+      // Wait for edit mode UI to settle, then type new text and send.
+      // initMessageEditing is async (awaits placeholder params) so we wait
+      // long enough for the input to be populated with the original text
+      // before attempting to clear + retype.
+      await pageA.waitForTimeout(1000);
+      const msgArea = pageA.locator('[contenteditable="true"]').first();
+      await msgArea.click();
+      await pageA.keyboard.press('Control+A');
+      await pageA.keyboard.press('Backspace');
+      // Small delay to let Backspace settle before typing — otherwise
+      // pressSequentially races the input handler and the first few
+      // characters get eaten (observed flakiness).
+      await pageA.waitForTimeout(200);
+      await msgArea.pressSequentially(editedText);
+      await pageA.waitForTimeout(300);
+      await pageA.locator('button.btn-send').click();
+      await pageA.waitForTimeout(300);
+    }
 
     console.log('  edit result:', JSON.stringify(editResult));
     if(!editResult.ok) {
@@ -279,7 +325,30 @@ async function main() {
     if(aSelfEdited) {
       record('E3', 'Sender bubble shows edited text', 'PASS');
     } else {
-      record('E3', 'Sender bubble shows edited text', 'FAIL');
+      const diag = await pageA.evaluate((target) => {
+        const bubbles = [...document.querySelectorAll('.bubble[data-mid]')].map(b => ({
+          mid: b.dataset.mid,
+          peerId: b.dataset.peerId,
+          text: (b.querySelector('.message')?.textContent || '').slice(0, 100)
+        }));
+        const im = (window as any).appImManager;
+        const proxy = (window as any).apiManagerProxy;
+        const mirror = proxy?.mirrors?.messages?.[`${im?.chat?.peerId}_history`] || {};
+        const mirrorEntries = Object.keys(mirror).map(k => ({
+          mid: mirror[k]?.mid,
+          message: (mirror[k]?.message || '').slice(0, 50),
+          edit_date: mirror[k]?.edit_date
+        }));
+        return {
+          chatPeer: im?.chat?.peerId,
+          storageKey: im?.chat?.messagesStorageKey,
+          expectedText: target,
+          bubbleCount: bubbles.length,
+          bubbles,
+          mirrorEntries
+        };
+      }, editedText);
+      record('E3', 'Sender bubble shows edited text', 'FAIL', JSON.stringify(diag).slice(0, 800));
     }
 
     // Step 4: Receiver bubble should update to new text
