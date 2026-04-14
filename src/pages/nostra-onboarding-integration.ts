@@ -20,7 +20,7 @@ import {NostraMTProtoServer} from '../lib/nostra/virtual-mtproto-server';
 import {NostraSync} from '../lib/nostra/nostra-sync';
 import {MOUNT_CLASS_TO} from '@config/debug';
 import rootScope from '../lib/rootScope';
-import {handleIncomingMessage, handleIncomingEdit} from '@lib/nostra/nostra-message-handler';
+import {handleIncomingMessage, handleIncomingEdit, resetUnreadForPeer} from '@lib/nostra/nostra-message-handler';
 import {createPendingFlush} from '@lib/nostra/nostra-pending-flush';
 import {createReadReceiptSender} from '@lib/nostra/nostra-read-receipts';
 import {createDeliveryUI} from '@lib/nostra/nostra-delivery-ui';
@@ -228,6 +228,22 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
         });
       });
       pendingFlush.startPeriodicFlush();
+
+      // Clear the main-thread unread counter as soon as a P2P peer's chat
+      // is opened — the standard readHistory path can't decrement synthetic
+      // dialogs, so the badge would otherwise stay visible.
+      const attachUnreadReset = () => {
+        const im = (MOUNT_CLASS_TO as any).appImManager;
+        if(!im?.addEventListener) {
+          setTimeout(attachUnreadReset, 500);
+          return;
+        }
+        im.addEventListener('peer_changed', (chat: any) => {
+          const pid = +chat?.peerId;
+          if(pid) resetUnreadForPeer(pid);
+        });
+      };
+      attachUnreadReset();
 
       // Delivery status UI
       deliveryUI.attach();

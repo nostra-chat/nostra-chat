@@ -25,6 +25,68 @@ export interface HandleMessageResult {
   isNewPeer: boolean;
 }
 
+// --- Unread tracking ---
+// Main-thread counter keyed by peerId. Synthetic P2P dialogs don't live in the
+// Worker's dialogsStorage, so the standard readHistory path can't decrement
+// them — we must track unread counts ourselves and clear on peer_changed.
+const UNREAD_STORAGE_KEY = 'nostra-unread-counts';
+const unreadCounts = new Map<number, number>();
+const lastDialogs = new Map<number, any>();
+
+(function loadUnreadCounts() {
+  try {
+    if(typeof localStorage === 'undefined') return;
+    const raw = localStorage.getItem(UNREAD_STORAGE_KEY);
+    if(!raw) return;
+    const obj = JSON.parse(raw) as Record<string, number>;
+    for(const k in obj) {
+      const v = +obj[k];
+      if(v > 0) unreadCounts.set(+k, v);
+    }
+  } catch{}
+})();
+
+function persistUnreadCounts(): void {
+  try {
+    if(typeof localStorage === 'undefined') return;
+    const obj: Record<string, number> = {};
+    unreadCounts.forEach((v, k) => { if(v > 0) obj[k] = v; });
+    localStorage.setItem(UNREAD_STORAGE_KEY, JSON.stringify(obj));
+  } catch{}
+}
+
+function isChatOpenFor(peerId: number): boolean {
+  try {
+    const im = (MOUNT_CLASS_TO as any).appImManager;
+    const current = im?.chat?.peerId;
+    if(current == null) return false;
+    return +current === peerId;
+  } catch {
+    return false;
+  }
+}
+
+export function getUnreadForPeer(peerId: number): number {
+  return unreadCounts.get(peerId) ?? 0;
+}
+
+/**
+ * Clear the main-thread unread counter for a peer and re-dispatch the last
+ * dialog with unread_count: 0 so the chat-list badge disappears immediately.
+ * Called on peer_changed (see nostra-onboarding-integration.ts).
+ */
+export function resetUnreadForPeer(peerId: number): void {
+  const had = (unreadCounts.get(peerId) ?? 0) > 0;
+  if(!had && !lastDialogs.has(peerId)) return;
+  unreadCounts.set(peerId, 0);
+  persistUnreadCounts();
+  const last = lastDialogs.get(peerId);
+  if(!last) return;
+  const cleared = {...last, unread_count: 0};
+  lastDialogs.set(peerId, cleared);
+  dispatchDialogUpdate(peerId, cleared);
+}
+
 /**
  * Build a tweb Message from incoming Nostr event data.
  * Pure function — no side effects.
@@ -46,13 +108,13 @@ export function buildTwebMessage(data: IncomingMessageData): any {
  * Attaches msg object as topMessage so setLastMessage can use it directly
  * without getMessageByPeer lookup (which fails when hasReachedTheEnd is false).
  */
-export function buildTwebDialog(peerId: number, msg: any, timestamp: number): any {
+export function buildTwebDialog(peerId: number, msg: any, timestamp: number, unreadCount: number = 1): any {
   const mapper = new NostraPeerMapper();
   const dialog = mapper.createTwebDialog({
     peerId,
     topMessage: msg.mid || msg.id,
     topMessageDate: msg.date || timestamp,
-    unreadCount: 1
+    unreadCount
   });
   (dialog as any).topMessage = msg;
   return dialog;
@@ -206,7 +268,21 @@ export async function handleIncomingMessage(
     peerId
   });
 
-  const dialog = buildTwebDialog(peerId, msg, data.timestamp);
+  // Compute unread count. If the chat is already open for this peer, the
+  // message is effectively read — keep the counter at 0. Otherwise increment
+  // the persisted per-peer counter so multi-message bursts count correctly.
+  let unread: number;
+  if(isChatOpenFor(peerId)) {
+    unread = 0;
+    unreadCounts.set(peerId, 0);
+  } else {
+    unread = (unreadCounts.get(peerId) ?? 0) + 1;
+    unreadCounts.set(peerId, unread);
+  }
+  persistUnreadCounts();
+
+  const dialog = buildTwebDialog(peerId, msg, data.timestamp, unread);
+  lastDialogs.set(peerId, dialog);
   dispatchDialogUpdate(peerId, dialog);
 
   return {msg, peerId, dialog, isNewPeer};
