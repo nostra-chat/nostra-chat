@@ -12,8 +12,14 @@ import Row from '@components/row';
 import SettingSection from '@components/settingSection';
 import AppNostraRelaySettingsTab from '@components/sidebarLeft/tabs/nostraRelaySettings';
 import AppEditProfileTab from '@components/sidebarLeft/tabs/editProfile';
-import useNostraIdentity from '@stores/nostraIdentity';
 import showLogOutPopup from '@components/popups/logOut';
+import {loadCachedProfile} from '@lib/nostra/profile-cache';
+import {loadEncryptedIdentity} from '@lib/nostra/key-storage';
+import {decodePubkey} from '@lib/nostra/nostr-identity';
+import {generateDicebearAvatar} from '@helpers/generateDicebearAvatar';
+import {copyTextToClipboard} from '@helpers/clipboard';
+import {toast} from '@components/toast';
+import rootScope from '@lib/rootScope';
 
 export default class AppSettingsTab extends SliderSuperTab {
   public async init() {
@@ -34,24 +40,94 @@ export default class AppSettingsTab extends SliderSuperTab {
 
     this.header.append(btnMenu);
 
-    // Profile section
-    const identity = useNostraIdentity();
+    // Profile section — avatar + name + truncated npub, click-to-copy full npub.
+    // HMR-safe: reads profile cache directly and listens to
+    // nostra_identity_updated/_loaded rather than depending on the Solid store,
+    // mirroring the hamburger profile entry (sidebarLeft/index.ts).
+    if(!document.getElementById('nostra-settings-profile-style')) {
+      const style = document.createElement('style');
+      style.id = 'nostra-settings-profile-style';
+      style.textContent = `
+        .nostra-settings-profile{display:flex;align-items:center;gap:0.875rem;padding:0.5rem 0.25rem;cursor:pointer;border-radius:0.5rem;transition:background-color .15s}
+        .nostra-settings-profile:hover{background-color:var(--light-secondary-text-color)}
+        .nostra-settings-profile-avatar{width:56px;height:56px;border-radius:50%;object-fit:cover;flex-shrink:0;background-color:var(--light-secondary-text-color)}
+        .nostra-settings-profile-text{display:flex;flex-direction:column;min-width:0;line-height:1.25}
+        .nostra-settings-profile-name{font-weight:600;font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .nostra-settings-profile-npub{font-size:0.8125rem;opacity:0.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      `;
+      document.head.appendChild(style);
+    }
 
     const profileSection = new SettingSection({noDelimiter: true});
     const profileDiv = document.createElement('div');
     profileDiv.classList.add('nostra-settings-profile');
+    profileDiv.setAttribute('role', 'button');
+    profileDiv.setAttribute('tabindex', '0');
+
+    const avatarEl = document.createElement('img');
+    avatarEl.classList.add('nostra-settings-profile-avatar');
+    avatarEl.alt = '';
+
+    const textWrap = document.createElement('div');
+    textWrap.classList.add('nostra-settings-profile-text');
 
     const nameEl = document.createElement('div');
     nameEl.classList.add('nostra-settings-profile-name');
-    nameEl.textContent = identity.displayName() || 'Nostra.chat User';
 
     const npubEl = document.createElement('div');
     npubEl.classList.add('nostra-settings-profile-npub');
-    const npubVal = identity.npub() || '';
-    npubEl.textContent = npubVal ? npubVal.slice(0, 12) + '...' + npubVal.slice(-8) : 'No identity';
 
-    profileDiv.append(nameEl, npubEl);
+    textWrap.append(nameEl, npubEl);
+    profileDiv.append(avatarEl, textWrap);
     profileSection.content.append(profileDiv);
+
+    let fullNpub = '';
+    let hasRealPicture = false;
+
+    const renderFromCache = () => {
+      const cached = loadCachedProfile()?.profile;
+      if(cached) {
+        const name = cached.display_name || cached.name;
+        if(name) nameEl.textContent = name;
+        if(cached.picture && avatarEl.src !== cached.picture) {
+          avatarEl.src = cached.picture;
+          hasRealPicture = true;
+        }
+      }
+    };
+
+    renderFromCache();
+    this.listenerSetter.add(rootScope)('nostra_identity_updated', renderFromCache);
+    this.listenerSetter.add(rootScope)('nostra_identity_loaded', renderFromCache);
+
+    (async() => {
+      try {
+        const record = await loadEncryptedIdentity();
+        if(!record?.npub) return;
+        fullNpub = record.npub;
+        npubEl.textContent = `${record.npub.slice(0, 12)}…${record.npub.slice(-8)}`;
+        if(!nameEl.textContent) nameEl.textContent = record.displayName || 'Profile';
+        if(hasRealPicture || avatarEl.src) return;
+        try {
+          const hex = decodePubkey(record.npub);
+          const url = await generateDicebearAvatar(hex);
+          if(!hasRealPicture) avatarEl.src = url;
+        } catch{}
+      } catch{}
+    })();
+
+    const copyNpub = () => {
+      if(!fullNpub) return;
+      copyTextToClipboard(fullNpub);
+      toast('Copied to clipboard');
+    };
+    this.listenerSetter.add(profileDiv)('click', copyNpub);
+    this.listenerSetter.add(profileDiv)('keydown', (e: KeyboardEvent) => {
+      if(e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        copyNpub();
+      }
+    });
 
     // Menu rows
     const buttonsDiv = document.createElement('div');
