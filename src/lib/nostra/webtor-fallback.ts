@@ -345,7 +345,24 @@ export class WebtorClient implements TorPrivacyClient {
       try {
         const status = await this._client.getCircuitStatus();
         const healthy = (status as any).has_ready_circuits && ((status as any).ready > 0 || (status as any).ready_circuits > 0);
-        const nodes = (status as any).nodes || [];
+
+        // JsCircuitStatus does not expose relay fingerprints — fetch them
+        // separately via getCircuitRelays(). Tests still inject `status.nodes`
+        // for convenience, so we fall back to that shape when present.
+        let nodes: string[] = (status as any).nodes || [];
+        if(nodes.length === 0 && healthy && typeof (this._client as any).getCircuitRelays === 'function') {
+          try {
+            const relays = await (this._client as any).getCircuitRelays();
+            if(Array.isArray(relays)) {
+              nodes = relays.map((r: any) => {
+                if(typeof r === 'string') return r;
+                return r?.fingerprint ?? r?.rsa_id ?? r?.id ?? r?.nickname ?? '';
+              });
+            }
+          } catch(err) {
+            console.debug('[WebtorClient] getCircuitRelays failed:', err);
+          }
+        }
 
         this._circuitDetails = {
           guard: nodes[0] || '',
