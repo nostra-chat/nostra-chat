@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.2.0](https://github.com/nostra-chat/nostra-chat/compare/v0.1.0...v0.2.0) (2026-04-14)
+
+
+### Features
+
+* **folders:** default folders (All/Persons/Groups) + Nostr multi-device sync ([#14](https://github.com/nostra-chat/nostra-chat/issues/14)) ([9a2318d](https://github.com/nostra-chat/nostra-chat/commit/9a2318d9cadb17e26de3263efcb032f8fe350b20))
+* **settings:** add Notifications entry with not-implemented markers ([a05e0a5](https://github.com/nostra-chat/nostra-chat/commit/a05e0a5a7aa58895dc9d02be860d8b43f398f162))
+* **settings:** profile row with avatar and click-to-copy npub ([0475a1b](https://github.com/nostra-chat/nostra-chat/commit/0475a1b63320ef74b677c88a31f63b61fada84d0))
+* **tor:** show real circuit relays and redesign Tor Circuit dashboard ([1c68189](https://github.com/nostra-chat/nostra-chat/commit/1c68189db43d4612c97bdc59a2387b67770e1bb4))
+
+
+### Bug Fixes
+
+* **e2e:** stabilize bug-regression test (Tor stall + input races) ([#16](https://github.com/nostra-chat/nostra-chat/issues/16)) ([6f407a1](https://github.com/nostra-chat/nostra-chat/commit/6f407a1917d88784b70b0c33f085c0719c8bc4a3))
+* **folders:** allow editing protected Persons/Groups folders via context menu ([3f7ecc3](https://github.com/nostra-chat/nostra-chat/commit/3f7ecc3e3bf75e7b66e3c3c8ba8d1537600bce31))
+* **folders:** default tabsInSidebar to true so desktop shows folders on the left ([872f442](https://github.com/nostra-chat/nostra-chat/commit/872f442a945f4e2f5a8138c414577fcb1f242c58))
+* **folders:** drop LANGPACK sentinel, seed default folders with literal titles ([698b7c6](https://github.com/nostra-chat/nostra-chat/commit/698b7c632232cdbfb4fc2f1e234271e33552c058))
+* **profile:** preserve picture/about/website on kind 0 republish ([003ee4d](https://github.com/nostra-chat/nostra-chat/commit/003ee4d348c3ddb176d3efa7101e5d15b9de83c7))
+* **pwa:** set manifest href at HTML parse time so Chrome Android shows Install app ([e889310](https://github.com/nostra-chat/nostra-chat/commit/e88931068b8032831f9e41923c0736c8c0ee4efc))
+* **sidebar:** flatten More submenu into hamburger and fix Report Bug URL ([a4e938d](https://github.com/nostra-chat/nostra-chat/commit/a4e938d8c24dd6d425e4569c70d4683791fe23fb))
+* **ui:** correct relay/Tor status icons and swap in Nostrich logo ([c70e746](https://github.com/nostra-chat/nostra-chat/commit/c70e746dd3171016894e369d6cae17240d03462e))
+
 ## [0.1.0](https://github.com/nostra-chat/nostra-chat/compare/v0.0.2...v0.1.0) (2026-04-13)
 
 
