@@ -60,7 +60,7 @@ describe('WS-A: Telegram-only UI cleanup', () => {
   });
 
   it('sidebar report bug points to Nostra.chat repo', () => {
-    expect(sidebarSrc).toContain('github.com/nickolasgoodman/nostra/issues');
+    expect(sidebarSrc).toContain('github.com/nostra-chat/nostra-chat/issues');
     expect(sidebarSrc).not.toContain('bugs.telegram.org');
   });
 });

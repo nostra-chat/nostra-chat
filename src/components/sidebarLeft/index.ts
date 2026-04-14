@@ -70,7 +70,6 @@ import {MAX_ACCOUNTS, MAX_ACCOUNTS_FREE} from '@lib/accounts/constants';
 import {getCurrentAccount} from '@lib/accounts/getCurrentAccount';
 import {createProxiedManagersForAccount} from '@lib/getProxiedManagers';
 import limitSymbols from '@helpers/string/limitSymbols';
-import filterAsync from '@helpers/array/filterAsync';
 import pause from '@helpers/schedulers/pause';
 import AccountsLimitPopup from '@components/sidebarLeft/accountsLimitPopup';
 import {changeAccount} from '@lib/accounts/changeAccount';
@@ -91,7 +90,7 @@ import DeferredIsUsingPasscode from '@lib/passcode/deferredIsUsingPasscode';
 import EncryptionKeyStore from '@lib/passcode/keyStore';
 import createLockButton from '@components/sidebarLeft/lockButton';
 import {MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, SIDEBAR_COLLAPSE_FACTOR} from '@components/sidebarLeft/constants';
-import createSubmenuTrigger, {CreateSubmenuArgs} from '@components/createSubmenuTrigger';
+import createSubmenuTrigger from '@components/createSubmenuTrigger';
 import ChatTypeMenu from '@components/chatTypeMenu';
 import {RequestHistoryOptions} from '@appManagers/appMessagesManager';
 import EmptySearchPlaceholder from '@components/emptySearchPlaceholder';
@@ -644,13 +643,42 @@ export class AppSidebarLeft extends SidebarSlider {
       });
     };
 
-    const moreSubmenu = createSubmenuTrigger({
-      options: {
-        text: 'MultiAccount.More',
-        icon: 'more'
+    const darkModeText = document.createElement('span');
+    const animationsText = document.createElement('span');
+
+    const darkModeBtn: ButtonMenuItemOptionsVerifiable = {
+      icon: 'darkmode',
+      regularText: darkModeText,
+      separator: true,
+      onClick: () => {}
+    };
+
+    const animationsBtn: ButtonMenuItemOptionsVerifiable = {
+      id: 'animations-toggle',
+      icon: 'animations',
+      regularText: animationsText,
+      onClick: () => {
+        toggleAnimations();
       },
-      createSubmenu: (args) => this.createMoreSubmenu(args, closeTabsBefore)
-    });
+      verify: () => !liteMode.isEnabled()
+    };
+
+    const hasAnimations = () => !rootScope.settings.liteMode.animations;
+    const toggleAnimations = async() => {
+      updateAnimationsToggleButton(!hasAnimations());
+      const [, setAppSettings] = useAppSettings();
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      await setAppSettings('liteMode', 'animations', hasAnimations());
+    };
+    const updateAnimationsToggleButton = (enabled: boolean) => {
+      const el = animationsBtn.element;
+      if(!el) return;
+      const icon = el.querySelector('.tgico');
+      enabled ?
+        icon?.classList.add('animations-icon-off') :
+        icon?.classList.remove('animations-icon-off');
+      animationsText.replaceChildren(i18n(enabled ? 'DisableAnimations' : 'EnableAnimations'));
+    };
 
     const newSubmenu = createSubmenuTrigger({
       options: {
@@ -705,7 +733,37 @@ export class AppSidebarLeft extends SidebarSlider {
           this.createTab(AppSettingsTab).open();
         });
       }
-    }, moreSubmenu];
+    }, darkModeBtn, animationsBtn, {
+      icon: 'animations',
+      text: 'LiteMode.Title',
+      onClick: () => {
+        closeTabsBefore(() => {
+          this.createTab(AppPowerSavingTab).open();
+        });
+      },
+      verify: () => liteMode.isEnabled()
+    }, {
+      icon: 'bug',
+      text: 'ReportBug',
+      onClick: () => {
+        const a = document.createElement('a');
+        setBlankToAnchor(a);
+        a.href = 'https://github.com/nostra-chat/nostra-chat/issues';
+        document.body.append(a);
+        a.click();
+        setTimeout(() => {
+          a.remove();
+        }, 0);
+      }
+    }, {
+      icon: 'plusround',
+      text: 'PWA.Install',
+      onClick: () => {
+        const installPrompt = getInstallPrompt();
+        installPrompt?.();
+      },
+      verify: () => !!getInstallPrompt()
+    }];
 
     const filteredButtons = menuButtons.filter(Boolean);
     const filteredButtonsSliced = filteredButtons.slice();
@@ -834,13 +892,30 @@ export class AppSidebarLeft extends SidebarSlider {
 
         filteredButtons.splice(0, filteredButtons.length, ...buttons);
       },
-      onOpen: () => {
-        moreSubmenu.onOpen();
+      onOpen: (_e, element) => {
         newSubmenu.onOpen();
         btnArchive.element?.append(this.archivedCount);
+
+        darkModeText.replaceChildren(i18n(themeController.isNight() ? 'DisableDarkMode' : 'EnableDarkMode'));
+        updateAnimationsToggleButton(hasAnimations());
+
+        const darkModeEl = darkModeBtn.element;
+        if(darkModeEl) {
+          darkModeEl.addEventListener(CLICK_EVENT_NAME, (e) => {
+            e.stopPropagation();
+            const icon = darkModeEl.querySelector('.tgico');
+            const rect = icon.getBoundingClientRect();
+            themeController.switchTheme(undefined, {
+              x: rect.left + rect.width / 2,
+              y: rect.top + rect.height / 2
+            });
+            pause(20).then(() => contextMenuController.close());
+          }, true);
+        }
+
+        element.append(getVersionLink());
       },
       onClose: () => {
-        moreSubmenu.onClose();
         newSubmenu.onClose();
       },
       noIcon: true
@@ -918,118 +993,6 @@ export class AppSidebarLeft extends SidebarSlider {
     text.append(nameEl, npubEl);
     wrap.append(avatar, text);
     return wrap;
-  }
-
-  private async createMoreSubmenu(
-    {middleware}: CreateSubmenuArgs,
-    closeTabsBefore: (clb: () => void) => void
-  ) {
-    const toggleTheme = () => {
-      const item = btns[0].element;
-      const icon = item.querySelector('.tgico');
-      const rect = icon.getBoundingClientRect();
-      themeController.switchTheme(undefined, {
-        x: rect.left + rect.width / 2,
-        y: rect.top + rect.height / 2
-      });
-    };
-
-    const darkModeText = document.createElement('span');
-    darkModeText.append(i18n(themeController.isNight() ? 'DisableDarkMode': 'EnableDarkMode'));
-    const animationsText = document.createElement('span');
-
-    const btns: ButtonMenuItemOptionsVerifiable[] = [{
-      icon: 'darkmode',
-      regularText: darkModeText,
-      onClick: () => {}
-    }, {
-      id: 'animations-toggle',
-      icon: 'animations',
-      regularText: animationsText,
-      onClick: () => {
-        toggleAnimations();
-      },
-      verify: () => !liteMode.isEnabled()
-    }, {
-      icon: 'animations',
-      text: 'LiteMode.Title',
-      onClick: () => {
-        closeTabsBefore(() => {
-          this.createTab(AppPowerSavingTab).open();
-        });
-      },
-      verify: () => liteMode.isEnabled()
-    }, {
-      icon: 'bug',
-      text: 'ReportBug',
-      onClick: () => {
-        const a = document.createElement('a');
-        setBlankToAnchor(a);
-        a.href = 'https://github.com/nickolasgoodman/nostra/issues';
-        document.body.append(a);
-        a.click();
-        setTimeout(() => {
-          a.remove();
-        }, 0);
-      }
-    }, {
-      icon: 'plusround',
-      text: 'PWA.Install',
-      onClick: () => {
-        const installPrompt = getInstallPrompt();
-        installPrompt?.();
-      },
-      verify: () => !!getInstallPrompt()
-    }];
-
-
-    async function hasAnimations() {
-      return !rootScope.settings.liteMode.animations;
-    }
-
-    async function initAnimationsToggleIcon() {
-      updateAnimationsToggleButton(await hasAnimations());
-    }
-
-    async function toggleAnimations() {
-      updateAnimationsToggleButton(!(await hasAnimations()));
-      const [, setAppSettings] = useAppSettings();
-      // eslint-disable-next-line @typescript-eslint/await-thenable
-      await setAppSettings('liteMode', 'animations', await hasAnimations());
-    }
-
-    async function updateAnimationsToggleButton(enabled: boolean) {
-      const animationToggleButton = btns.find((button) => button.id === 'animations-toggle')?.element;
-      if(!animationToggleButton) return;
-
-      const icon = animationToggleButton.querySelector('.tgico');
-      enabled ?
-        icon?.classList.add('animations-icon-off') :
-        icon?.classList.remove('animations-icon-off');
-
-      animationsText.replaceChildren(i18n(enabled ? 'DisableAnimations' : 'EnableAnimations'));
-    }
-
-    const filtered = await filterAsync(btns, (button) => button?.verify ? button.verify() ?? false : true);
-    const menu = await ButtonMenu({
-      buttons: filtered
-    });
-
-    menu.append(getVersionLink());
-    menu.classList.add('sidebar-tools-submenu');
-
-    const darkModeBtn = btns[0].element;
-    darkModeBtn.addEventListener(CLICK_EVENT_NAME, (e) => {
-      e.stopPropagation();
-      toggleTheme();
-      pause(20).then(() => contextMenuController.close());
-    }, true);
-
-    initAnimationsToggleIcon();
-
-    if(!middleware()) return;
-
-    return menu;
   }
 
   private createNewChatsMenuOptions(closeBefore?: boolean, singular?: boolean): ButtonMenuItemOptionsVerifiable[]  {
