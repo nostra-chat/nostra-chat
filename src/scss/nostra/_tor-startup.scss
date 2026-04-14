@@ -6,8 +6,9 @@
 
 html body .whole {
   height: calc(100% - var(--tor-banner-height, 0px));
+  min-height: calc(100% - var(--tor-banner-height, 0px));
   margin-top: var(--tor-banner-height, 0px);
-  transition: height 0.3s ease-out, margin-top 0.3s ease-out;
+  transition: height 0.3s ease-out, min-height 0.3s ease-out, margin-top 0.3s ease-out;
 }
 
 .tor-startup-banner {
