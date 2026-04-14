@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/nostra-chat/nostra-chat/compare/v0.2.0...v0.2.1) (2026-04-14)
+
+
+### Bug Fixes
+
+* **tor-banner:** prevent app bottom overflow when banner is visible ([8d07c22](https://github.com/nostra-chat/nostra-chat/commit/8d07c22bd8db46d2889c4d1fc4188d730f871cf1))
+* **unread:** track P2P unread count per peer and clear on chat open ([ae4cdfb](https://github.com/nostra-chat/nostra-chat/commit/ae4cdfbe7b48a158ef48379a99df20cb22b06229))
+
 ## [0.2.0](https://github.com/nostra-chat/nostra-chat/compare/v0.1.0...v0.2.0) (2026-04-14)
 
 
