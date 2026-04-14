@@ -1,6 +1,6 @@
 import {describe, it, expect} from 'vitest';
 import {buildSnapshotFromFilters, applySnapshotToFilters} from '@lib/nostra/folders-sync-snapshot';
-import {buildLocalFilter, LANGPACK_PREFIX} from '@lib/storages/filtersLocal';
+import {buildLocalFilter} from '@lib/storages/filtersLocal';
 import {
   FOLDER_ID_ALL,
   FOLDER_ID_ARCHIVE,
@@ -49,7 +49,7 @@ describe('buildSnapshotFromFilters', () => {
     expect(snap.protectedTitles?.[FOLDER_ID_GROUPS]).toBeUndefined();
   });
 
-  it('omits protectedTitles entries for default langpack titles', () => {
+  it('omits protectedTitles entries for default literal titles', () => {
     const filters = [
       buildLocalFilter(FOLDER_ID_ALL),
       buildLocalFilter(FOLDER_ID_PERSONS),
@@ -101,7 +101,7 @@ describe('applySnapshotToFilters', () => {
     const persons = result.find((f) => f.id === FOLDER_ID_PERSONS);
     expect((persons as any)?.title.text).toBe('Amici');
     const groups = result.find((f) => f.id === FOLDER_ID_GROUPS);
-    expect((groups as any)?.title.text.startsWith(LANGPACK_PREFIX)).toBe(true);
+    expect((groups as any)?.title.text).toBe('Groups');
   });
 
   it('appends system folders missing from remote order at the end', () => {

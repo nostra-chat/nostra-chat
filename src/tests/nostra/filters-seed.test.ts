@@ -6,7 +6,7 @@ import {
   FOLDER_ID_PERSONS,
   FOLDER_ID_GROUPS
 } from '@appManagers/constants';
-import {buildLocalFilter, LANGPACK_PREFIX, langpackTitle} from '@lib/storages/filtersLocal';
+import {buildLocalFilter, isDefaultLocalTitle} from '@lib/storages/filtersLocal';
 
 describe('buildLocalFilter', () => {
   it('builds All Chats with exclude_archived flag', () => {
@@ -41,20 +41,17 @@ describe('buildLocalFilter', () => {
     expect(f.pFlags.contacts).toBeFalsy();
   });
 
-  it('uses LANGPACK: sentinel for Persons and Groups titles', () => {
-    expect(buildLocalFilter(FOLDER_ID_PERSONS).title.text).toBe('LANGPACK:FilterContacts');
-    expect(buildLocalFilter(FOLDER_ID_GROUPS).title.text).toBe('LANGPACK:FilterGroups');
+  it('uses literal English titles for Persons and Groups', () => {
+    expect(buildLocalFilter(FOLDER_ID_PERSONS).title.text).toBe('Contacts');
+    expect(buildLocalFilter(FOLDER_ID_GROUPS).title.text).toBe('Groups');
   });
 
-  it('langpackTitle helper returns a textWithEntities with the prefix', () => {
-    const t = langpackTitle('SomeKey');
-    expect(t._).toBe('textWithEntities');
-    expect(t.text).toBe('LANGPACK:SomeKey');
-    expect(t.entities).toEqual([]);
-  });
-
-  it('LANGPACK_PREFIX constant is exported as "LANGPACK:"', () => {
-    expect(LANGPACK_PREFIX).toBe('LANGPACK:');
+  it('isDefaultLocalTitle recognizes fresh seeds, empty, and legacy LANGPACK', () => {
+    expect(isDefaultLocalTitle(FOLDER_ID_PERSONS, 'Contacts')).toBe(true);
+    expect(isDefaultLocalTitle(FOLDER_ID_GROUPS, 'Groups')).toBe(true);
+    expect(isDefaultLocalTitle(FOLDER_ID_PERSONS, '')).toBe(true);
+    expect(isDefaultLocalTitle(FOLDER_ID_PERSONS, 'LANGPACK:FilterContacts')).toBe(true);
+    expect(isDefaultLocalTitle(FOLDER_ID_PERSONS, 'Amici')).toBe(false);
   });
 });
 

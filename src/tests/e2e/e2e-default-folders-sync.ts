@@ -8,7 +8,7 @@
  *
  * Steps:
  *   1. Boot device A (fresh identity), verify 3 default folders (All/Persons/Groups) appear
- *   2. Verify Persons/Groups carry the LANGPACK: sentinel titles
+ *   2. Verify Persons/Groups carry the literal English titles
  *   3. Create custom folder "Lavoro" — verify it persists
  *   4. Verify protection guard rejects deletion of FOLDER_ID_PERSONS
  *   5. Verify FoldersSync publishes to the local relay after the debounced window
@@ -132,16 +132,16 @@ async function run() {
     if(!idsA.includes(3)) throw new Error(`A: missing FOLDER_ID_GROUPS (3) — got ids: ${idsA}`);
     console.log('[A] ✓ 3 default folders present (All=0, Persons=2, Groups=3)');
 
-    // Verify Persons/Groups carry LANGPACK sentinel titles (pre-resolve)
+    // Verify Persons/Groups carry the literal English titles
     const personsA = foldersA.find((f: any) => f.id === 2);
     const groupsA = foldersA.find((f: any) => f.id === 3);
-    if(!personsA?.title?.startsWith('LANGPACK:')) {
-      throw new Error(`A: Persons missing LANGPACK sentinel — got "${personsA?.title}"`);
+    if(personsA?.title !== 'Contacts') {
+      throw new Error(`A: Persons expected title "Contacts" — got "${personsA?.title}"`);
     }
-    if(!groupsA?.title?.startsWith('LANGPACK:')) {
-      throw new Error(`A: Groups missing LANGPACK sentinel — got "${groupsA?.title}"`);
+    if(groupsA?.title !== 'Groups') {
+      throw new Error(`A: Groups expected title "Groups" — got "${groupsA?.title}"`);
     }
-    console.log('[A] ✓ Persons/Groups carry LANGPACK: sentinel');
+    console.log('[A] ✓ Persons/Groups carry literal English titles');
 
     // Create custom folder "Lavoro"
     const createResult = await aPage.evaluate(async() => {

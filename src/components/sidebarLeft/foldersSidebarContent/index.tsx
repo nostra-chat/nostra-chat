@@ -21,7 +21,6 @@ import extractEmojiFromFilterTitle, {ExtractEmojiFromFilterTitleResult} from '@c
 import FolderItem from '@components/sidebarLeft/foldersSidebarContent/folderItem';
 import type {FolderItemPayload} from '@components/sidebarLeft/foldersSidebarContent/types';
 import {getFolderItemsInOrder, getIconForFilter, getNotificationCountForFilter} from '@components/sidebarLeft/foldersSidebarContent/utils';
-import {isLangpackTitle, resolveFolderTitle} from '@lib/nostra/folder-title';
 
 keepMe(ripple);
 
@@ -102,8 +101,6 @@ export function FoldersSidebarContent(props: {
 
     const titleRest: Pick<FolderItemPayload, 'name' | 'title'> = filter.id === FOLDER_ID_ALL ? {
       name: i18n('FilterAllChats')
-    } : isLangpackTitle(filter.title) ? {
-      name: resolveFolderTitle(filter.title) as HTMLElement
     } : {
       title: (cleanTitle = extractEmojiFromFilterTitle(filter.title)).text
     };

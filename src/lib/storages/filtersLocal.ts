@@ -21,17 +21,8 @@ const LOCAL_FILTER_TEMPLATE: DialogFilter.dialogFilter = {
   pinnedPeerIds: []
 };
 
-/**
- * Sentinel prefix used inside `title.text` to mark the title as an i18n
- * langpack key (rather than a literal string to render). The folder render
- * site strips the prefix and passes the remainder to I18n at display time,
- * so the title stays reactive to locale changes without touching the
- * MyDialogFilter type (which is derived from @layer).
- */
-export const LANGPACK_PREFIX = 'LANGPACK:';
-
-export function langpackTitle(key: string): DialogFilter.dialogFilter['title'] {
-  return {_: 'textWithEntities', text: LANGPACK_PREFIX + key, entities: []};
+function literalTitle(text: string): DialogFilter.dialogFilter['title'] {
+  return {_: 'textWithEntities', text, entities: []};
 }
 
 /**
@@ -50,12 +41,24 @@ export function buildLocalFilter(id: number): MyDialogFilter {
     filter.pFlags.contacts = true;
     filter.pFlags.non_contacts = true;
     filter.pFlags.exclude_archived = true;
-    filter.title = langpackTitle('FilterContacts');
+    filter.title = literalTitle('Contacts');
   } else if(id === FOLDER_ID_GROUPS) {
     filter.pFlags.groups = true;
     filter.pFlags.exclude_archived = true;
-    filter.title = langpackTitle('FilterGroups');
+    filter.title = literalTitle('Groups');
   }
 
   return filter;
+}
+
+/**
+ * Returns true for titles produced by buildLocalFilter (unchanged default
+ * label) or legacy persisted langpack sentinels. Used by sync snapshot code
+ * to avoid recording default titles as user renames.
+ */
+export function isDefaultLocalTitle(id: number, text: string): boolean {
+  if(!text) return true;
+  if(text.startsWith('LANGPACK:')) return true; // legacy migration
+  const fresh = buildLocalFilter(id).title?.text ?? '';
+  return text === fresh;
 }

@@ -21,7 +21,7 @@ import {
   REAL_FOLDER_ID,
   START_LOCAL_ID
 } from '@appManagers/constants';
-import {buildLocalFilter, LANGPACK_PREFIX} from '@lib/storages/filtersLocal';
+import {buildLocalFilter, isDefaultLocalTitle} from '@lib/storages/filtersLocal';
 import makeError from '@helpers/makeError';
 import indexOfAndSplice from '@helpers/array/indexOfAndSplice';
 import {isDialog} from '@appManagers/utils/dialogs/isDialog';
@@ -112,17 +112,16 @@ export default class FiltersStorage extends AppManager {
     if(allIdx !== -1) filters[allIdx] = allChatsFilter;
     else filters.unshift(allChatsFilter);
 
-    // Helper: if a previously-persisted filter has a user-renamed literal title
-    // (not the LANGPACK sentinel), keep that title when re-seeding; otherwise
-    // use the fresh seed (which carries the current LANGPACK key).
+    // Helper: if a previously-persisted filter has a user-renamed literal
+    // title, keep it; otherwise re-seed with the fresh default. Legacy
+    // LANGPACK: sentinels are treated as defaults so they get upgraded.
     const preserveRename = (
       existing: MyDialogFilter | undefined,
       fresh: MyDialogFilter
     ): MyDialogFilter => {
       if(!existing) return fresh;
       const existingTitle = (existing as DialogFilter.dialogFilter).title?.text ?? '';
-      const isLangpack = existingTitle.startsWith(LANGPACK_PREFIX);
-      if(!isLangpack && existingTitle.length > 0) {
+      if(!isDefaultLocalTitle(fresh.id, existingTitle)) {
         return {...fresh, title: (existing as DialogFilter.dialogFilter).title};
       }
       return fresh;

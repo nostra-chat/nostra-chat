@@ -32,7 +32,6 @@ import appImManager from '@lib/appImManager';
 import appSidebarLeft from '..';
 import wrapFolderTitle from '@components/wrappers/folderTitle';
 import useHasFoldersSidebar from '@stores/foldersSidebar';
-import {isLangpackTitle, resolveFolderTitle} from '@lib/nostra/folder-title';
 import {isProtectedFolder} from '@lib/nostra/folders-protection';
 
 export default class AppChatFoldersTab extends SliderSuperTab {
@@ -107,9 +106,7 @@ export default class AppChatFoldersTab extends SliderSuperTab {
       const isSuggested = dialogFilter._ === 'dialogFilterSuggested';
       const resolvedTitle = filter.id === FOLDER_ID_ALL && !isSuggested ?
         i18n('FilterAllChats') :
-        isLangpackTitle(filter.title) ?
-          resolveFolderTitle(filter.title) as HTMLElement :
-          await wrapFolderTitle(filter.title, this.middlewareHelper.get(), false, {textColor: 'primary-text-color'});
+        await wrapFolderTitle(filter.title, this.middlewareHelper.get(), false, {textColor: 'primary-text-color'});
       row = new Row({
         title: resolvedTitle,
         subtitle: description,
@@ -139,9 +136,7 @@ export default class AppChatFoldersTab extends SliderSuperTab {
       }
     } else {
       if(filter.id !== FOLDER_ID_ALL) {
-        const updatedTitle = isLangpackTitle(filter.title) ?
-          resolveFolderTitle(filter.title) as HTMLElement :
-          await wrapFolderTitle(filter.title, this.middlewareHelper.get());
+        const updatedTitle = await wrapFolderTitle(filter.title, this.middlewareHelper.get());
         replaceContent(row.title, updatedTitle);
       }
 

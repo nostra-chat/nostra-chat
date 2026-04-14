@@ -1,7 +1,7 @@
 import type {MyDialogFilter} from '@lib/storages/filters';
 import type {FolderSnapshot} from '@lib/nostra/folders-sync-types';
 import {FOLDERS_SYNC_VERSION} from '@lib/nostra/folders-sync-types';
-import {LANGPACK_PREFIX} from '@lib/storages/filtersLocal';
+import {isDefaultLocalTitle} from '@lib/storages/filtersLocal';
 import {START_LOCAL_ID, PROTECTED_FOLDERS} from '@appManagers/constants';
 import copy from '@helpers/object/copy';
 
@@ -21,7 +21,7 @@ export function buildSnapshotFromFilters(filters: MyDialogFilter[]): FolderSnaps
   for(const f of filters) {
     if(!PROTECTED_FOLDERS.has(f.id)) continue;
     const text = (f as any).title?.text ?? '';
-    if(text && !text.startsWith(LANGPACK_PREFIX)) {
+    if(!isDefaultLocalTitle(f.id, text)) {
       protectedTitles[f.id] = copy((f as any).title);
     }
   }
