@@ -29,7 +29,7 @@ import {handleRelayMessage as handleRelayMessageImpl, IncomingEdit} from './chat
 /**
  * Message types supported in chat
  */
-export type ChatMessageType = 'text' | 'image' | 'video' | 'gif' | 'file';
+export type ChatMessageType = 'text' | 'image' | 'video' | 'gif' | 'file' | 'voice';
 
 /**
  * Delivery status of a message
@@ -430,14 +430,15 @@ export class ChatAPI {
    * @returns The generated message ID
    */
   async sendFileMessage(
-    type: 'image' | 'video' | 'file',
+    type: 'image' | 'video' | 'file' | 'voice',
     url: string,
     sha256: string,
     key: string,
     iv: string,
     mimeType: string,
     size: number,
-    dim?: {width: number; height: number}
+    dim?: {width: number; height: number},
+    extras?: {duration?: number; waveform?: string}
   ): Promise<string> {
     const fileContent = JSON.stringify({
       url,
@@ -446,7 +447,9 @@ export class ChatAPI {
       size,
       key,
       iv,
-      ...(dim ? {width: dim.width, height: dim.height} : {})
+      ...(dim ? {width: dim.width, height: dim.height} : {}),
+      ...(extras?.duration !== undefined ? {duration: extras.duration} : {}),
+      ...(extras?.waveform !== undefined ? {waveform: extras.waveform} : {})
     });
     return this.sendMessage(type as ChatMessageType, fileContent);
   }

@@ -124,7 +124,9 @@ export function extractFileMetadata(
         width: fileParsed.width,
         height: fileParsed.height,
         keyHex: fileParsed.key || fileParsed.keyHex || '',
-        ivHex: fileParsed.iv || fileParsed.ivHex || ''
+        ivHex: fileParsed.iv || fileParsed.ivHex || '',
+        duration: typeof fileParsed.duration === 'number' ? fileParsed.duration : undefined,
+        waveform: typeof fileParsed.waveform === 'string' ? fileParsed.waveform : undefined
       };
     }
   } catch{
@@ -330,7 +332,9 @@ export async function handleRelayMessage(
         width: fileMetadata.width,
         height: fileMetadata.height,
         keyHex: fileMetadata.keyHex,
-        ivHex: fileMetadata.ivHex
+        ivHex: fileMetadata.ivHex,
+        duration: fileMetadata.duration,
+        waveform: fileMetadata.waveform
       } : undefined
     }).catch((err) => {
       ctx.log.warn('[ChatAPI] failed to save incoming message:', err);
