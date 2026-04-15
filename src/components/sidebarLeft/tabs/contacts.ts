@@ -17,6 +17,7 @@ import {getMiddleware} from '@helpers/middleware';
 import replaceContent from '@helpers/dom/replaceContent';
 import rootScope from '@lib/rootScope';
 import {getAllMappings} from '@lib/nostra/virtual-peers-db';
+import {showAddContactPopup as showAddContactPopupShared} from '@components/popups/addContact';
 
 // TODO: поиск по людям глобальный, если не нашло в контактах никого
 
@@ -326,87 +327,10 @@ export default class AppContactsTab extends SliderSuperTab {
   }
 
   private showAddContactPopup() {
-    const overlay = document.createElement('div');
-    overlay.classList.add('popup-add-contact-overlay');
-    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:1000;display:flex;align-items:center;justify-content:center;';
-
-    const dialog = document.createElement('div');
-    dialog.style.cssText = 'background:var(--surface-color);border-radius:12px;padding:24px;width:340px;max-width:90vw;';
-
-    const title = document.createElement('h3');
-    title.textContent = 'Add Contact';
-    title.style.cssText = 'margin:0 0 16px;font-size:18px;color:var(--primary-text-color);';
-
-    const desc = document.createElement('p');
-    desc.textContent = 'Enter an npub address to start a conversation';
-    desc.style.cssText = 'margin:0 0 16px;font-size:14px;color:var(--secondary-text-color);';
-
-    const nicknameInput = document.createElement('input');
-    nicknameInput.type = 'text';
-    nicknameInput.placeholder = 'Nickname (optional)';
-    nicknameInput.classList.add('input-clear');
-    nicknameInput.style.cssText = 'width:100%;padding:12px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;box-sizing:border-box;background:var(--surface-color);color:var(--primary-text-color);margin-bottom:8px;';
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.placeholder = 'npub1...';
-    input.classList.add('input-clear');
-    input.style.cssText = 'width:100%;padding:12px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;box-sizing:border-box;background:var(--surface-color);color:var(--primary-text-color);';
-
-    const errorEl = document.createElement('div');
-    errorEl.style.cssText = 'color:var(--danger-color);font-size:12px;margin-top:8px;min-height:18px;';
-
-    const btnRow = document.createElement('div');
-    btnRow.style.cssText = 'display:flex;gap:8px;margin-top:16px;justify-content:flex-end;';
-
-    const cancelBtn = document.createElement('button');
-    cancelBtn.textContent = 'Cancel';
-    cancelBtn.classList.add('btn-primary', 'btn-transparent');
-    cancelBtn.style.cssText = 'padding:8px 16px;border:none;border-radius:8px;cursor:pointer;font-size:14px;';
-    cancelBtn.addEventListener('click', () => overlay.remove());
-
-    const addBtn = document.createElement('button');
-    addBtn.textContent = 'Add';
-    addBtn.classList.add('btn-primary', 'btn-color-primary');
-    addBtn.style.cssText = 'padding:8px 16px;border:none;border-radius:8px;cursor:pointer;font-size:14px;color:#fff;';
-    addBtn.addEventListener('click', async() => {
-      const val = input.value.trim();
-      if(!val.startsWith('npub1') || val.length < 60) {
-        errorEl.textContent = 'Invalid npub format';
-        return;
-      }
-      addBtn.disabled = true;
-      addBtn.textContent = 'Adding...';
-      try {
-        await this.handleNpubInput(val, nicknameInput.value);
-        overlay.remove();
-      } catch(err) {
-        errorEl.textContent = 'Failed to add contact';
-        addBtn.disabled = false;
-        addBtn.textContent = 'Add';
-      }
+    showAddContactPopupShared({
+      managers: this.managers,
+      onSubmit: (npub, nickname) => this.handleNpubInput(npub, nickname)
     });
-
-    // QR placeholder button
-    const qrBtn = document.createElement('button');
-    qrBtn.textContent = 'Scan QR';
-    qrBtn.classList.add('btn-primary', 'btn-transparent');
-    qrBtn.style.cssText = 'padding:8px 16px;border:none;border-radius:8px;cursor:pointer;font-size:14px;opacity:0.5;';
-    qrBtn.title = 'QR scanning coming soon';
-    qrBtn.addEventListener('click', async() => {
-      const {toast} = await import('@components/toast');
-      toast('QR scanning coming soon');
-    });
-
-    overlay.addEventListener('click', (e) => {
-      if(e.target === overlay) overlay.remove();
-    });
-
-    btnRow.append(qrBtn, cancelBtn, addBtn);
-    dialog.append(title, desc, nicknameInput, input, errorEl, btnRow);
-    overlay.append(dialog);
-    document.body.append(overlay);
-    input.focus();
   }
 
   public focus() {
