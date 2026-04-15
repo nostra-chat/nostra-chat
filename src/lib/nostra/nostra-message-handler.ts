@@ -61,7 +61,7 @@ function isChatOpenFor(peerId: number): boolean {
     const current = im?.chat?.peerId;
     if(current == null) return false;
     return +current === peerId;
-  } catch {
+  } catch{
     return false;
   }
 }
