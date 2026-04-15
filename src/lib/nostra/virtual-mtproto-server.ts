@@ -9,7 +9,7 @@
  */
 
 import {NostraPeerMapper} from './nostra-peer-mapper';
-import {getMessageStore} from './message-store';
+import {getMessageStore, StoredMessage} from './message-store';
 import {getPubkey, getMapping} from './virtual-peers-db';
 
 const LOG_PREFIX = '[VirtualMTProto]';
@@ -198,6 +198,70 @@ function extractPeerId(peer: any): number | null {
   // inputPeerChannel / channel_id
   if(peer.channel_id !== undefined) return -Math.abs(Number(peer.channel_id));
   return null;
+}
+
+/**
+ * Build a tweb MessageMedia object from a StoredMessage.fileMetadata.
+ * For images with dimensions, returns messageMediaPhoto; otherwise a
+ * messageMediaDocument with the appropriate attributes. The Blossom URL
+ * is attached as-is (ciphertext); the `nostraFileMetadata` sidecar carries
+ * the key/iv so a renderer can fetch + decrypt on demand.
+ *
+ * NOTE: receiver-side inline decrypt (swapping <img>/<audio> src with a
+ * blob:URL via fetchAndDecryptNostraFile) is a known follow-up. In v1 the
+ * bubble renders as a file attachment with name/size/duration; previewing
+ * the decrypted payload requires additional wiring in bubbles wrappers.
+ */
+function buildNostraMedia(mid: number, fm: NonNullable<StoredMessage['fileMetadata']>): any {
+  const isVoice = !!fm.duration && (fm.mimeType || '').includes('audio');
+  const isImage = (fm.mimeType || '').startsWith('image/') && fm.width && fm.height;
+
+  if(isImage) {
+    return {
+      _: 'messageMediaPhoto',
+      pFlags: {},
+      photo: {
+        _: 'photo',
+        id: `nostra_${mid}`,
+        sizes: [{
+          _: 'photoSize',
+          type: 'x',
+          w: fm.width,
+          h: fm.height,
+          size: fm.size,
+          url: fm.url
+        }],
+        url: fm.url,
+        nostraFileMetadata: fm,
+        pFlags: {}
+      }
+    };
+  }
+
+  const attributes: any[] = [];
+  if(isVoice) {
+    attributes.push({
+      _: 'documentAttributeAudio',
+      pFlags: {voice: true},
+      duration: fm.duration,
+      waveform: fm.waveform
+    });
+  }
+
+  return {
+    _: 'messageMediaDocument',
+    pFlags: {},
+    document: {
+      _: 'document',
+      id: `nostra_${mid}`,
+      mime_type: fm.mimeType,
+      size: fm.size,
+      url: fm.url,
+      nostraFileMetadata: fm,
+      attributes,
+      pFlags: {}
+    }
+  };
 }
 
 // ─── Server ──────────────────────────────────────────────────────────
@@ -488,13 +552,16 @@ export class NostraMTProtoServer {
         const isOutgoing = stored.isOutgoing ?? (stored.senderPubkey === this.ownPubkey);
         const fromPeerId = isOutgoing ? undefined : absPeerId;
 
+        const media = stored.fileMetadata ? buildNostraMedia(mid, stored.fileMetadata) : undefined;
+
         const msg = this.mapper.createTwebMessage({
           mid,
           peerId: absPeerId,
           fromPeerId,
           date: stored.timestamp,
           text: stored.content,
-          isOutgoing
+          isOutgoing,
+          media
         });
         messages.push(msg);
       } catch(err) {
