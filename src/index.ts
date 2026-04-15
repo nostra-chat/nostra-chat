@@ -555,10 +555,12 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
   // existing (loads encrypted identity → mounts chat) users.
   try {
     const {mountNostraOnboarding} = await import('@/pages/nostra-onboarding-integration');
+    const {maybeShowResetToast} = await import('@components/popups/resetLocalData');
     const authContainer = document.querySelector('#auth-pages .scrollable') as HTMLElement;
     if(authContainer) {
       document.getElementById('auth-pages')!.style.display = '';
       await mountNostraOnboarding(authContainer);
+      maybeShowResetToast();
       return; // Skip Telegram auth flow entirely
     }
   } catch(err) {
