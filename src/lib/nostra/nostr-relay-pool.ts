@@ -612,6 +612,12 @@ export class NostrRelayPool {
       this.notifyStateChange();
     };
 
+    // Notify pool on latency update so UI re-dispatches nostra_relay_state
+    // for this specific url.
+    instance.onLatencyUpdate = () => {
+      this.notifyRelayUpdate(config.url);
+    };
+
     return {config, instance};
   }
 
@@ -720,6 +726,22 @@ export class NostrRelayPool {
         write: entry.config.write
       });
     }
+  }
+
+  /**
+   * Re-dispatch nostra_relay_state for a single relay (e.g. after a latency
+   * update). Cheaper than notifyStateChange() when only one value changed.
+   */
+  private notifyRelayUpdate(url: string): void {
+    const entry = this.relayEntries.find(e => e.config.url === url);
+    if(!entry) return;
+    rootScope.dispatchEvent('nostra_relay_state', {
+      url: entry.config.url,
+      connected: entry.instance.getState() === 'connected',
+      latencyMs: entry.instance.getLatency(),
+      read: entry.config.read,
+      write: entry.config.write
+    });
   }
 
   private dispatchRelayListChanged(): void {

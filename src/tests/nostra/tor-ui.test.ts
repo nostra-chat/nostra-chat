@@ -424,41 +424,66 @@ describe('PrivacyTransport (with mocked rootScope)', () => {
 // NostrRelay.measureLatency() — HTTP polling mode
 // ──────────────────────────────────────────────────────────────────────────────
 
-describe('NostrRelay.measureLatency() in HTTP polling mode', () => {
+describe('NostrRelay HTTP polling mode latency', () => {
   afterAll(() => {
     vi.restoreAllMocks();
   });
 
-  it('sets torLatencyMs when torFetchFn returns successfully', async() => {
+  // The poll loop in startHttpPolling() records latency from each torFetchFn
+  // call — there's no synthetic ping in Tor mode. measureLatency() simply
+  // returns the last recorded value. Tests below exercise the poll path.
+
+  it('records torLatencyMs after a successful HTTP poll', async() => {
     const {NostrRelay} = await import('@lib/nostra/nostr-relay');
 
     const relay = new NostrRelay('wss://test.relay');
-
-    // Access private fields via cast to set up the mock state
     (relay as any).mode = 'http-polling';
-    (relay as any).torFetchFn = vi.fn().mockResolvedValue('{"status":"ok"}');
+    (relay as any).publicKey = 'a'.repeat(64);
+    (relay as any).torFetchFn = vi.fn().mockResolvedValue('[]');
 
     expect(relay.torLatencyMs).toBe(-1);
 
-    const latency = await relay.measureLatency();
+    // Trigger a single poll cycle
+    (relay as any).startHttpPolling();
+    // Let the kick-off 100ms timer + the async fetch resolve
+    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 200));
 
-    expect(latency).toBeGreaterThanOrEqual(0);
     expect(relay.torLatencyMs).toBeGreaterThanOrEqual(0);
-    expect(relay.torLatencyMs).not.toBe(-1);
+    expect(relay.getLatency()).toBeGreaterThanOrEqual(0);
 
     relay.disconnect();
   });
 
-  it('returns -1 and keeps torLatencyMs=-1 when torFetchFn throws', async() => {
+  it('sets latency to -1 when torFetchFn throws', async() => {
     const {NostrRelay} = await import('@lib/nostra/nostr-relay');
 
     const relay = new NostrRelay('wss://test.relay');
     (relay as any).mode = 'http-polling';
+    (relay as any).publicKey = 'a'.repeat(64);
     (relay as any).torFetchFn = vi.fn().mockRejectedValue(new Error('Tor circuit broken'));
+
+    (relay as any).startHttpPolling();
+    await new Promise((r) => setTimeout(r, 200));
+
+    expect(relay.getLatency()).toBe(-1);
+
+    relay.disconnect();
+  });
+
+  it('measureLatency() in HTTP polling mode returns the cached value without pinging', async() => {
+    const {NostrRelay} = await import('@lib/nostra/nostr-relay');
+
+    const relay = new NostrRelay('wss://test.relay');
+    const fetchSpy = vi.fn().mockResolvedValue('[]');
+    (relay as any).mode = 'http-polling';
+    (relay as any).torFetchFn = fetchSpy;
+    (relay as any).latencyMs = 123;
 
     const latency = await relay.measureLatency();
 
-    expect(latency).toBe(-1);
+    expect(latency).toBe(123);
+    expect(fetchSpy).not.toHaveBeenCalled();
 
     relay.disconnect();
   });
@@ -467,7 +492,6 @@ describe('NostrRelay.measureLatency() in HTTP polling mode', () => {
     const {NostrRelay} = await import('@lib/nostra/nostr-relay');
 
     const relay = new NostrRelay('wss://test.relay');
-    // WS mode, not connected — measureLatency returns -1 without touching directLatencyMs
     expect(relay.directLatencyMs).toBe(-1);
 
     const latency = await relay.measureLatency();
@@ -482,11 +506,13 @@ describe('NostrRelay.measureLatency() in HTTP polling mode', () => {
     const {NostrRelay} = await import('@lib/nostra/nostr-relay');
 
     const relay = new NostrRelay('wss://fancy.relay.io');
-    const mockFetch = vi.fn().mockResolvedValue('ok');
+    const mockFetch = vi.fn().mockResolvedValue('[]');
     (relay as any).mode = 'http-polling';
+    (relay as any).publicKey = 'a'.repeat(64);
     (relay as any).torFetchFn = mockFetch;
 
-    await relay.measureLatency();
+    (relay as any).startHttpPolling();
+    await new Promise((r) => setTimeout(r, 200));
 
     expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('https://fancy.relay.io'));
 
@@ -511,7 +537,7 @@ describe('NostrRelay setTorMode/setDirectMode schedule measureLatency', () => {
     vi.restoreAllMocks();
   });
 
-  it('setTorMode() schedules measureLatency via setTimeout', async() => {
+  it('setTorMode() does NOT schedule measureLatency (poll loop is the sample source)', async() => {
     const {NostrRelay} = await import('@lib/nostra/nostr-relay');
 
     const relay = new NostrRelay('wss://test.relay');
@@ -520,11 +546,9 @@ describe('NostrRelay setTorMode/setDirectMode schedule measureLatency', () => {
     const mockFetch = vi.fn().mockResolvedValue('ok');
     relay.setTorMode(mockFetch);
 
+    vi.advanceTimersByTime(5000);
+
     expect(spy).not.toHaveBeenCalled();
-
-    vi.advanceTimersByTime(1000);
-
-    expect(spy).toHaveBeenCalled();
 
     relay.disconnect();
   });

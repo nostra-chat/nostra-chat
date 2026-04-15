@@ -1,6 +1,7 @@
 import {JSX, For, createSignal, onMount, onCleanup} from 'solid-js';
 import classNames from '@helpers/string/classNames';
 import appSidebarLeft from '@components/sidebarLeft';
+import rootScope from '@lib/rootScope';
 
 export interface RelayStateInfo {
   url: string;
@@ -29,24 +30,30 @@ export default function TorStatus(props: {
   const [liveStates, setLiveStates] = createSignal<RelayStateInfo[]>(props.relayStates);
   const states = () => liveStates();
 
-  const refresh = () => {
-    const pool = (window as any).__nostraPool;
-    if(!pool) return;
-    try {
-      pool.measureAll?.();
-    } catch{}
-    setTimeout(() => {
-      try {
-        const next = pool.getRelayStates?.();
-        if(Array.isArray(next)) setLiveStates(next);
-      } catch{}
-    }, 600);
+  const handleRelayState = (update: RelayStateInfo) => {
+    setLiveStates((prev) => {
+      const idx = prev.findIndex((r) => r.url === update.url);
+      if(idx === -1) return [...prev, update];
+      const next = prev.slice();
+      next[idx] = {...prev[idx], ...update};
+      return next;
+    });
   };
 
   onMount(() => {
-    refresh();
-    const id = setInterval(refresh, 5000);
-    onCleanup(() => clearInterval(id));
+    // Seed with a fresh snapshot + trigger a one-shot WS measurement so
+    // relays that never pinged yet get a value immediately.
+    const pool = (window as any).__nostraPool;
+    try {
+      pool?.measureAll?.();
+      const snapshot = pool?.getRelayStates?.();
+      if(Array.isArray(snapshot)) setLiveStates(snapshot);
+    } catch{}
+
+    rootScope.addEventListener('nostra_relay_state', handleRelayState);
+    onCleanup(() => {
+      rootScope.removeEventListener('nostra_relay_state', handleRelayState);
+    });
   });
 
   const dotClass = (relay: RelayStateInfo) => {

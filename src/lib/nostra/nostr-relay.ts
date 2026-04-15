@@ -121,6 +121,10 @@ export class NostrRelay {
   // State change callback — notifies pool when relay connects/disconnects
   public onStateChange: ((state: 'disconnected' | 'connecting' | 'connected' | 'reconnecting') => void) | null = null;
 
+  // Latency update callback — fires whenever measureLatency / the Tor poll
+  // loop updates latencyMs. Pool re-dispatches as nostra_relay_state.
+  public onLatencyUpdate: ((latencyMs: number) => void) | null = null;
+
   // Subscription management
   private subscriptionId: string = '';
   private isSubscribed: boolean = false;
@@ -231,7 +235,11 @@ export class NostrRelay {
           this.subscribeMessages();
         }
 
-        this.startLatencyRefresh();
+        // Only WS mode uses the periodic ping — Tor mode piggybacks on
+        // the HTTP poll loop for latency samples.
+        if(this.mode === 'websocket') {
+          this.startLatencyRefresh();
+        }
       };
 
       this.ws.onmessage = (event) => {
@@ -264,7 +272,7 @@ export class NostrRelay {
     this.torFetchFn = undefined;
     this.stopHttpPolling();
     this.stopLatencyRefresh();
-    this.latencyMs = -1;
+    this.setLatency(-1);
 
     if(this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
@@ -555,7 +563,10 @@ export class NostrRelay {
       this.startHttpPolling();
     }
 
-    this.startLatencyRefresh();
+    // Tor mode doesn't need the WS ping interval — each HTTP poll IS
+    // a latency sample. Stop any pre-existing refresh loop from WS mode.
+    this.stopLatencyRefresh();
+    this.setLatency(-1);
   }
 
   /**
@@ -583,54 +594,75 @@ export class NostrRelay {
    * @returns Latency in ms, or -1 if unreachable
    */
   async measureLatency(): Promise<number> {
-    if(this.mode === 'http-polling' && this.torFetchFn) {
-      const start = performance.now();
-      try {
-        const httpsUrl = this.relayUrl.replace('wss://', 'https://').replace('ws://', 'https://');
-        await this.torFetchFn(`${httpsUrl}/`);
-        this.latencyMs = Math.round(performance.now() - start);
-        this.torLatencyMs = this.latencyMs;
-        return this.latencyMs;
-      } catch{
-        this.latencyMs = -1;
-        return -1;
-      }
+    // In http-polling mode the poll loop itself is the latency signal
+    // (see startHttpPolling) — no synthetic ping needed.
+    if(this.mode === 'http-polling') {
+      return this.latencyMs;
     }
 
     if(this.connectionState !== 'connected' || !this.ws) {
-      this.latencyMs = -1;
+      this.setLatency(-1);
       return -1;
     }
 
+    const ws = this.ws;
     const start = performance.now();
     const pingId = `ping-${Date.now()}`;
 
     return new Promise<number>((resolve) => {
-      const timeout = setTimeout(() => {
-        this.latencyMs = -1;
-        resolve(-1);
-      }, 5000);
+      let settled = false;
+      const origHandler = ws.onmessage;
 
-      const origHandler = this.ws!.onmessage;
-      this.ws!.onmessage = (event: MessageEvent) => {
+      const cleanup = (latency: number) => {
+        if(settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        // Only restore if our wrapper is still the live handler — a nested
+        // measureLatency call or a mode switch may have replaced it.
+        if(ws.onmessage === wrapper) {
+          ws.onmessage = origHandler;
+        }
+        // Tell the relay we're done with this sub. Swallow errors — the ws
+        // may be closing.
+        try {
+          ws.send(JSON.stringify(['CLOSE', pingId]));
+        } catch{}
+        if(latency >= 0) this.directLatencyMs = latency;
+        this.setLatency(latency);
+        resolve(latency);
+      };
+
+      const timeout = setTimeout(() => cleanup(-1), 5000);
+
+      const wrapper = (event: MessageEvent) => {
         try {
           const msg = JSON.parse(event.data);
           if(msg[0] === 'EOSE' && msg[1] === pingId) {
-            clearTimeout(timeout);
-            this.ws!.onmessage = origHandler;
-            this.latencyMs = Math.round(performance.now() - start);
-            this.directLatencyMs = this.latencyMs;
-            resolve(this.latencyMs);
+            cleanup(Math.round(performance.now() - start));
             return;
           }
         } catch{
           // ignore parse errors
         }
-        origHandler?.call(this.ws, event);
+        origHandler?.call(ws, event);
       };
 
-      this.ws!.send(JSON.stringify(['REQ', pingId, {kinds: [0], limit: 0}]));
+      ws.onmessage = wrapper;
+
+      try {
+        ws.send(JSON.stringify(['REQ', pingId, {kinds: [0], limit: 0}]));
+      } catch{
+        cleanup(-1);
+      }
     });
+  }
+
+  /**
+   * Record a new latency value and notify listeners (pool → UI).
+   */
+  private setLatency(value: number): void {
+    this.latencyMs = value;
+    this.onLatencyUpdate?.(value);
   }
 
   /**
@@ -698,6 +730,7 @@ export class NostrRelay {
     const poll = async() => {
       if(this.mode !== 'http-polling' || !this.torFetchFn) return;
 
+      const fetchStart = performance.now();
       try {
         const params = new URLSearchParams({
           'kinds': '1059',
@@ -706,6 +739,12 @@ export class NostrRelay {
         });
         const url = `${httpsUrl}/?${params}`;
         const body = await this.torFetchFn(url);
+
+        // Each Tor fetch IS a real latency sample — record it directly
+        // instead of firing a separate synthetic ping.
+        const elapsed = Math.round(performance.now() - fetchStart);
+        this.torLatencyMs = elapsed;
+        this.setLatency(elapsed);
 
         let events: NostrEvent[] = [];
         try {
@@ -723,6 +762,7 @@ export class NostrRelay {
         consecutiveFailures = 0;
       } catch(err) {
         consecutiveFailures++;
+        this.setLatency(-1);
         this.log.warn('[NostrRelay] HTTP poll error:', err);
       } finally {
         // Schedule next poll only AFTER this one finishes — never let polls
@@ -941,7 +981,7 @@ export class NostrRelay {
     }
 
     this.stopLatencyRefresh();
-    this.latencyMs = -1;
+    this.setLatency(-1);
     this.setConnectionState('reconnecting');
 
     // Fast burst for the first few attempts, then steady backoff.
