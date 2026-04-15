@@ -755,14 +755,9 @@ export class AppSidebarLeft extends SidebarSlider {
       icon: 'bug',
       text: 'ReportBug',
       onClick: () => {
-        const a = document.createElement('a');
-        setBlankToAnchor(a);
-        a.href = 'https://github.com/nostra-chat/nostra-chat/issues';
-        document.body.append(a);
-        a.click();
-        setTimeout(() => {
-          a.remove();
-        }, 0);
+        import('@components/popups/reportBug').then(({default: showReportBugPopup}) => {
+          showReportBugPopup(this.managers);
+        });
       }
     }, {
       icon: 'plusround',
