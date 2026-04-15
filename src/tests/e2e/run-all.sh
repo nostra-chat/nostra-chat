@@ -54,6 +54,7 @@ TESTS=(
   e2e-tor-wasm.ts
   e2e-tor-privacy-flow.ts
   e2e-bidirectional.ts
+  e2e-qr-key-exchange.ts
 )
 
 PASSED=0
