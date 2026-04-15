@@ -266,6 +266,8 @@ Full reference: [`docs/RELEASE.md`](docs/RELEASE.md). Day-to-day rules:
 - Conventional Commits: `feat:`/`fix:`/`perf:`/`revert:` bump version; everything else is hidden from changelog.
 - Do NOT enable auto-merge on the release-please PR (accumulates commits, merge manually when releasing).
 - Do NOT re-add `push: branches: main` / `pull_request:` triggers to `deploy.yml`.
+- `pnpm version` runs `preversion = pnpm lint && npx tsc --noEmit` — **any pre-existing lint error anywhere in `src/**/*.ts` blocks the release**, even if unrelated to your change. Fix and push before re-running `pnpm version`.
+- **IPFS stable URL** `https://ipfs.nostra.chat` is served by `cloudflare-worker/` (DoH DNSLink lookup + proxy to `<cid>.ipfs.dweb.link`). Do NOT `CNAME ipfs → <any public gateway>` — Cloudflare error 1014 (CNAME Cross-User Banned) when proxied, 403 when DNS-only. The Worker route intercepts before CNAME resolution, so the `ipfs` DNS record content is irrelevant as long as it exists with orange proxy. `CLOUDFLARE_API_TOKEN` (Pages token) also has Workers:Edit → reused by the `deploy-worker` job.
 
 ## Nostra.chat Architecture Notes
 
