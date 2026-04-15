@@ -26,7 +26,7 @@ export interface StoredMessage {
   /** Unix timestamp in seconds */
   timestamp: number;
   /** Delivery state */
-  deliveryState: 'sending' | 'sent' | 'delivered' | 'read';
+  deliveryState: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
   /** File metadata (for type='file', used by Plan 02) */
   fileMetadata?: {
     url: string;
@@ -37,6 +37,8 @@ export interface StoredMessage {
     height?: number;
     keyHex: string;
     ivHex: string;
+    duration?: number;
+    waveform?: string;
   };
   /** tweb message ID (mid) for cache reconstruction on reload */
   mid?: number;

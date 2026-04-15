@@ -66,6 +66,8 @@ export interface ChatMessage {
     height?: number;
     keyHex: string;
     ivHex: string;
+    duration?: number;
+    waveform?: string;
   };
 }
 
