@@ -94,10 +94,52 @@ jobs:
           name: dist
           path: dist/
 
-      - uses: ipshipyard/ipfs-deploy-action@v1
+      - id: ipfs
+        uses: ipshipyard/ipfs-deploy-action@v1
         with:
           path-to-deploy: dist
           filebase-access-key: ${{ secrets.FILEBASE_ACCESS_KEY }}
           filebase-secret-key: ${{ secrets.FILEBASE_SECRET_KEY }}
           filebase-bucket: ${{ secrets.FILEBASE_BUCKET }}
           github-token: ${{ github.token }}
+
+      - name: Update DNSLink on Cloudflare
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_DNS_API_TOKEN }}
+          CF_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          DNSLINK_NAME: _dnslink.ipfs.nostra.chat
+          CID: ${{ steps.ipfs.outputs.cid }}
+        run: |
+          set -euo pipefail
+          CONTENT="dnslink=/ipfs/${CID}"
+          echo "Updating ${DNSLINK_NAME} -> ${CONTENT}"
+
+          # Look up existing TXT record ID
+          RECORD_ID=$(curl -fsS -X GET \
+            "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=TXT&name=${DNSLINK_NAME}" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            | jq -r '.result[0].id // empty')
+
+          PAYLOAD=$(jq -nc \
+            --arg name "${DNSLINK_NAME}" \
+            --arg content "${CONTENT}" \
+            '{type:"TXT", name:$name, content:$content, ttl:60}')
+
+          if [ -n "${RECORD_ID}" ]; then
+            echo "Updating existing record ${RECORD_ID}"
+            curl -fsS -X PUT \
+              "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${RECORD_ID}" \
+              -H "Authorization: Bearer ${CF_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data "${PAYLOAD}" | jq -e '.success' > /dev/null
+          else
+            echo "Creating new TXT record"
+            curl -fsS -X POST \
+              "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records" \
+              -H "Authorization: Bearer ${CF_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data "${PAYLOAD}" | jq -e '.success' > /dev/null
+          fi
+
+          echo "✅ DNSLink updated: https://ipfs.nostra.chat → /ipfs/${CID}" >> "$GITHUB_STEP_SUMMARY"

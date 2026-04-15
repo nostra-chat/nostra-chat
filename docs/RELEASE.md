@@ -15,7 +15,8 @@ Detailed reference for the Nostra.chat release pipeline. For the day-to-day rule
 | Cloudflare (primary) | https://nostra.chat |
 | Cloudflare fallback | https://nostra-chat.pages.dev |
 | GitHub Pages | https://nostra-chat.github.io/nostra-chat/ |
-| IPFS (Filebase) | CID per release |
+| IPFS (stable via DNSLink) | https://ipfs.nostra.chat |
+| IPFS (raw CID) | CID per release, pinned on Filebase |
 
 ## Two Release Paths
 
@@ -38,9 +39,48 @@ Never edit `package.json` version or `CHANGELOG.md` manually — one of the two 
 - **`deploy-ipfs` job permissions**: needs explicit `permissions: contents: read, statuses: write`. Without `statuses: write` the IPFS upload succeeds but the job fails when posting the CID as a commit status.
 - **Pinata rejected**: `ipshipyard/ipfs-deploy-action@v1` rejects Pinata as sole provider and requires a CAR upload provider (Filebase works). Do not re-add Pinata.
 
+## IPFS Stable URL (DNSLink via dweb.link)
+
+Raw IPFS CIDs change at every build. `https://ipfs.nostra.chat` gives a stable URL by combining:
+
+1. **Filebase pin** — `deploy-ipfs` job uploads the CAR and Filebase announces the CID to the DHT.
+2. **DNSLink TXT record** — updated automatically by the workflow step `Update DNSLink on Cloudflare` after each deploy.
+3. **`dweb.link` public gateway** — resolves DNSLink and serves the content over HTTPS, free, no SLA.
+4. **Cloudflare proxy** — terminates TLS on `ipfs.nostra.chat` with a Cloudflare cert, reverse-proxies to `dweb.link`.
+
+### One-time DNS setup on Cloudflare
+
+Zone `nostra.chat`:
+
+| Type | Name | Content | Proxy | TTL |
+|---|---|---|---|---|
+| CNAME | `ipfs` | `ipfs.nostra.chat.ipns.dweb.link.` | ON (orange cloud) | Auto |
+| TXT | `_dnslink.ipfs` | `dnslink=/ipfs/<placeholder>` | — | 60 |
+
+The TXT record's content is overwritten at every release by the CI step — the placeholder is only needed so the record exists at first run. SSL/TLS mode must be **Full** (not Flexible).
+
+### One-time Cloudflare API token
+
+Create a scoped token at Cloudflare dashboard → My Profile → API Tokens → Create Token → Custom:
+
+- Permissions: **Zone → DNS → Edit**
+- Zone Resources: **Include → Specific zone → `nostra.chat`**
+
+Store as `CLOUDFLARE_DNS_API_TOKEN` secret (separate from `CLOUDFLARE_API_TOKEN` which is scoped to Pages). The zone ID (dashboard → zone overview → API section) goes into `CLOUDFLARE_ZONE_ID`.
+
+### Rate limits & fallback
+
+`dweb.link` has undocumented per-IP rate limits. If users hit 429s, change the CNAME to `cf-ipfs.com` or swap in a paid gateway (Cloudflare Web3, Filebase dedicated). No CI change needed — only the CNAME.
+
 ## Required Secrets
 
-`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `FILEBASE_ACCESS_KEY`, `FILEBASE_SECRET_KEY`, `FILEBASE_BUCKET`.
+| Secret | Used by | Notes |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | `deploy-cloudflare` | Pages deployment token |
+| `CLOUDFLARE_ACCOUNT_ID` | `deploy-cloudflare` | |
+| `CLOUDFLARE_DNS_API_TOKEN` | `deploy-ipfs` (DNSLink step) | Zone → DNS → Edit on `nostra.chat` |
+| `CLOUDFLARE_ZONE_ID` | `deploy-ipfs` (DNSLink step) | Zone ID for `nostra.chat` |
+| `FILEBASE_ACCESS_KEY` / `FILEBASE_SECRET_KEY` / `FILEBASE_BUCKET` | `deploy-ipfs` | IPFS pinning |
 
 ## Repo Settings
 
