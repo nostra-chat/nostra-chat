@@ -142,6 +142,8 @@ export class NostrRelay {
   public torLatencyMs: number = -1;
   private pollingInterval: ReturnType<typeof setInterval> | null = null;
   private lastPolled: number = 0;
+  private latencyInterval: ReturnType<typeof setInterval> | null = null;
+  private readonly latencyRefreshMs: number = 60000;
 
   /**
    * Create a new NostrRelay
@@ -228,6 +230,8 @@ export class NostrRelay {
           this.pendingSubscribe = false;
           this.subscribeMessages();
         }
+
+        this.startLatencyRefresh();
       };
 
       this.ws.onmessage = (event) => {
@@ -259,6 +263,8 @@ export class NostrRelay {
     this.mode = 'websocket';
     this.torFetchFn = undefined;
     this.stopHttpPolling();
+    this.stopLatencyRefresh();
+    this.latencyMs = -1;
 
     if(this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
@@ -549,7 +555,7 @@ export class NostrRelay {
       this.startHttpPolling();
     }
 
-    setTimeout(() => this.measureLatency(), 1000);
+    this.startLatencyRefresh();
   }
 
   /**
@@ -567,7 +573,7 @@ export class NostrRelay {
       this.connect();
     }
 
-    setTimeout(() => this.measureLatency(), 1000);
+    this.startLatencyRefresh();
   }
 
   /**
@@ -625,6 +631,27 @@ export class NostrRelay {
 
       this.ws!.send(JSON.stringify(['REQ', pingId, {kinds: [0], limit: 0}]));
     });
+  }
+
+  /**
+   * Kick off an initial latency measurement and schedule periodic refreshes.
+   * Safe to call multiple times — previous interval is cleared first.
+   */
+  private startLatencyRefresh(): void {
+    this.stopLatencyRefresh();
+    setTimeout(() => {
+      this.measureLatency().catch(() => {});
+    }, 500);
+    this.latencyInterval = setInterval(() => {
+      this.measureLatency().catch(() => {});
+    }, this.latencyRefreshMs);
+  }
+
+  private stopLatencyRefresh(): void {
+    if(this.latencyInterval) {
+      clearInterval(this.latencyInterval);
+      this.latencyInterval = null;
+    }
   }
 
   /**
@@ -913,6 +940,8 @@ export class NostrRelay {
       return;
     }
 
+    this.stopLatencyRefresh();
+    this.latencyMs = -1;
     this.setConnectionState('reconnecting');
 
     // Fast burst for the first few attempts, then steady backoff.

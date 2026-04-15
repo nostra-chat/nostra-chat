@@ -534,6 +534,19 @@ export class NostrRelayPool {
 
   // ─── Relay States (Phase 3) ───────────────────────────────────
 
+  /**
+   * Force an immediate latency measurement on every connected relay.
+   * Fire-and-forget — callers can read fresh values via getRelayStates()
+   * a short moment later.
+   */
+  measureAll(): void {
+    for(const entry of this.relayEntries) {
+      if(entry.instance.getState() === 'connected') {
+        entry.instance.measureLatency().catch(() => {});
+      }
+    }
+  }
+
   getRelayStates(): Array<{url: string; connected: boolean; latencyMs: number; read: boolean; write: boolean; enabled: boolean}> {
     return this.relayEntries.map(entry => ({
       url: entry.config.url,

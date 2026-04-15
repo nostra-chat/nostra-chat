@@ -1,4 +1,4 @@
-import {JSX, For} from 'solid-js';
+import {JSX, For, createSignal, onMount, onCleanup} from 'solid-js';
 import classNames from '@helpers/string/classNames';
 import appSidebarLeft from '@components/sidebarLeft';
 
@@ -26,10 +26,40 @@ export default function TorStatus(props: {
 }): JSX.Element {
   const stateInfo = () => STATE_LABELS[props.torState] || STATE_LABELS.failed;
 
+  const [liveStates, setLiveStates] = createSignal<RelayStateInfo[]>(props.relayStates);
+  const states = () => liveStates();
+
+  const refresh = () => {
+    const pool = (window as any).__nostraPool;
+    if(!pool) return;
+    try {
+      pool.measureAll?.();
+    } catch{}
+    setTimeout(() => {
+      try {
+        const next = pool.getRelayStates?.();
+        if(Array.isArray(next)) setLiveStates(next);
+      } catch{}
+    }, 600);
+  };
+
+  onMount(() => {
+    refresh();
+    const id = setInterval(refresh, 5000);
+    onCleanup(() => clearInterval(id));
+  });
+
   const dotClass = (relay: RelayStateInfo) => {
     if(!relay.connected) return 'tor-status-dot--red';
     if(relay.latencyMs > 1000) return 'tor-status-dot--yellow';
+    if(relay.latencyMs < 0) return 'tor-status-dot--yellow';
     return 'tor-status-dot--green';
+  };
+
+  const formatLatency = (relay: RelayStateInfo) => {
+    if(!relay.connected) return 'n/a';
+    if(relay.latencyMs < 0) return '…';
+    return `${relay.latencyMs}ms`;
   };
 
   return (
@@ -51,12 +81,12 @@ export default function TorStatus(props: {
           Relay connessi
         </div>
 
-        <For each={props.relayStates}>
+        <For each={states()}>
           {(relay) => (
             <div class="tor-status-relay">
               <span class={classNames('tor-status-dot', dotClass(relay))} />
               <span class="tor-status-url">{relay.url}</span>
-              <span class="tor-status-latency">{relay.latencyMs}ms</span>
+              <span class="tor-status-latency">{formatLatency(relay)}</span>
               <span class="tor-status-badges">
                 {relay.read && <span>R</span>}
                 {relay.write && <span>W</span>}
