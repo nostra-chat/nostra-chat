@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/nostra-chat/nostra-chat/compare/v0.4.1...v0.4.2) (2026-04-15)
+
+
+### Bug Fixes
+
+* **nostra:** dedup relay replays against persistent store ([d9c8c45](https://github.com/nostra-chat/nostra-chat/commit/d9c8c459de2cd4b611423ff8d36c9a24297d8cd1))
+
 ## [0.4.1](https://github.com/nostra-chat/nostra-chat/compare/v0.4.0...v0.4.1) (2026-04-15)
 
 
