@@ -55,6 +55,9 @@ TESTS=(
   e2e-tor-privacy-flow.ts
   e2e-bidirectional.ts
   e2e-qr-key-exchange.ts
+  e2e-send-image.ts
+  e2e-send-voice.ts
+  e2e-send-file.ts
 )
 
 PASSED=0
