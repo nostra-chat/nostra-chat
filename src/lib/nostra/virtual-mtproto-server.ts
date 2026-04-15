@@ -251,6 +251,9 @@ export class NostraMTProtoServer {
       case 'messages.sendMedia':
         return this.sendMedia(params);
 
+      case 'nostraSendFile':
+        return this.nostraSendFile(params);
+
       case 'messages.deleteMessages':
         return this.deleteMessages(params);
 
@@ -812,9 +815,20 @@ export class NostraMTProtoServer {
     date: number;
     text: string;
     senderPubkey: string;
+    media?: {
+      type: 'image' | 'video' | 'file' | 'voice';
+      objectURL: string;
+      mimeType: string;
+      size: number;
+      width?: number;
+      height?: number;
+      duration?: number;
+      waveform?: string;
+      uploading: boolean;
+    };
   }): Promise<void> {
     try {
-      const {peerId, mid, date, text} = params;
+      const {peerId, mid, date, text, media} = params;
 
       const msg = this.mapper.createTwebMessage({
         mid,
@@ -828,6 +842,53 @@ export class NostraMTProtoServer {
       (msg as any).pFlags.out = true;
       delete (msg as any).pFlags.is_outgoing;
       delete (msg as any).pending;
+
+      if(media) {
+        const attributes: any[] = [];
+        if(media.type === 'voice' && typeof media.duration === 'number') {
+          attributes.push({
+            _: 'documentAttributeAudio',
+            pFlags: {voice: true},
+            duration: media.duration,
+            waveform: media.waveform
+          });
+        }
+        if(media.type === 'image' && media.width && media.height) {
+          (msg as any).media = {
+            _: 'messageMediaPhoto',
+            pFlags: {},
+            photo: {
+              _: 'photo',
+              id: `p2p_${mid}`,
+              sizes: [{
+                _: 'photoSize',
+                type: 'x',
+                w: media.width,
+                h: media.height,
+                size: media.size,
+                url: media.objectURL
+              }],
+              url: media.objectURL,
+              pFlags: {}
+            }
+          };
+        } else {
+          (msg as any).media = {
+            _: 'messageMediaDocument',
+            pFlags: {},
+            document: {
+              _: 'document',
+              id: `p2p_${mid}`,
+              mime_type: media.mimeType,
+              size: media.size,
+              url: media.objectURL,
+              attributes,
+              pFlags: {}
+            }
+          };
+        }
+        (msg as any).nostraUploading = media.uploading;
+      }
 
       // Inject into main-thread mirrors so lookups find it.
       const apiProxy: any = (await import('@config/debug')).MOUNT_CLASS_TO.apiManagerProxy;
@@ -868,13 +929,145 @@ export class NostraMTProtoServer {
   }
 
   private async sendMedia(params: any): Promise<any> {
-    // For now, extract text caption and send as text message.
-    // Blossom upload integration will be added in a later task.
+    // For the legacy MTProto path (non-P2P shortcut), extract the caption
+    // and forward as a text-only send. P2P media flows through the dedicated
+    // nostraSendFile bridge method instead.
     const captionParams = {
       ...params,
       message: params?.message ?? ''
     };
     return this.sendMessage(captionParams);
+  }
+
+  private async nostraSendFile(params: any): Promise<any> {
+    const emptyUpdates = {
+      _: 'updates',
+      updates: [] as any[],
+      users: [] as any[],
+      chats: [] as any[],
+      date: Math.floor(Date.now() / 1000),
+      seq: 0
+    };
+
+    if(!this.chatAPI || !this.ownPubkey) return emptyUpdates;
+
+    const peerId: number = Number(params?.peerId);
+    if(!peerId) return emptyUpdates;
+
+    const blob: Blob = params?.blob;
+    if(!(blob instanceof Blob) || blob.size === 0) {
+      console.warn(LOG_PREFIX, 'nostraSendFile: invalid blob');
+      return emptyUpdates;
+    }
+
+    const peerPubkey = await getPubkey(Math.abs(peerId));
+    if(!peerPubkey) return emptyUpdates;
+
+    // Private key is held by the relay pool inside ChatAPI.
+    const privkeyHex: string | null = (this.chatAPI as any)?.relayPool?.getPrivateKey?.() ?? null;
+    if(!privkeyHex) {
+      console.warn(LOG_PREFIX, 'nostraSendFile: no private key on chatAPI.relayPool');
+      return emptyUpdates;
+    }
+
+    const type: 'image' | 'video' | 'file' | 'voice' = params?.type || 'file';
+    const caption: string = params?.caption || '';
+    const tempMid: number = Number(params?.tempMid);
+    const width: number | undefined = params?.width;
+    const height: number | undefined = params?.height;
+    const duration: number | undefined = params?.duration;
+    const waveform: string | undefined = params?.waveform;
+
+    const {sendFileViaNostra} = await import('./nostra-send-file');
+    const rs: any = (await import('@lib/rootScope')).default;
+    const {getMessageStore} = await import('./message-store');
+    const store = getMessageStore();
+    const conversationId = store.getConversationId(this.ownPubkey, peerPubkey);
+
+    const result = await sendFileViaNostra(
+      {
+        ownPubkey: this.ownPubkey,
+        privkeyHex,
+        peerPubkey,
+        chatAPI: this.chatAPI as any,
+        dispatch: (name: string, payload: any) => {
+          if(typeof rs.dispatchEventSingle === 'function') rs.dispatchEventSingle(name, payload);
+        },
+        injectBubble: async(p) => {
+          const objectURL = URL.createObjectURL(p.blob);
+          await this.injectOutgoingBubble({
+            peerId: Math.abs(p.peerId),
+            mid: p.tempMid,
+            date: Math.floor(Date.now() / 1000),
+            text: p.caption || '',
+            senderPubkey: this.ownPubkey!,
+            media: {
+              type: p.type,
+              objectURL,
+              mimeType: p.blob.type,
+              size: p.blob.size,
+              width: p.width,
+              height: p.height,
+              duration: p.duration,
+              waveform: p.waveform,
+              uploading: true
+            }
+          });
+        },
+        saveMessage: async(p) => {
+          await store.saveMessage({
+            eventId: p.eventId,
+            conversationId,
+            senderPubkey: this.ownPubkey!,
+            content: p.content,
+            type: 'file',
+            timestamp: Math.floor(Date.now() / 1000),
+            deliveryState: 'sent',
+            mid: p.mid,
+            twebPeerId: Math.abs(p.peerId),
+            isOutgoing: true,
+            fileMetadata: {
+              url: p.url,
+              sha256: p.sha256,
+              mimeType: p.mimeType,
+              size: p.size,
+              width: p.width,
+              height: p.height,
+              keyHex: p.keyHex,
+              ivHex: p.ivHex,
+              duration: p.duration,
+              waveform: p.waveform
+            }
+          });
+        },
+        log: Object.assign(
+          (...a: any[]) => console.log(LOG_PREFIX, ...a),
+          {
+            warn: (...a: any[]) => console.warn(LOG_PREFIX, ...a),
+            error: (...a: any[]) => console.error(LOG_PREFIX, ...a)
+          }
+        )
+      },
+      {
+        peerId: Math.abs(peerId),
+        blob, type, caption, tempMid,
+        width, height, duration, waveform
+      }
+    );
+
+    if(!result.ok) {
+      return emptyUpdates;
+    }
+    return {
+      _: 'updates',
+      updates: [],
+      users: [],
+      chats: [],
+      date: Math.floor(Date.now() / 1000),
+      seq: 0,
+      nostraMid: result.mid,
+      nostraEventId: result.eventId
+    };
   }
 
   private async deleteMessages(params: any): Promise<any> {

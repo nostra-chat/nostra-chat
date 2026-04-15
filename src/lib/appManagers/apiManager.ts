@@ -805,7 +805,8 @@ export class ApiManager extends ApiManagerMethods {
     'channels.inviteToChannel',
     'contacts.getContacts',
     'users.getUsers',
-    'users.getFullUser'
+    'users.getFullUser',
+    'nostraSendFile'
   ]);
 
   private nostraIntercept(method: string, params: any): any {
