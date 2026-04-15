@@ -100,6 +100,7 @@ import {useAppSettings} from '@stores/appSettings';
 import {openEmojiStatusPicker} from '@components/sidebarLeft/emojiStatusPicker';
 import {animateValue} from '@helpers/animateValue';
 import AppEditProfileTab from '@components/sidebarLeft/tabs/editProfile';
+import AppNostraQRTab from '@components/sidebarLeft/tabs/nostraQR';
 import {generateDicebearAvatar} from '@helpers/generateDicebearAvatar';
 import {decodePubkey} from '@lib/nostra/nostr-identity';
 import {loadCachedProfile} from '@lib/nostra/profile-cache';
@@ -714,6 +715,14 @@ export class AppSidebarLeft extends SidebarSlider {
       icon: 'user',
       text: 'Contacts',
       onClick: onContactsClick
+    }, {
+      icon: 'card',
+      regularText: 'My QR Code',
+      onClick: () => {
+        closeTabsBefore(() => {
+          this.createTab(AppNostraQRTab).open();
+        });
+      }
     }, {
       icon: 'info',
       regularText: 'Status',

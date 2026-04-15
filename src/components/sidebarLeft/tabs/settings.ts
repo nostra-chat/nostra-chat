@@ -11,7 +11,6 @@ import lottieLoader from '@lib/rlottie/lottieLoader';
 import Row from '@components/row';
 import SettingSection from '@components/settingSection';
 import AppNostraRelaySettingsTab from '@components/sidebarLeft/tabs/nostraRelaySettings';
-import AppNostraQRTab from '@components/sidebarLeft/tabs/nostraQR';
 import AppEditProfileTab from '@components/sidebarLeft/tabs/editProfile';
 import showLogOutPopup from '@components/popups/logOut';
 import {loadCachedProfile} from '@lib/nostra/profile-cache';
@@ -144,16 +143,6 @@ export default class AppSettingsTab extends SliderSuperTab {
       listenerSetter: this.listenerSetter
     });
 
-    const qrCodeRow = new Row({
-      title: 'My QR Code',
-      icon: 'card',
-      clickable: () => {
-        const tab = this.slider.createTab(AppNostraQRTab);
-        tab.open();
-      },
-      listenerSetter: this.listenerSetter
-    });
-
     const relayRow = new Row({
       title: 'Nostr Relays',
       icon: 'link',
@@ -198,7 +187,6 @@ export default class AppSettingsTab extends SliderSuperTab {
 
     buttonsDiv.append(
       identityRow.container,
-      qrCodeRow.container,
       relayRow.container,
       privacyRow.container,
       notificationsRow.container,
