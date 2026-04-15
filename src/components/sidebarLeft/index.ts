@@ -1049,6 +1049,13 @@ export class AppSidebarLeft extends SidebarSlider {
       });
     };
 
+    const onAddContactClick = () => {
+      closeTabsBefore(async() => {
+        const {showAddContactPopup} = await import('@components/popups/addContact');
+        showAddContactPopup({managers: this.managers});
+      });
+    };
+
     return [{
       icon: 'newchannel',
       text: singular ? 'Channel' : 'NewChannel',
@@ -1061,6 +1068,10 @@ export class AppSidebarLeft extends SidebarSlider {
       icon: 'newgroup',
       text: singular ? 'Group' : 'NewGroup',
       onClick: onNewGroupClick
+    }, {
+      icon: 'adduser',
+      text: 'AddContact',
+      onClick: onAddContactClick
     }, {
       icon: 'newprivate',
       text: singular ? 'PrivateChat' : 'NewPrivateChat',
