@@ -4,12 +4,10 @@
  * https://github.com/morethanwords/tweb/blob/master/LICENSE
  */
 
-import type rootScope from '@lib/rootScope';
-
-type Managers = (typeof rootScope)['managers'];
+import type {AppManagers} from '@lib/managers';
 
 export interface ShowAddContactOptions {
-  managers: Managers;
+  managers: AppManagers;
   /**
    * Optional handler invoked when the user submits a valid npub. Receives the
    * raw `npub1...` string and the (possibly empty) nickname. When provided,
@@ -90,6 +88,7 @@ export function showAddContactPopup(opts: ShowAddContactOptions): void {
       }
       overlay.remove();
     } catch(err) {
+      console.error('[AddContactPopup]', err);
       errorEl.textContent = 'Failed to add contact';
       addBtn.disabled = false;
       addBtn.textContent = 'Add';
@@ -104,14 +103,19 @@ export function showAddContactPopup(opts: ShowAddContactOptions): void {
   qrBtn.setAttribute('data-testid', 'add-contact-scan-qr');
   qrBtn.style.cssText = 'padding:8px 16px;border:none;border-radius:8px;cursor:pointer;font-size:14px;';
   qrBtn.addEventListener('click', async() => {
-    const {launchQRScanner} = await import('@components/nostra/QRScanner' as any);
-    launchQRScanner({
-      onDetected: (npub: string) => {
-        input.value = npub;
-        nicknameInput.focus();
-        errorEl.textContent = '';
-      }
-    });
+    try {
+      const {launchQRScanner} = await import('@components/nostra/QRScanner' as any);
+      launchQRScanner({
+        onDetected: (npub: string) => {
+          input.value = npub;
+          nicknameInput.focus();
+          errorEl.textContent = '';
+        }
+      });
+    } catch(err) {
+      console.error('[AddContactPopup] QRScanner load failed', err);
+      errorEl.textContent = 'Scanner unavailable';
+    }
   });
 
   overlay.addEventListener('click', (e) => {
@@ -132,7 +136,7 @@ export function showAddContactPopup(opts: ShowAddContactOptions): void {
  * need the full behavior should pass their own `onSubmit`.
  */
 async function addNpubContact(
-  managers: Managers,
+  managers: AppManagers,
   npub: string,
   nickname: string,
   onContactAdded?: (peerId: PeerId) => void
