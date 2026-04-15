@@ -9,7 +9,8 @@
  */
 
 import {NostraPeerMapper} from './nostra-peer-mapper';
-import {getMessageStore, StoredMessage} from './message-store';
+import {getMessageStore} from './message-store';
+import {buildNostraMedia} from './nostra-media-shape';
 import {getPubkey, getMapping} from './virtual-peers-db';
 
 const LOG_PREFIX = '[VirtualMTProto]';
@@ -198,77 +199,6 @@ function extractPeerId(peer: any): number | null {
   // inputPeerChannel / channel_id
   if(peer.channel_id !== undefined) return -Math.abs(Number(peer.channel_id));
   return null;
-}
-
-/**
- * Build a tweb MessageMedia object from a StoredMessage.fileMetadata.
- * For images with dimensions, returns messageMediaPhoto; otherwise a
- * messageMediaDocument with the appropriate attributes. The Blossom URL
- * is attached as-is (ciphertext); the `nostraFileMetadata` sidecar carries
- * the key/iv so a renderer can fetch + decrypt on demand.
- *
- * NOTE: receiver-side inline decrypt (swapping <img>/<audio> src with a
- * blob:URL via fetchAndDecryptNostraFile) is a known follow-up. In v1 the
- * bubble renders as a file attachment with name/size/duration; previewing
- * the decrypted payload requires additional wiring in bubbles wrappers.
- */
-function buildNostraMedia(mid: number, fm: NonNullable<StoredMessage['fileMetadata']>): any {
-  const isVoice = !!fm.duration && (fm.mimeType || '').includes('audio');
-  const isImage = (fm.mimeType || '').startsWith('image/') && fm.width && fm.height;
-
-  if(isImage) {
-    return {
-      _: 'messageMediaPhoto',
-      pFlags: {},
-      photo: {
-        _: 'photo',
-        id: `nostra_${mid}`,
-        sizes: [{
-          _: 'photoSize',
-          type: 'x',
-          w: fm.width,
-          h: fm.height,
-          size: fm.size,
-          url: fm.url
-        }],
-        url: fm.url,
-        nostraFileMetadata: fm,
-        pFlags: {}
-      }
-    };
-  }
-
-  const attributes: any[] = [];
-  if(isVoice) {
-    attributes.push({
-      _: 'documentAttributeAudio',
-      pFlags: {voice: true},
-      duration: fm.duration,
-      waveform: fm.waveform
-    });
-  }
-
-  const docType = isVoice ? 'voice' :
-    (fm.mimeType || '').startsWith('video/') ? 'video' :
-    (fm.mimeType || '').startsWith('audio/') ? 'audio' :
-    undefined;
-
-  return {
-    _: 'messageMediaDocument',
-    pFlags: {},
-    document: {
-      _: 'document',
-      id: `nostra_${mid}`,
-      mime_type: fm.mimeType,
-      size: fm.size,
-      url: fm.url,
-      nostraFileMetadata: fm,
-      attributes,
-      type: docType,
-      file_name: `file-${mid}`,
-      pFlags: {}
-    }
-  };
 }
 
 // ─── Server ──────────────────────────────────────────────────────────
@@ -1067,12 +997,15 @@ export class NostraMTProtoServer {
     const peerPubkey = await getPubkey(Math.abs(peerId));
     if(!peerPubkey) return emptyUpdates;
 
-    // Private key is held by the relay pool inside ChatAPI.
-    const privkeyHex: string | null = (this.chatAPI as any)?.relayPool?.getPrivateKey?.() ?? null;
-    if(!privkeyHex) {
-      console.warn(LOG_PREFIX, 'nostraSendFile: no private key on chatAPI.relayPool');
+    // Private key is held by the relay pool inside ChatAPI as raw bytes;
+    // the orchestrator + blossom-upload-progress expect hex.
+    const privkeyBytes: Uint8Array | null = (this.chatAPI as any)?.relayPool?.getPrivateKey?.() ?? null;
+    if(!privkeyBytes || !(privkeyBytes instanceof Uint8Array) || privkeyBytes.length !== 32) {
+      console.warn(LOG_PREFIX, 'nostraSendFile: no 32-byte private key on chatAPI.relayPool');
       return emptyUpdates;
     }
+    const {bytesToHex} = await import('./file-crypto');
+    const privkeyHex = bytesToHex(privkeyBytes);
 
     const type: 'image' | 'video' | 'file' | 'voice' = params?.type || 'file';
     const caption: string = params?.caption || '';

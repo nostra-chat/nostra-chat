@@ -115,6 +115,16 @@ function putWithProgress(
   });
 }
 
+/** Returns the list of Blossom servers to try, honoring a test override. */
+function getBlossomServers(): readonly string[] {
+  try {
+    const w: any = typeof window !== 'undefined' ? window : null;
+    const override = w?.__nostraTestBlossom;
+    if(typeof override === 'string' && override) return [override];
+  } catch{}
+  return BLOSSOM_SERVERS;
+}
+
 export async function uploadToBlossomWithProgress(
   blob: Blob,
   privkeyHex: string,
@@ -122,7 +132,7 @@ export async function uploadToBlossomWithProgress(
 ): Promise<BlossomUploadProgressResult> {
   const hash = await sha256Hex(blob);
   const errors: string[] = [];
-  for(const server of BLOSSOM_SERVERS) {
+  for(const server of getBlossomServers()) {
     if(options.signal?.aborted) throw new Error('upload aborted');
     const authHeader = signAuth(privkeyHex, hash);
     try {

@@ -9,13 +9,14 @@
 import {NostraPeerMapper} from '@lib/nostra/nostra-peer-mapper';
 import {MOUNT_CLASS_TO} from '@config/debug';
 import rootScope from '@lib/rootScope';
+import {buildNostraMedia, type NostraFileMetadata} from '@lib/nostra/nostra-media-shape';
 
 export interface IncomingMessageData {
   senderPubkey: string;
   peerId: number;
   mid: number;
   timestamp: number;
-  message: {content: string};
+  message: {content: string; type?: string; fileMetadata?: NostraFileMetadata};
 }
 
 export interface HandleMessageResult {
@@ -93,13 +94,17 @@ export function resetUnreadForPeer(peerId: number): void {
  */
 export function buildTwebMessage(data: IncomingMessageData): any {
   const mapper = new NostraPeerMapper();
+  const media = data.message.fileMetadata ?
+    buildNostraMedia(data.mid, data.message.fileMetadata) :
+    undefined;
   return mapper.createTwebMessage({
     mid: data.mid,
     peerId: data.peerId,
     fromPeerId: data.peerId,
     date: data.timestamp,
-    text: data.message.content,
-    isOutgoing: false
+    text: media ? '' : data.message.content,
+    isOutgoing: false,
+    media
   });
 }
 
