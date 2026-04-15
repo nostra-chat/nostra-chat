@@ -4013,4 +4013,43 @@
     height: 200px;
     cursor: pointer;
   }
+
+  // [Nostra.chat] P2P media upload progress + retry affordance
+  .media-upload-progress {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
+    background: rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .media-upload-progress-inner {
+    height: 100%;
+    width: 0%;
+    background: var(--primary-color);
+    transition: width 0.15s linear;
+  }
+
+  &.upload-failed {
+    .media-upload-retry {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.55);
+      color: white;
+      cursor: pointer;
+      font-size: 32px;
+      z-index: 3;
+
+      &::before {
+        content: "\21BB";
+      }
+    }
+  }
 }
