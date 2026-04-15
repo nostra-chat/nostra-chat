@@ -1,13 +1,24 @@
 import {afterAll, afterEach, beforeEach, describe, expect, test, vi} from 'vitest';
 import 'fake-indexeddb/auto';
 
+// afterAll cleanup placed BEFORE vi.mock calls so that hoistMocks processes
+// vi.unmock BEFORE vi.mock — this ensures the final mocked state is "mocked"
+// (unmock runs first, then mock wins). Moving afterAll after vi.mock calls
+// causes the opposite order after hoisting, defeating all mocks.
+afterAll(() => {
+  vi.unmock('@lib/rootScope');
+  vi.unmock('@lib/nostra/nostr-profile');
+  vi.unmock('@lib/nostra/nostr-relay-pool');
+  vi.restoreAllMocks();
+});
+
 // Mock rootScope BEFORE importing the module under test so the module
 // sees the mock when it calls dispatchEventSingle.
 const dispatchEventSingle = vi.fn();
 vi.mock('@lib/rootScope', () => ({
   default: {
-    dispatchEventSingle,
-    dispatchEvent: dispatchEventSingle,
+    dispatchEventSingle: (...args: any[]) => dispatchEventSingle(...args),
+    dispatchEvent: (...args: any[]) => dispatchEventSingle(...args),
     addEventListener: vi.fn()
   }
 }));
@@ -46,13 +57,6 @@ beforeEach(() => {
 
 afterEach(() => {
   localStorage.clear();
-});
-
-afterAll(() => {
-  vi.unmock('@lib/rootScope');
-  vi.unmock('@lib/nostra/nostr-profile');
-  vi.unmock('@lib/nostra/nostr-relay-pool');
-  vi.restoreAllMocks();
 });
 
 describe('loadCachedPeerProfile', () => {
