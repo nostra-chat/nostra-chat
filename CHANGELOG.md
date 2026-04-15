@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/nostra-chat/nostra-chat/compare/v0.4.0...v0.4.1) (2026-04-15)
+
+
+### Bug Fixes
+
+* **qr:** seed npub from storage on QR tab open ([312d500](https://github.com/nostra-chat/nostra-chat/commit/312d500f422775471d450baae2c5f484bd797ab4))
+
 ## [0.4.0](https://github.com/nostra-chat/nostra-chat/compare/v0.3.0...v0.4.0) (2026-04-15)
 
 
