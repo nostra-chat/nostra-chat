@@ -1,4 +1,5 @@
-import {createSignal, onMount, onCleanup, Show} from 'solid-js';
+import {createEffect, createSignal, onCleanup, Show} from 'solid-js';
+import type QRCodeStylingType from 'qr-code-styling';
 import classNames from '@helpers/string/classNames';
 import useNostraIdentity from '@stores/nostraIdentity';
 import {getAvatarForQR} from '@lib/nostra/avatar-for-qr';
@@ -9,52 +10,64 @@ export interface KeyExchangeProps {
   onScanClick?: () => void;
 }
 
+const QR_SIZE = 280;
+
 export default function KeyExchange(props: KeyExchangeProps) {
   const {npub, displayName, nip05, picture} = useNostraIdentity();
   const [copied, setCopied] = createSignal(false);
   let qrContainer: HTMLDivElement | undefined;
-  let qrInstance: any = null;
+  let qrInstance: QRCodeStylingType | null = null;
   let copiedTimeout: ReturnType<typeof setTimeout> | undefined;
 
-  onMount(async() => {
+  createEffect(() => {
     const currentNpub = npub();
+    const currentPicture = picture();
     if(!currentNpub || !qrContainer) return;
+    const container = qrContainer;
 
-    const avatarURL = await getAvatarForQR(currentNpub, picture());
+    (async() => {
+      const avatarURL = await getAvatarForQR(currentNpub, currentPicture);
+      if(qrContainer !== container) return; // unmounted while awaiting
 
-    const {default: QRCodeStyling} = await import('qr-code-styling' as any);
-    qrInstance = new QRCodeStyling({
-      width: 280,
-      height: 280,
-      data: 'nostr:' + currentNpub,
-      image: avatarURL,
-      imageOptions: {
-        crossOrigin: 'anonymous',
-        margin: 6,
-        imageSize: 0.25,
-        hideBackgroundDots: true
-      },
-      qrOptions: {
-        errorCorrectionLevel: 'H'
-      },
-      dotsOptions: {
-        color: '#1a1a2e',
-        type: 'rounded'
-      },
-      cornersSquareOptions: {
-        type: 'extra-rounded'
-      },
-      backgroundOptions: {
-        color: '#ffffff'
-      }
-    });
+      const {default: QRCodeStyling} = await import('qr-code-styling' as any);
+      if(qrContainer !== container) return;
 
-    qrInstance.append(qrContainer);
+      container.replaceChildren();
+      qrInstance = new QRCodeStyling({
+        width: QR_SIZE,
+        height: QR_SIZE,
+        data: 'nostr:' + currentNpub,
+        image: avatarURL,
+        imageOptions: {
+          crossOrigin: 'anonymous',
+          margin: 6,
+          imageSize: 0.25,
+          hideBackgroundDots: true
+        },
+        qrOptions: {
+          errorCorrectionLevel: 'H'
+        },
+        dotsOptions: {
+          color: '#1a1a2e',
+          type: 'rounded'
+        },
+        cornersSquareOptions: {
+          type: 'extra-rounded'
+        },
+        backgroundOptions: {
+          color: '#ffffff'
+        }
+      });
+
+      qrInstance.append(container);
+    })();
   });
 
   onCleanup(() => {
     if(copiedTimeout) clearTimeout(copiedTimeout);
-    if(qrContainer) qrContainer.innerHTML = '';
+    qrInstance = null;
+    if(qrContainer) qrContainer.replaceChildren();
+    qrContainer = undefined;
   });
 
   const handleCopy = async() => {
@@ -70,12 +83,13 @@ export default function KeyExchange(props: KeyExchangeProps) {
   };
 
   const handleShare = async() => {
-    if(!qrInstance) return;
+    const instance = qrInstance;
+    if(!instance) return;
     try {
       if(typeof navigator.share === 'function') {
-        const blob = await qrInstance.getRawData('png');
+        const blob = await instance.getRawData('png');
         if(blob) {
-          const file = new File([blob], 'nostra-qr.png', {type: 'image/png'});
+          const file = new File([blob as BlobPart], 'nostra-qr.png', {type: 'image/png'});
           await navigator.share({
             title: 'My Nostra.chat QR',
             text: npub() || '',
@@ -84,10 +98,12 @@ export default function KeyExchange(props: KeyExchangeProps) {
           return;
         }
       }
-      qrInstance.download({name: 'nostra-qr', extension: 'png'});
+      instance.download({name: 'nostra-qr', extension: 'png'});
     } catch(err) {
+      // User cancelled the native share sheet — do nothing
+      if((err as {name?: string})?.name === 'AbortError') return;
       try {
-        qrInstance.download({name: 'nostra-qr', extension: 'png'});
+        instance.download({name: 'nostra-qr', extension: 'png'});
       } catch(fallbackErr) {
         console.warn('[KeyExchange] share/download failed', err, fallbackErr);
       }
