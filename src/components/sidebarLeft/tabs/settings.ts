@@ -146,7 +146,7 @@ export default class AppSettingsTab extends SliderSuperTab {
 
     const qrCodeRow = new Row({
       title: 'My QR Code',
-      icon: 'newprivate',
+      icon: 'card',
       clickable: () => {
         const tab = this.slider.createTab(AppNostraQRTab);
         tab.open();

@@ -149,6 +149,11 @@ async function addNpubContact(
   const userNickname = nickname?.trim() || undefined;
   await bridge.storePeerMapping(hexPubkey, peerId, userNickname);
 
+  const chatAPI = (window as any).__nostraChatAPI;
+  chatAPI?.connect(hexPubkey).catch((err: any) => {
+    console.warn('[AddContactPopup] chatAPI.connect failed', err);
+  });
+
   const appImManager = (await import('@lib/appImManager')).default;
   appImManager.setInnerPeer({peerId: peerId.toPeerId(false)});
 

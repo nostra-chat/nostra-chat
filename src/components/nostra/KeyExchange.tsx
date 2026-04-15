@@ -127,6 +127,12 @@ export default function KeyExchange(props: KeyExchangeProps) {
           const bridge = NostraBridge.getInstance();
           const hex = decodePubkey(scannedNpub);
           const peerId = await bridge.mapPubkeyToPeerId(hex);
+          // Subscribe to the peer's gift-wrap stream so incoming messages
+          // arrive without waiting for initGlobalSubscription to catch up.
+          const chatAPI = (window as any).__nostraChatAPI;
+          chatAPI?.connect(hex).catch((connectErr: any) => {
+            console.warn('[KeyExchange] chatAPI.connect failed', connectErr);
+          });
           appImManagerModule.default.setInnerPeer({peerId: peerId.toPeerId(false)});
         } catch(err) {
           console.error('[KeyExchange] failed to open scanned peer', err);
