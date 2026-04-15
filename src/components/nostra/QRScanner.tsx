@@ -156,7 +156,7 @@ function QRScannerComponent(props: QRScannerProps) {
             return;
           }
           if(result.error === 'self') {
-            debouncedToast("That's your own QR");
+            debouncedToast('That\'s your own QR');
             flashError();
           } else if(result.error === 'unsupported') {
             debouncedToast('Hex pubkeys are not supported — scan an npub QR');
