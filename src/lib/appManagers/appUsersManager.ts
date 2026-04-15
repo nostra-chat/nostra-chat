@@ -578,12 +578,17 @@ export class AppUsersManager extends AppManager {
 
     user.pFlags ??= {};
 
-    // [Nostra.chat] Preserve P2P synthetic user's display name.
-    // The bridge response from virtual-mtproto-server may have a hex fallback
-    // name if the mapping wasn't loaded yet. The injectP2PUser name is authoritative.
+    // [Nostra.chat] For P2P synthetic users, prefer the better of the bridge
+    // response and the synthetic. The bridge falls back to `pubkey.slice(0,12)`
+    // when the mapping has no displayName — detect that exact hex-prefix fallback
+    // and keep the synthetic; otherwise let the bridge response win so real
+    // kind 0 names (even short ones like "Bob") can upgrade a hex placeholder.
     if(this.p2pSyntheticUsers.has(userId as number)) {
       const synthetic = this.p2pSyntheticUsers.get(userId as number)!;
-      if(synthetic.first_name && (!user.first_name || user.first_name.length <= 12)) {
+      const pubkey: string | undefined = (synthetic as any).p2pPubkey;
+      const bridgeName = user.first_name || '';
+      const isHexFallback = !!pubkey && bridgeName === pubkey.slice(0, 12);
+      if(synthetic.first_name && (!bridgeName || isHexFallback)) {
         user.first_name = synthetic.first_name;
       }
     }
@@ -809,6 +814,10 @@ export class AppUsersManager extends AppManager {
 
     // Re-mirror to main thread so UI picks up the new name
     this.mirrorUser(user);
+
+    // PeerTitle is imperative and only refreshes on peer_title_edit;
+    // without this dispatch the chat-list title stays on the old value.
+    this.rootScope.dispatchEvent('peer_title_edit', {peerId: (peerId as number).toPeerId(false)});
 
     console.log('[Nostra.chat] updateP2PUserName:', {peerId, displayName});
   }

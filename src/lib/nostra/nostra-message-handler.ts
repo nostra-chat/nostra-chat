@@ -148,7 +148,16 @@ export async function injectIntoMirrors(
   if(proxy?.mirrors?.peers && !proxy.mirrors.peers[peerId]) {
     isNewPeer = true;
     const mapper = new NostraPeerMapper();
-    const displayName = 'npub...' + senderPubkey.slice(0, 8);
+
+    // Prefer any displayName already stored in virtual-peers-db (set by a
+    // prior contact-add or prior kind 0 fetch). Fall back to 'npub...hex8'.
+    let displayName = 'npub...' + senderPubkey.slice(0, 8);
+    try {
+      const {getMapping} = await import('@lib/nostra/virtual-peers-db');
+      const existing = await getMapping(senderPubkey);
+      if(existing?.displayName) displayName = existing.displayName;
+    } catch(e: any) { console.debug('[MessageHandler] non-critical:', e?.message); }
+
     const user = mapper.createTwebUser({peerId, firstName: displayName, pubkey: senderPubkey});
     proxy.mirrors.peers[peerId] = user;
 
@@ -163,6 +172,36 @@ export async function injectIntoMirrors(
       const avatar = bridge.deriveAvatarFromPubkeySync(senderPubkey);
       await rootScope.managers.appUsersManager.injectP2PUser(senderPubkey, peerId, displayName, avatar);
     } catch(e: any) { console.debug('[MessageHandler] non-critical:', e?.message); }
+
+    // Fire-and-forget kind 0 fetch so the chat list title upgrades from
+    // the hex fallback to the user's published display name. Runs only
+    // for newly-injected peers to avoid spamming relays on every message.
+    (async() => {
+      try {
+        const [{fetchNostrProfile, profileToDisplayName}, {updateMappingProfile}] = await Promise.all([
+          import('@lib/nostra/nostr-profile'),
+          import('@lib/nostra/virtual-peers-db')
+        ]);
+        const profile = await fetchNostrProfile(senderPubkey);
+        if(!profile) return;
+        const k0Name = profileToDisplayName(profile);
+        if(!k0Name || k0Name === displayName) return;
+
+        await updateMappingProfile(senderPubkey, k0Name, profile);
+
+        try { await rootScope.managers.appUsersManager.updateP2PUserName(peerId, k0Name); } catch{}
+
+        if(proxy?.mirrors?.peers?.[peerId]) {
+          proxy.mirrors.peers[peerId].first_name = k0Name;
+          try {
+            const {reconcilePeer} = await import('@stores/peers');
+            reconcilePeer(peerId, proxy.mirrors.peers[peerId]);
+          } catch{}
+        }
+
+        rootScope.dispatchEvent('peer_title_edit', {peerId: (peerId as number).toPeerId(false)});
+      } catch(e: any) { console.debug('[MessageHandler] kind 0 fetch non-critical:', e?.message); }
+    })();
   }
 
   return {isNewPeer};

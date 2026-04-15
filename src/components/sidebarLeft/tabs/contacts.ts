@@ -278,6 +278,8 @@ export default class AppContactsTab extends SliderSuperTab {
 
         // Refresh dialog so chat list subtitle updates
         rootScope.dispatchEvent('dialogs_multiupdate' as any, new Map([[peerId, {dialog}]]));
+        // Refresh chat-list PeerTitle (imperative, listens on peer_title_edit)
+        rootScope.dispatchEvent('peer_title_edit', {peerId: peerId.toPeerId(false)});
         console.log('[Nostra.chat] kind 0 profile applied:', k0Name, 'for', hexPubkey.slice(0, 8));
       }).catch(() => { /* non-critical: relay may be offline */ });
 

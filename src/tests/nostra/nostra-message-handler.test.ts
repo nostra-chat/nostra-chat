@@ -15,8 +15,21 @@ afterAll(() => {
   vi.unmock('@lib/nostra/nostra-peer-mapper');
   vi.unmock('@stores/peers');
   vi.unmock('@lib/nostra/nostra-bridge');
+  vi.unmock('@lib/nostra/nostr-profile');
+  vi.unmock('@lib/nostra/virtual-peers-db');
   vi.restoreAllMocks();
 });
+
+// Mock nostr-profile + virtual-peers-db so the auto-inject fire-and-forget
+// kind 0 fetch doesn't open real WebSockets in jsdom.
+vi.mock('@lib/nostra/nostr-profile', () => ({
+  fetchNostrProfile: vi.fn().mockResolvedValue(null),
+  profileToDisplayName: vi.fn().mockReturnValue(null)
+}));
+vi.mock('@lib/nostra/virtual-peers-db', () => ({
+  getMapping: vi.fn().mockResolvedValue(undefined),
+  updateMappingProfile: vi.fn().mockResolvedValue(undefined)
+}));
 
 // Mock NostraPeerMapper
 const mockCreateTwebMessage = vi.fn().mockReturnValue({
