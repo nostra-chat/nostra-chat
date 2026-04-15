@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/nostra-chat/nostra-chat/compare/v0.2.1...v0.3.0) (2026-04-15)
+
+
+### Features
+
+* QR key exchange (display + scanner + FAB Add Contact) ([#18](https://github.com/nostra-chat/nostra-chat/issues/18)) ([6acea14](https://github.com/nostra-chat/nostra-chat/commit/6acea14b0ceda108f2fc26b06a005eea3e588b84))
+
 ## [0.2.1](https://github.com/nostra-chat/nostra-chat/compare/v0.2.0...v0.2.1) (2026-04-14)
 
 
