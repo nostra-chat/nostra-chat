@@ -23,10 +23,11 @@ export default class AppNostraQRTab extends SliderSuperTab {
     this.dispose = render(() => <KeyExchange />, mountPoint);
   }
 
-  public destroy() {
+  protected onCloseAfterTimeout() {
     if(this.dispose) {
       this.dispose();
       this.dispose = undefined;
     }
+    return super.onCloseAfterTimeout();
   }
 }
