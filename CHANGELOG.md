@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.0](https://github.com/nostra-chat/nostra-chat/compare/v0.3.0...v0.4.0) (2026-04-15)
+
+
+### Features
+
+* **ipfs:** cloudflare worker gateway for ipfs.nostra.chat ([df9d3ac](https://github.com/nostra-chat/nostra-chat/commit/df9d3ac02a252477e55bfd9d82a6aeb40fea7768))
+* **ipfs:** stable ipfs.nostra.chat URL via Cloudflare DNSLink ([3943c45](https://github.com/nostra-chat/nostra-chat/commit/3943c4546b84f6ef5910a52130bc3488e763294a))
+* **ui:** move My QR Code from settings to hamburger menu ([42820e4](https://github.com/nostra-chat/nostra-chat/commit/42820e44bd9e64c127144051a24505e1871c0a21))
+
+
+### Bug Fixes
+
+* **mobile:** keep chat topbar visible when virtual keyboard opens ([ebc8198](https://github.com/nostra-chat/nostra-chat/commit/ebc819811349bc0f5b82bccd2329765d8cd2c0a0))
+* **tor-status:** show real relay latency instead of -1ms ([68d0f80](https://github.com/nostra-chat/nostra-chat/commit/68d0f80293a0115ab21ba6fddffc3dcb9ad5a21d))
+
 ## [0.3.0](https://github.com/nostra-chat/nostra-chat/compare/v0.2.1...v0.3.0) (2026-04-15)
 
 
