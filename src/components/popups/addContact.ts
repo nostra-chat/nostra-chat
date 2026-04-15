@@ -95,8 +95,7 @@ export function showAddContactPopup(opts: ShowAddContactOptions): void {
     }
   });
 
-  // Scan QR — the QRScanner component is built in Task 5. Use `as any` on
-  // the dynamic import so tsc does not fail before that module lands.
+  // Scan QR — launches fullscreen camera overlay, decodes via jsQR.
   const qrBtn = document.createElement('button');
   qrBtn.textContent = 'Scan QR';
   qrBtn.classList.add('btn-primary', 'btn-transparent');
@@ -104,7 +103,7 @@ export function showAddContactPopup(opts: ShowAddContactOptions): void {
   qrBtn.style.cssText = 'padding:8px 16px;border:none;border-radius:8px;cursor:pointer;font-size:14px;';
   qrBtn.addEventListener('click', async() => {
     try {
-      const {launchQRScanner} = await import('@components/nostra/QRScanner' as any);
+      const {launchQRScanner} = await import('@components/nostra/QRScanner');
       launchQRScanner({
         onDetected: (npub: string) => {
           input.value = npub;

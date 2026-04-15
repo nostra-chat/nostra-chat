@@ -130,7 +130,7 @@ export default function AddContact(props: {
 
       <Show when={view() === 'scan'}>
         <QRScanner
-          onScan={handleScan}
+          onDetected={handleScan}
           onClose={() => setView('menu')}
         />
       </Show>
