@@ -219,6 +219,36 @@ export class NostraMTProtoServer {
 
   setChatAPI(chatAPI: any): void {
     this.chatAPI = chatAPI;
+    this.wireRetryListener();
+  }
+
+  private retryListenerWired = false;
+  private wireRetryListener(): void {
+    if(this.retryListenerWired) return;
+    this.retryListenerWired = true;
+    // Lazy-import rootScope to avoid pulling it into non-browser test paths.
+    import('@lib/rootScope').then(({default: rs}) => {
+      if(typeof (rs as any).addEventListener !== 'function') return;
+      (rs as any).addEventListener('nostra_retry_file_send', async(e: {peerId: number; mid: number}) => {
+        const {getPendingFileSend} = await import('./nostra-send-file');
+        const pending = getPendingFileSend(e.mid);
+        if(!pending) {
+          console.warn(LOG_PREFIX, 'retry: no pending entry for mid', e.mid);
+          return;
+        }
+        await this.nostraSendFile({
+          peerId: pending.peerId,
+          blob: pending.blob,
+          type: pending.type,
+          caption: pending.caption,
+          tempMid: pending.tempMid,
+          width: pending.width,
+          height: pending.height,
+          duration: pending.duration,
+          waveform: pending.waveform
+        });
+      });
+    }).catch(() => {});
   }
 
   async handleMethod(method: string, params: any): Promise<any> {
