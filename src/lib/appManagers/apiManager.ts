@@ -275,7 +275,10 @@ export class ApiManager extends ApiManagerMethods {
     });
   }
 
-  public async logOut(migrateAccountTo?: ActiveAccountNumber) {
+  public async logOut(
+    migrateAccountTo?: ActiveAccountNumber,
+    opts?: {keepNostraIdentity?: boolean}
+  ) {
     if(this.loggingOut) {
       return;
     }
@@ -340,12 +343,14 @@ export class ApiManager extends ApiManagerMethods {
           });
         }
       }
-      // [Nostra.chat] Clear Nostr identity key in Worker context
-      try {
-        const {deleteEncryptedIdentity} = await import('../nostra/key-storage');
-        await deleteEncryptedIdentity();
-      } catch(err) {
-        console.warn('[Nostra.chat] failed to clear identity on logout:', err);
+      // [Nostra.chat] Clear Nostr identity key in Worker context (skipped by Reset Local Data)
+      if(!opts?.keepNostraIdentity) {
+        try {
+          const {deleteEncryptedIdentity} = await import('../nostra/key-storage');
+          await deleteEncryptedIdentity();
+        } catch(err) {
+          console.warn('[Nostra.chat] failed to clear identity on logout:', err);
+        }
       }
 
       IDB.closeDatabases();
