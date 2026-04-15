@@ -110,6 +110,31 @@ export default function KeyExchange(props: KeyExchangeProps) {
     }
   };
 
+  const handleScan = async() => {
+    if(props.onScanClick) {
+      props.onScanClick();
+      return;
+    }
+    const {launchQRScanner} = await import('./QRScanner');
+    launchQRScanner({
+      onDetected: async(scannedNpub) => {
+        try {
+          const [{decodePubkey}, {NostraBridge}, appImManagerModule] = await Promise.all([
+            import('@lib/nostra/nostr-identity'),
+            import('@lib/nostra/nostra-bridge'),
+            import('@lib/appImManager')
+          ]);
+          const bridge = NostraBridge.getInstance();
+          const hex = decodePubkey(scannedNpub);
+          const peerId = await bridge.mapPubkeyToPeerId(hex);
+          appImManagerModule.default.setInnerPeer({peerId: peerId.toPeerId(false)});
+        } catch(err) {
+          console.error('[KeyExchange] failed to open scanned peer', err);
+        }
+      }
+    });
+  };
+
   const truncateNpub = (value: string): string => {
     if(value.length <= 16) return value;
     return value.slice(0, 10) + '...' + value.slice(-6);
@@ -143,7 +168,7 @@ export default function KeyExchange(props: KeyExchangeProps) {
       <button
         class={styles.scanBtn}
         data-testid="scan-btn"
-        onClick={() => props.onScanClick?.()}
+        onClick={handleScan}
       >
         Scan QR
       </button>
