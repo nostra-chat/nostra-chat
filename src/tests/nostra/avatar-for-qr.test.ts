@@ -11,14 +11,18 @@ beforeAll(() => {
   (URL as any).revokeObjectURL = vi.fn();
 });
 
+import {generateNostrIdentity} from '@lib/nostra/nostr-identity';
+import {getAvatarForQR} from '@lib/nostra/avatar-for-qr';
+import {clearDicebearCache} from '@helpers/generateDicebearAvatar';
+
 afterAll(() => {
+  // Clear dicebear cache FIRST (while polyfilled revokeObjectURL is still installed),
+  // then restore the original URL methods so the polyfill does not leak.
+  clearDicebearCache();
   (URL as any).createObjectURL = originalCreateObjectURL;
   (URL as any).revokeObjectURL = originalRevokeObjectURL;
   vi.restoreAllMocks();
 });
-
-import {generateNostrIdentity} from '@lib/nostra/nostr-identity';
-import {getAvatarForQR} from '@lib/nostra/avatar-for-qr';
 
 describe('getAvatarForQR', () => {
   it('returns the picture URL unchanged when provided', async() => {
