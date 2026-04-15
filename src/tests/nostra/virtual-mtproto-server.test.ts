@@ -62,6 +62,14 @@ vi.mock('@lib/nostra/virtual-peers-db', () => ({
   updateMappingProfile: vi.fn()
 }));
 
+// peer-profile-cache mock — prevents real WebSocket connections in tests
+vi.mock('@lib/nostra/peer-profile-cache', () => ({
+  loadCachedPeerProfile: vi.fn().mockReturnValue(null),
+  refreshPeerProfileFromRelays: vi.fn().mockResolvedValue(undefined),
+  saveCachedPeerProfile: vi.fn(),
+  clearPeerProfileCache: vi.fn()
+}));
+
 // group-store dynamic import mock
 vi.mock('@lib/nostra/group-store', () => ({
   getGroupStore: () => ({
@@ -103,6 +111,12 @@ beforeAll(async() => {
     removeMapping: vi.fn(),
     updateMappingProfile: vi.fn()
   }));
+  vi.doMock('@lib/nostra/peer-profile-cache', () => ({
+    loadCachedPeerProfile: vi.fn().mockReturnValue(null),
+    refreshPeerProfileFromRelays: vi.fn().mockResolvedValue(undefined),
+    saveCachedPeerProfile: vi.fn(),
+    clearPeerProfileCache: vi.fn()
+  }));
   vi.doMock('@lib/nostra/group-store', () => ({
     getGroupStore: () => ({
       getAll: vi.fn().mockResolvedValue([])
@@ -125,6 +139,11 @@ beforeAll(async() => {
 
   const peersMod = await import('@lib/nostra/virtual-peers-db');
   getPubkey = peersMod.getPubkey;
+});
+
+afterAll(() => {
+  vi.unmock('@lib/nostra/peer-profile-cache');
+  vi.restoreAllMocks();
 });
 
 // ─── Tests ────────────────────────────────────────────────────────────
