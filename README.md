@@ -13,7 +13,8 @@ Privacy-first decentralized messaging with end-to-end encryption and anonymous r
 | 🌐 **Primary** | **<https://nostra.chat>** | Cloudflare Pages, custom domain |
 | 🪞 Mirror 1 | <https://nostra-chat.pages.dev> | Cloudflare fallback |
 | 🪞 Mirror 2 | <https://nostra-chat.github.io/nostra-chat/> | GitHub Pages |
-| 🧅 IPFS | see [IPFS distribution](#ipfs-distribution) below | Censorship-resistant, immutable |
+| 🧅 IPFS (stable URL) | **<https://ipfs.nostra.chat>** | DNSLink gateway, always points to the latest release |
+| 🧅 IPFS (raw CID) | see [IPFS distribution](#ipfs-distribution) below | Censorship-resistant, immutable, per-release |
 
 Install as a PWA: open any of the links above in Chrome, Edge, or Firefox →
 the browser will offer an "Install app" option in the address bar or menu.
@@ -285,14 +286,22 @@ Example: `http://localhost:8080/?debug=1`
 
 ## IPFS distribution
 
-Every push to `main` is built, bundled, and pinned to [IPFS](https://ipfs.tech/)
+Every release tag is built, bundled, and pinned to [IPFS](https://ipfs.tech/)
 as an immutable content-addressed bundle via Filebase. The CID changes with
 each release because it is a deterministic function of the build output.
 
-Use the latest CID from
-[GitHub Releases](https://github.com/nostra-chat/nostra-chat/releases) (once
-the first release is tagged) or from the commit status on the `main` branch.
-Any public IPFS gateway will serve it:
+### Stable URL — `https://ipfs.nostra.chat`
+
+A DNSLink record (`_dnslink.ipfs.nostra.chat`) is updated automatically on
+every release tag and resolved at request time by a Cloudflare Worker that
+proxies traffic to the `dweb.link` subdomain gateway. The URL is stable —
+users never need to know the current CID.
+
+### Raw CID gateways
+
+If you prefer to verify the exact content served, pick the CID from
+[GitHub Releases](https://github.com/nostra-chat/nostra-chat/releases) or
+from the build commit status, and use any public IPFS gateway:
 
 ```
 https://dweb.link/ipfs/<CID>/
