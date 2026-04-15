@@ -306,6 +306,23 @@ export async function handleRelayMessage(
     return {action: 'duplicate', id: chatMessage.id};
   }
 
+  // 7b. Persistent-store dedup — relays replay kind 1059 events (24h TTL) on
+  // every reconnect. `ctx.history` is empty on fresh boot so the in-memory
+  // check above doesn't catch replays, which would otherwise re-dispatch
+  // nostra_new_message and re-increment the unread counter for already-read
+  // messages. Look up the rumor id in the persistent store before proceeding.
+  try {
+    const store = getMessageStore();
+    const existing = await store.getByEventId(msg.id);
+    if(existing) {
+      if(ctx.offlineQueue) ctx.offlineQueue.acknowledge(chatMessage.id);
+      ctx.history.push(chatMessage);
+      return {action: 'duplicate', id: chatMessage.id};
+    }
+  } catch(err) {
+    ctx.log.warn('[ChatAPI] persistent dedup lookup failed:', err);
+  }
+
   // 8. Acknowledge, add to history, persist
   if(ctx.offlineQueue) ctx.offlineQueue.acknowledge(chatMessage.id);
   ctx.history.push(chatMessage);

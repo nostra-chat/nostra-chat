@@ -34,13 +34,16 @@ vi.mock('@lib/nostra/nostra-bridge', () => ({
   }
 }));
 
+const messageStoreMocks = {
+  saveMessage: vi.fn().mockResolvedValue(undefined),
+  getConversationId: vi.fn().mockReturnValue('conv-1'),
+  getAllConversationIds: vi.fn().mockResolvedValue([]),
+  getMessages: vi.fn().mockResolvedValue([]),
+  getByEventId: vi.fn().mockResolvedValue(null),
+  getByAppMessageId: vi.fn().mockResolvedValue(null)
+};
 vi.mock('@lib/nostra/message-store', () => ({
-  getMessageStore: () => ({
-    saveMessage: vi.fn().mockResolvedValue(undefined),
-    getConversationId: vi.fn().mockReturnValue('conv-1'),
-    getAllConversationIds: vi.fn().mockResolvedValue([]),
-    getMessages: vi.fn().mockResolvedValue([])
-  })
+  getMessageStore: () => messageStoreMocks
 }));
 
 // Mock rootScope to prevent event dispatch errors
@@ -677,6 +680,42 @@ describe('ChatAPI', () => {
       const history = chatApi.getHistory();
       const matchingMessages = history.filter(m => m.content === 'Duplicated message');
       expect(matchingMessages).toHaveLength(1);
+    });
+
+    test('dedups relay replays after reload using persistent store', async() => {
+      // Simulates: app reload → fresh ChatAPI (empty in-memory history) →
+      // relay replays kind 1059 events still within its 24h retention window.
+      // Without the persistent dedup, onMessage fires for already-read messages
+      // and the main-thread unread counter grows on every boot.
+      await chatApi.connect(PEER_ID);
+
+      let onMessageCalls = 0;
+      chatApi.onMessage = () => { onMessageCalls++; };
+
+      // Pretend the store already has this rumor id from a previous session
+      messageStoreMocks.getByEventId.mockImplementationOnce(async(id: string) => {
+        return id === 'replay-relay-event' ? {eventId: id} as any : null;
+      });
+
+      const relayMsg: DecryptedMessage = {
+        id: 'replay-relay-event',
+        from: PEER_ID,
+        content: JSON.stringify({
+          id: 'replay-msg-id',
+          from: PEER_ID,
+          to: OWN_ID,
+          type: 'text',
+          content: 'Already seen before reload',
+          timestamp: Date.now()
+        }),
+        timestamp: Date.now()
+      };
+
+      mockPool.simulateMessage(relayMsg);
+      await flush();
+
+      expect(onMessageCalls).toBe(0);
+      expect(messageStoreMocks.getByEventId).toHaveBeenCalledWith('replay-relay-event');
     });
   });
 
