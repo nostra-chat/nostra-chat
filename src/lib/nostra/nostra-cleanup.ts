@@ -3,6 +3,8 @@
  * Runs in the main thread where DB connections are held.
  */
 
+import {clearPeerProfileCache} from './peer-profile-cache';
+
 // All Nostra IndexedDB database names
 const NOSTRA_DB_NAMES = [
   'nostra-messages',
@@ -108,6 +110,7 @@ export async function clearAllNostraData(): Promise<string[]> {
       localStorage.removeItem(key);
     } catch{}
   }
+  clearPeerProfileCache();
 
   return failed;
 }
