@@ -33,37 +33,8 @@ async function blobToBytes(blob: Blob): Promise<Uint8Array> {
   });
 }
 
-/**
- * A Blob-compatible wrapper that guarantees `arrayBuffer()` works in both
- * browser (native Blob) and jsdom test environments (which lack it).
- */
-class CiphertextBlob {
-  private _bytes: Uint8Array;
-  readonly type: string;
-
-  constructor(bytes: Uint8Array, type: string) {
-    this._bytes = bytes;
-    this.type = type;
-  }
-
-  get size(): number {
-    return this._bytes.byteLength;
-  }
-
-  arrayBuffer(): Promise<ArrayBuffer> {
-    return Promise.resolve(this._bytes.buffer.slice(
-      this._bytes.byteOffset,
-      this._bytes.byteOffset + this._bytes.byteLength
-    ) as ArrayBuffer);
-  }
-
-  slice(start?: number, end?: number, contentType?: string): CiphertextBlob {
-    return new CiphertextBlob(this._bytes.slice(start, end), contentType ?? this.type);
-  }
-}
-
 export interface EncryptedFile {
-  ciphertext: CiphertextBlob;
+  ciphertext: Blob;
   keyHex: string;
   ivHex: string;
   sha256Hex: string;
@@ -85,7 +56,7 @@ export async function encryptFile(blob: Blob): Promise<EncryptedFile> {
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', ctBytes));
 
   return {
-    ciphertext: new CiphertextBlob(ctBytes, 'application/octet-stream'),
+    ciphertext: new Blob([ctBytes], {type: 'application/octet-stream'}),
     keyHex: bytesToHex(key),
     ivHex: bytesToHex(iv),
     sha256Hex: bytesToHex(digest)
@@ -96,12 +67,12 @@ export async function decryptFile(
   ciphertext: Uint8Array,
   keyHex: string,
   ivHex: string
-): Promise<CiphertextBlob> {
+): Promise<Blob> {
   const cryptoKey = await crypto.subtle.importKey(
     'raw', hexToBytes(keyHex), {name: 'AES-GCM'}, false, ['decrypt']
   );
   const plaintextBuffer = await crypto.subtle.decrypt(
     {name: 'AES-GCM', iv: hexToBytes(ivHex)}, cryptoKey, ciphertext
   );
-  return new CiphertextBlob(new Uint8Array(plaintextBuffer), 'application/octet-stream');
+  return new Blob([new Uint8Array(plaintextBuffer)]);
 }
