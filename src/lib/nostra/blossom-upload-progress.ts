@@ -32,36 +32,12 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 
-// Returns a synchronous sha256 string when running under Node.js (test/SSR env),
-// or null when the fast path is unavailable. The Node path avoids the extra
-// event-loop turns that jsdom's FileReader-backed Blob.arrayBuffer() introduces.
-function sha256HexSync(blob: Blob): string | null {
-  // Access jsdom's internal Buffer (available when vitest runs under jsdom)
-  const syms = Object.getOwnPropertySymbols(blob);
-  const implSym = syms.find(s => s.toString() === 'Symbol(impl)');
-  if(implSym) {
-    const buf: unknown = (blob as any)[implSym]?._buffer;
-    // Buffer.isBuffer is more reliable than instanceof Uint8Array across jsdom/Node contexts
-    if(typeof Buffer !== 'undefined' && Buffer.isBuffer(buf)) {
-      try {
-        const nc = require('crypto') as typeof import('crypto');
-        return nc.createHash('sha256').update(buf as any).digest('hex');
-      } catch{}
-    }
-  }
-  return null;
-}
-
-async function sha256HexAsync(blob: Blob): Promise<string> {
+async function sha256Hex(blob: Blob): Promise<string> {
   const bytes = new Uint8Array(await blob.arrayBuffer());
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
   let s = '';
   for(let i = 0; i < digest.length; i++) s += digest[i].toString(16).padStart(2, '0');
   return s;
-}
-
-function sha256Hex(blob: Blob): string | Promise<string> {
-  return sha256HexSync(blob) ?? sha256HexAsync(blob);
 }
 
 function signAuth(privkeyHex: string, hash: string): string {

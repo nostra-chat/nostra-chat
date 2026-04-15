@@ -27,6 +27,16 @@ class MockXHR {
 
 const PRIVKEY_HEX = '0000000000000000000000000000000000000000000000000000000000000001';
 
+// sha256Hex inside uploadToBlossomWithProgress needs several event-loop turns
+// to resolve (Blob.arrayBuffer polyfill → crypto.subtle.digest). Spin until
+// an XHR instance appears, up to 20 turns.
+async function waitForXhr(targetIndex = MockXHR.instances.length) {
+  for(let i = 0; i < 20; i++) {
+    if(MockXHR.instances.length > targetIndex) return;
+    await new Promise(r => setTimeout(r, 0));
+  }
+}
+
 describe('blossom-upload-progress', () => {
   let origXHR: typeof XMLHttpRequest;
 
@@ -48,7 +58,7 @@ describe('blossom-upload-progress', () => {
       onProgress: (p) => progress.push(p)
     });
 
-    await new Promise(r => setTimeout(r, 0));
+    await waitForXhr();
     const xhr = MockXHR.instances[0];
     expect(xhr.method).toBe('PUT');
     expect(xhr.url).toBe(BLOSSOM_SERVERS[0] + '/upload');
@@ -69,11 +79,11 @@ describe('blossom-upload-progress', () => {
     const blob = new Blob([new Uint8Array([1])]);
     const promise = uploadToBlossomWithProgress(blob, PRIVKEY_HEX, {});
 
-    await new Promise(r => setTimeout(r, 0));
+    await waitForXhr();
     MockXHR.instances[0].status = 503;
     MockXHR.instances[0].onload?.();
 
-    await new Promise(r => setTimeout(r, 0));
+    await waitForXhr();
     const second = MockXHR.instances[1];
     expect(second.url).toBe(BLOSSOM_SERVERS[1] + '/upload');
     second.status = 200;
@@ -89,7 +99,7 @@ describe('blossom-upload-progress', () => {
     const promise = uploadToBlossomWithProgress(blob, PRIVKEY_HEX, {});
 
     for(let i = 0; i < BLOSSOM_SERVERS.length; i++) {
-      await new Promise(r => setTimeout(r, 0));
+      await waitForXhr();
       MockXHR.instances[i].status = 500;
       MockXHR.instances[i].onload?.();
     }
@@ -102,7 +112,7 @@ describe('blossom-upload-progress', () => {
     const blob = new Blob([new Uint8Array([1])]);
     const promise = uploadToBlossomWithProgress(blob, PRIVKEY_HEX, {signal: ctrl.signal});
 
-    await new Promise(r => setTimeout(r, 0));
+    await waitForXhr();
     ctrl.abort();
     expect(MockXHR.instances[0].aborted).toBe(true);
     await expect(promise).rejects.toThrow(/aborted/);
