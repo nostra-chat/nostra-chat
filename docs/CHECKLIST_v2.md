@@ -169,6 +169,36 @@ Per ogni flow critico, catturare uno screenshot che mostri lo stato UI atteso. G
 
 ---
 
+## Sezione E — QR Key Exchange (verifica manuale)
+
+Il flusso "scambio di chiave via QR" non può essere validato in E2E headless perché dipende da una vera fotocamera (`getUserMedia`). Validare manualmente su un dispositivo reale (mobile o desktop con webcam).
+
+- [ ] **E.1** Apri `Impostazioni → My QR Code`. Conferma che il QR si disegna con l'avatar al centro. Se l'utente non ha `picture` nel kind 0, al centro deve apparire l'avatar dicebear fun-emoji generato dall'npub.
+  - Selettore: `[data-testid="qr-container"]` con `svg` o `canvas` figlio non vuoto
+  - Atteso: QR scannerizzabile da un'app terza (Google Lens, WhatsApp) che restituisce `nostr:npub1…`
+
+- [ ] **E.2** Nella stessa vista, tap su `Copy npub`. Incolla in un'altra app e verifica che corrisponda all'npub corrente. Il bottone deve mostrare "Copied!" per ~2s.
+
+- [ ] **E.3** Tap su `Scan QR` dalla stessa vista. Concedi il permesso fotocamera. Scansiona il QR di un altro utente Nostra. Atteso: la chat con quell'utente si apre direttamente (`appImManager.setInnerPeer`), e i messaggi in arrivo dal peer funzionano (verifica che `chatAPI.connect(hex)` sia stato chiamato — controlla i log `[KeyExchange]`).
+
+- [ ] **E.4** Apri il menu matita (FAB) in basso a destra. Conferma che la voce `Add to contacts` (chiave lang `AddContact`) è visibile tra `New Group` e `New Private Chat`.
+
+- [ ] **E.5** Tap su `Add to contacts`. Nel popup, tap su `Scan QR`. Concedi il permesso fotocamera. Scansiona il QR di un altro utente. Atteso: il campo npub del popup si riempie con il valore scansionato, il focus passa sul campo nickname, NESSUN auto-submit (l'utente deve cliccare `Add`).
+
+- [ ] **E.6** Scansiona un QR non-Nostr (es. un URL). Atteso: flash rosso sul mirino + toast `Not a Nostr QR code`, lo scanner resta aperto e continua a scansionare. Verifica che i toast siano debouncati (max 1 ogni 1500ms).
+
+- [ ] **E.7** Scansiona il tuo stesso QR. Atteso: toast `That's your own QR`, lo scanner resta aperto.
+
+- [ ] **E.8** Scansiona un QR che contiene un hex pubkey a 64 caratteri. Atteso: toast `Hex pubkeys are not supported — scan an npub QR`, lo scanner resta aperto.
+
+- [ ] **E.9** Nega il permesso fotocamera. Atteso: l'overlay mostra `Camera access denied` + bottone Close. Nessun crash, nessun errore in console.
+
+- [ ] **E.10** Apri lo scanner, poi premi `Escape`. Atteso: overlay chiuso, stream camera interrotto (verifica nei DevTools Media tab che il track sia `ended`).
+
+- [ ] **E.11** Apri ripetutamente `Impostazioni → My QR Code` (5+ cicli open/close). Atteso: nessun leak di root Solid — il profilo memoria non cresce in modo lineare (`onCloseAfterTimeout` dispone correttamente).
+
+---
+
 ## Completion Verification Commands
 
 Prima di output `<promise>ALL_BUGS_FIXED_V2</promise>`:
