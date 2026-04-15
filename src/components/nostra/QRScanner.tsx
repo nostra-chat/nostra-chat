@@ -15,9 +15,14 @@ type ScannerState =
   | {kind: 'denied'}
   | {kind: 'nocamera'};
 
+const TOAST_DEBOUNCE_MS = 1500;
+
 function QRScannerComponent(props: QRScannerProps) {
   const [state, setState] = createSignal<ScannerState>({kind: 'loading'});
   const [errorFlash, setErrorFlash] = createSignal(false);
+  // videoEl and canvasEl are rendered unconditionally (hidden via CSS when
+  // not scanning) so the refs are always available before getUserMedia
+  // resolves — gating them behind <Show> defeats the ordering.
   let videoEl: HTMLVideoElement | undefined;
   let canvasEl: HTMLCanvasElement | undefined;
   let stream: MediaStream | null = null;
@@ -25,6 +30,8 @@ function QRScannerComponent(props: QRScannerProps) {
   let detected = false;
   let flashTimeout: ReturnType<typeof setTimeout> | undefined;
   let unmounted = false;
+  let lastToastTime = 0;
+  let escapeHandler: ((e: KeyboardEvent) => void) | null = null;
 
   const stopTracks = () => {
     if(stream) {
@@ -33,6 +40,8 @@ function QRScannerComponent(props: QRScannerProps) {
     }
   };
 
+  // cleanup is idempotent — called by onCleanup (Solid unmount), close(),
+  // and on successful detection. The guards ensure repeated calls are safe.
   const cleanup = () => {
     unmounted = true;
     if(rafId !== null) {
@@ -41,6 +50,10 @@ function QRScannerComponent(props: QRScannerProps) {
     }
     stopTracks();
     if(flashTimeout) clearTimeout(flashTimeout);
+    if(escapeHandler) {
+      document.removeEventListener('keydown', escapeHandler);
+      escapeHandler = null;
+    }
   };
 
   const close = () => {
@@ -54,7 +67,19 @@ function QRScannerComponent(props: QRScannerProps) {
     flashTimeout = setTimeout(() => setErrorFlash(false), 400);
   };
 
+  const debouncedToast = (msg: string) => {
+    const now = Date.now();
+    if(now - lastToastTime < TOAST_DEBOUNCE_MS) return;
+    lastToastTime = now;
+    toast(msg);
+  };
+
   onMount(async() => {
+    escapeHandler = (e: KeyboardEvent) => {
+      if(e.key === 'Escape') close();
+    };
+    document.addEventListener('keydown', escapeHandler);
+
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         video: {facingMode: 'environment'}
@@ -65,7 +90,6 @@ function QRScannerComponent(props: QRScannerProps) {
         return;
       }
       if(err?.name === 'NotFoundError' || err?.name === 'OverconstrainedError') {
-        // Retry without facingMode constraint
         try {
           stream = await navigator.mediaDevices.getUserMedia({video: true});
         } catch(_) {
@@ -85,14 +109,26 @@ function QRScannerComponent(props: QRScannerProps) {
     videoEl.srcObject = stream;
     try {
       await videoEl.play();
-    } catch(_) {}
+    } catch(err) {
+      console.warn('[QRScanner] video.play() failed', err);
+    }
     if(unmounted) {
       stopTracks();
       return;
     }
     setState({kind: 'scanning'});
 
-    const {default: jsQR} = await import('jsqr');
+    let jsQR: typeof import('jsqr').default;
+    try {
+      jsQR = (await import('jsqr')).default;
+    } catch(err) {
+      console.error('[QRScanner] jsqr load failed', err);
+      if(!unmounted) {
+        toast('Failed to load QR decoder');
+        close();
+      }
+      return;
+    }
     if(unmounted) return;
 
     const tick = () => {
@@ -100,8 +136,8 @@ function QRScannerComponent(props: QRScannerProps) {
       if(videoEl.readyState === videoEl.HAVE_ENOUGH_DATA) {
         const ctx = canvasEl.getContext('2d', {willReadFrequently: true});
         if(!ctx) return;
-        canvasEl.width = videoEl.videoWidth;
-        canvasEl.height = videoEl.videoHeight;
+        if(canvasEl.width !== videoEl.videoWidth) canvasEl.width = videoEl.videoWidth;
+        if(canvasEl.height !== videoEl.videoHeight) canvasEl.height = videoEl.videoHeight;
         ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
         const imageData = ctx.getImageData(0, 0, canvasEl.width, canvasEl.height);
         const code = jsQR(imageData.data, imageData.width, imageData.height, {
@@ -112,18 +148,21 @@ function QRScannerComponent(props: QRScannerProps) {
           if('npub' in result) {
             detected = true;
             cleanup();
-            props.onDetected(result.npub);
-            props.onClose?.();
+            try {
+              props.onDetected(result.npub);
+            } finally {
+              props.onClose?.();
+            }
             return;
           }
           if(result.error === 'self') {
-            toast("That's your own QR");
+            debouncedToast("That's your own QR");
             flashError();
           } else if(result.error === 'unsupported') {
-            toast('Hex pubkeys are not supported — scan an npub QR');
+            debouncedToast('Hex pubkeys are not supported — scan an npub QR');
             flashError();
           } else {
-            toast('Not a Nostr QR code');
+            debouncedToast('Not a Nostr QR code');
             flashError();
           }
         }
@@ -135,14 +174,33 @@ function QRScannerComponent(props: QRScannerProps) {
 
   onCleanup(cleanup);
 
+  const isScanning = () => state().kind === 'scanning';
+
   return (
-    <div class={styles.scannerOverlay} data-testid="qr-scanner-overlay">
+    <div
+      class={styles.scannerOverlay}
+      data-testid="qr-scanner-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Scan QR code"
+    >
       <button class={styles.scannerClose} onClick={close} aria-label="Close scanner">✕</button>
 
-      <Show when={state().kind === 'scanning'}>
-        <video ref={videoEl} class={styles.scannerVideo} autoplay playsinline muted />
-        <canvas ref={canvasEl} style="display:none" />
-        <div classList={{[styles.scannerViewfinder]: true, [styles.scannerViewfinderError]: errorFlash()}} />
+      <video
+        ref={videoEl}
+        class={styles.scannerVideo}
+        autoplay
+        playsinline
+        muted
+        style={{display: isScanning() ? 'block' : 'none'}}
+      />
+      <canvas ref={canvasEl} style="display:none" />
+
+      <Show when={isScanning()}>
+        <div
+          class={styles.scannerViewfinder}
+          classList={{[styles.scannerViewfinderError]: errorFlash()}}
+        />
         <div class={styles.scannerHint}>Point camera at QR code</div>
       </Show>
 
