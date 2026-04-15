@@ -248,6 +248,11 @@ function buildNostraMedia(mid: number, fm: NonNullable<StoredMessage['fileMetada
     });
   }
 
+  const docType = isVoice ? 'voice' :
+    (fm.mimeType || '').startsWith('video/') ? 'video' :
+    (fm.mimeType || '').startsWith('audio/') ? 'audio' :
+    undefined;
+
   return {
     _: 'messageMediaDocument',
     pFlags: {},
@@ -259,6 +264,8 @@ function buildNostraMedia(mid: number, fm: NonNullable<StoredMessage['fileMetada
       url: fm.url,
       nostraFileMetadata: fm,
       attributes,
+      type: docType,
+      file_name: `file-${mid}`,
       pFlags: {}
     }
   };
