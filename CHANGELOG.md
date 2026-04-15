@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0](https://github.com/nostra-chat/nostra-chat/compare/v0.4.2...v0.5.0) (2026-04-15)
+
+
+### Features
+
+* **bugs:** in-app bug reporter with public & private paths ([9e5318f](https://github.com/nostra-chat/nostra-chat/commit/9e5318f7476f77aeb0cc1f4709562041cd51984d))
+
+
+### Bug Fixes
+
+* **nostra:** upgrade chat-list peer title with kind 0 display name ([c58c5c3](https://github.com/nostra-chat/nostra-chat/commit/c58c5c3a78290fdffb73a5450f8f885da2bfe0e2))
+
 ## [0.4.2](https://github.com/nostra-chat/nostra-chat/compare/v0.4.1...v0.4.2) (2026-04-15)
 
 
