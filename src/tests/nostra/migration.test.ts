@@ -1,21 +1,53 @@
 import 'fake-indexeddb/auto';
-import {describe, it, expect, beforeEach, vi} from 'vitest';
+import {describe, it, expect, beforeEach, beforeAll, afterAll, vi} from 'vitest';
 import {hexToBytes} from 'nostr-tools/utils';
 
-// Mock MTProtoMessagePort before importing modules that use rootScope
-vi.mock('@lib/mainWorker/mainMessagePort', () => ({
-  default: {
-    getInstance: () => ({
-      invokeVoid: () => {}
-    })
-  }
-}));
+// Dynamic imports — loaded after rootScope mock is installed via vi.doMock
+let needsMigration: any;
+let migrateOwnIdToNpub: any;
+let loadEncryptedIdentity: any;
+let loadAllQueuedMessages: any;
+let importFromMnemonic: any;
+let getConversationKey: any;
+let nip44Decrypt: any;
 
-import {needsMigration, migrateOwnIdToNpub} from '@lib/nostra/migration';
-import {loadEncryptedIdentity} from '@lib/nostra/key-storage';
-import {loadAllQueuedMessages} from '@lib/nostra/offline-queue';
-import {importFromMnemonic} from '@lib/nostra/nostr-identity';
-import {getConversationKey, nip44Decrypt} from '@lib/nostra/nostr-crypto';
+beforeAll(async() => {
+  vi.resetModules();
+
+  // Mock rootScope to prevent MTProtoMessagePort.getInstance().invokeVoid crash.
+  vi.doMock('@lib/rootScope', () => ({
+    default: {
+      dispatchEvent: vi.fn(),
+      dispatchEventSingle: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      myId: 0,
+      managers: undefined
+    }
+  }));
+
+  const migrationMod = await import('@lib/nostra/migration');
+  needsMigration = migrationMod.needsMigration;
+  migrateOwnIdToNpub = migrationMod.migrateOwnIdToNpub;
+
+  const keyStorageMod = await import('@lib/nostra/key-storage');
+  loadEncryptedIdentity = keyStorageMod.loadEncryptedIdentity;
+
+  const queueMod = await import('@lib/nostra/offline-queue');
+  loadAllQueuedMessages = queueMod.loadAllQueuedMessages;
+
+  const identityMod = await import('@lib/nostra/nostr-identity');
+  importFromMnemonic = identityMod.importFromMnemonic;
+
+  const cryptoMod = await import('@lib/nostra/nostr-crypto');
+  getConversationKey = cryptoMod.getConversationKey;
+  nip44Decrypt = cryptoMod.nip44Decrypt;
+});
+
+afterAll(() => {
+  vi.unmock('@lib/rootScope');
+  vi.restoreAllMocks();
+});
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
 

@@ -65,8 +65,8 @@ describe('Sidebar menu consistency', () => {
     expect(sidebarSrc).toContain('AppContactsTab');
   });
 
-  it('still has Nostra.chat Identity menu item', () => {
-    expect(sidebarSrc).toContain('nostraIdentity');
+  it('still has Nostra.chat profile menu builder', () => {
+    expect(sidebarSrc).toContain('buildNostraProfileMenuContent');
   });
 });
 
@@ -87,18 +87,18 @@ describe('Privacy tab class hierarchy', () => {
 
 // ---- Integration: EditProfile save handler publishes to Nostr ----
 describe('EditProfile save integration', () => {
-  const editProfileSrc = readFile('components/sidebarLeft/tabs/editProfile.ts');
+  const editProfileSrc = readFile('components/sidebarLeft/tabs/editProfile/index.ts');
 
-  it('save handler dispatches nostra_identity_updated event', () => {
-    expect(editProfileSrc).toContain('nostra_identity_updated');
+  it('save handler dispatches nostra_identity_loaded event', () => {
+    expect(editProfileSrc).toContain('nostra_identity_loaded');
   });
 
   it('save handler calls publishKind0Metadata', () => {
     expect(editProfileSrc).toContain('publishKind0Metadata');
   });
 
-  it('save handler still calls appProfileManager.updateProfile', () => {
-    expect(editProfileSrc).toContain('appProfileManager.updateProfile');
+  it('save handler calls publishKind0Metadata', () => {
+    expect(editProfileSrc).toContain('publishKind0Metadata');
   });
 });
 

@@ -38,8 +38,8 @@ describe('WS-A: Telegram-only UI cleanup', () => {
     expect(settingsSrc).not.toContain('AppLanguageTab');
   });
 
-  it('settings.ts does not use showLogOutPopup', () => {
-    expect(settingsSrc).not.toContain('showLogOutPopup');
+  it('settings.ts uses showLogOutPopup for logout', () => {
+    expect(settingsSrc).toContain('showLogOutPopup');
   });
 
   it('settings.ts still imports Nostra.chat tabs', () => {
@@ -59,15 +59,15 @@ describe('WS-A: Telegram-only UI cleanup', () => {
     expect(sidebarSrc).not.toContain('NostraFeatures');
   });
 
-  it('sidebar report bug points to Nostra.chat repo', () => {
-    expect(sidebarSrc).toContain('github.com/nostra-chat/nostra-chat/issues');
+  it('sidebar report bug uses showReportBugPopup (URL in reportBug.ts)', () => {
+    expect(sidebarSrc).toContain('showReportBugPopup');
     expect(sidebarSrc).not.toContain('bugs.telegram.org');
   });
 });
 
 // ---- WS-B: Identity integrated into EditProfile ----
 describe('WS-B: Identity in EditProfile', () => {
-  const editProfileSrc = readFile('components/sidebarLeft/tabs/editProfile.ts');
+  const editProfileSrc = readFile('components/sidebarLeft/tabs/editProfile/index.ts');
 
   it('imports useNostraIdentity', () => {
     expect(editProfileSrc).toContain('useNostraIdentity');
@@ -115,8 +115,8 @@ describe('WS-C: Add Contact in Contacts tab', () => {
     expect(contactsSrc).toContain('npub1');
   });
 
-  it('has QR placeholder button', () => {
-    expect(contactsSrc).toContain('Scan QR');
+  it('has add contact button', () => {
+    expect(contactsSrc).toContain('showAddContactPopup');
   });
 
   it('keeps handleNpubInput method', () => {

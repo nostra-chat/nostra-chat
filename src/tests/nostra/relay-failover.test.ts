@@ -214,9 +214,9 @@ describe('Relay Pool Failover', () => {
   });
 
   describe('DEFAULT_RELAYS', () => {
-    it('should have 4 default relays including relay.nostr.band', () => {
-      expect(DEFAULT_RELAYS).toHaveLength(4);
-      expect(DEFAULT_RELAYS.map(r => r.url)).toContain('wss://relay.nostr.band');
+    it('should have 5 default relays', () => {
+      expect(DEFAULT_RELAYS).toHaveLength(5);
+      expect(DEFAULT_RELAYS.map(r => r.url)).toContain('wss://relay.damus.io');
     });
   });
 
@@ -226,9 +226,9 @@ describe('Relay Pool Failover', () => {
 
       const result = await pool.publish('recipient-pubkey', 'test message');
 
-      // All 4 default relays are write-enabled
+      // All 5 default relays are write-enabled
       const totalResults = result.successes.length + result.failures.length;
-      expect(totalResults).toBe(4);
+      expect(totalResults).toBe(5);
     });
 
     it('with one relay disconnected, publish succeeds via remaining relays', async() => {
@@ -240,8 +240,8 @@ describe('Relay Pool Failover', () => {
 
       const result = await pool.publish('recipient-pubkey', 'test message');
 
-      // 3 succeed, 1 fails
-      expect(result.successes.length).toBe(3);
+      // 4 succeed, 1 fails
+      expect(result.successes.length).toBe(4);
       expect(result.failures.length).toBe(1);
     });
   });
@@ -335,9 +335,9 @@ describe('Relay Pool Failover', () => {
       expect(damusState?.enabled).toBe(false);
 
       const result = await pool.publish('recipient-pubkey', 'test message');
-      // Only 3 write relays now (1 disabled)
+      // Only 4 write relays now (1 disabled)
       const totalResults = result.successes.length + result.failures.length;
-      expect(totalResults).toBe(3);
+      expect(totalResults).toBe(4);
     });
 
     it('enableRelay re-enables publish to that relay', async() => {
@@ -348,7 +348,7 @@ describe('Relay Pool Failover', () => {
 
       const result = await pool.publish('recipient-pubkey', 'test message');
       const totalResults = result.successes.length + result.failures.length;
-      expect(totalResults).toBe(4);
+      expect(totalResults).toBe(5);
     });
   });
 
@@ -358,7 +358,7 @@ describe('Relay Pool Failover', () => {
 
       const states = pool.getRelayStates();
 
-      expect(states).toHaveLength(4);
+      expect(states).toHaveLength(5);
       for(const state of states) {
         expect(state).toHaveProperty('url');
         expect(state).toHaveProperty('connected');

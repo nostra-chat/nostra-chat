@@ -22,6 +22,12 @@ import {
   updateMappingProfile
 } from '@lib/nostra/virtual-peers-db';
 
+// Save original indexedDB so we can restore after tests (isolate:false leaks globals)
+const _origIndexedDB = (global as any).indexedDB;
+afterAll(() => {
+  (global as any).indexedDB = _origIndexedDB;
+});
+
 // --- IndexedDB mock helpers ---
 
 /**
@@ -503,24 +509,24 @@ describe('VirtualPeersDB', () => {
       inst1.destroy();
     });
 
-    test('getVirtualPeersDB alias returns singleton', () => {
+    test('getVirtualPeersDB alias returns singleton', async() => {
       installIndexedDBMock();
-      VirtualPeersDB.getInstance().destroy();
+      await VirtualPeersDB.getInstance().destroy();
       const inst = getVirtualPeersDB();
       expect(inst).toBe(VirtualPeersDB.getInstance());
-      inst.destroy();
+      await inst.destroy();
     });
 
-    test('destroy clears singleton', () => {
+    test('destroy clears singleton', async() => {
       installIndexedDBMock();
-      VirtualPeersDB.getInstance().destroy();
+      await VirtualPeersDB.getInstance().destroy();
       const inst1 = VirtualPeersDB.getInstance();
-      inst1.destroy();
+      await inst1.destroy();
 
       // After destroy, getInstance should create a new instance
       const inst2 = VirtualPeersDB.getInstance();
       expect(inst1).not.toBe(inst2);
-      inst2.destroy();
+      await inst2.destroy();
     });
   });
 

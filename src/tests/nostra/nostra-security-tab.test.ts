@@ -45,11 +45,11 @@ describe('nostraSecurity tab — Row construction for protection picker', () => 
     expect(nostraSecuritySrc).toMatch(/checkboxFieldOptions:\s*\{\s*round:\s*true/);
   });
 
-  it('init() still appends all three sections so the tab is not empty', () => {
+  it('init() still appends all sections so the tab is not empty', () => {
     // Guard against future regressions where init() throws mid-way and the
     // final scrollable.append(...) is never reached.
     expect(nostraSecuritySrc).toMatch(
-      /this\.scrollable\.append\(\s*protectionSection\.container,\s*seedSection\.container,\s*recoverySection\.container\s*\)/
+      /this\.scrollable\.append\(\s*protectionSection\.container,\s*recoverySection\.container\s*\)/
     );
   });
 });

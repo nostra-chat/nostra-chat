@@ -1,10 +1,42 @@
 // @ts-nocheck
 import {describe, it, expect, vi, beforeEach, beforeAll, afterAll, afterEach} from 'vitest';
 
-describe('nostra_tor_circuit_update event type', () => {
-  it('should accept circuit update payload shape', async() => {
-    const {default: rootScope} = await import('@lib/rootScope');
+// ── Shared mock rootScope for event-dispatch tests ───────────────────────────
+// Under isolate:false, vi.mock has no effect on already-cached rootScope.
+// Use vi.doMock + vi.resetModules + dynamic import for reliable mocking.
 
+function createMockRootScope() {
+  const listeners = new Map();
+  return {
+    addEventListener: vi.fn((name, handler) => {
+      if(!listeners.has(name)) listeners.set(name, new Set());
+      listeners.get(name).add(handler);
+    }),
+    removeEventListener: vi.fn((name, handler) => {
+      listeners.get(name)?.delete(handler);
+    }),
+    dispatchEvent: vi.fn((name, ...args) => {
+      const handlers = listeners.get(name);
+      if(handlers) handlers.forEach(h => h(...args));
+    })
+  };
+}
+
+describe('nostra_tor_circuit_update event type', () => {
+  let rootScope;
+
+  beforeAll(async() => {
+    vi.resetModules();
+    vi.doMock('@lib/rootScope', () => ({default: createMockRootScope()}));
+    rootScope = (await import('@lib/rootScope')).default;
+  });
+
+  afterAll(() => {
+    vi.unmock('@lib/rootScope');
+    vi.resetModules();
+  });
+
+  it('should accept circuit update payload shape', () => {
     const handler = vi.fn();
     rootScope.addEventListener('nostra_tor_circuit_update', handler);
 
@@ -108,8 +140,20 @@ describe('WebtorClient circuit details', () => {
 });
 
 describe('PrivacyTransport circuit event dispatch', () => {
-  it('should dispatch nostra_tor_circuit_update on circuit polling', async() => {
-    const {default: rootScope} = await import('@lib/rootScope');
+  let rootScope;
+
+  beforeAll(async() => {
+    vi.resetModules();
+    vi.doMock('@lib/rootScope', () => ({default: createMockRootScope()}));
+    rootScope = (await import('@lib/rootScope')).default;
+  });
+
+  afterAll(() => {
+    vi.unmock('@lib/rootScope');
+    vi.resetModules();
+  });
+
+  it('should dispatch nostra_tor_circuit_update on circuit polling', () => {
     const handler = vi.fn();
     rootScope.addEventListener('nostra_tor_circuit_update', handler);
 

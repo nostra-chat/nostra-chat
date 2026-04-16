@@ -1,11 +1,19 @@
 // @ts-nocheck
-import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
+import {describe, it, expect, vi, beforeEach, afterEach, afterAll} from 'vitest';
 import {MeshManager} from '@lib/nostra/mesh-manager';
 
 let mockDC;
 let mockPC;
 let dcEventHandlers;
 let pcEventHandlers;
+
+const _origRTCPeerConnection = globalThis.RTCPeerConnection;
+const _origRTCSessionDescription = globalThis.RTCSessionDescription;
+
+afterAll(() => {
+  globalThis.RTCPeerConnection = _origRTCPeerConnection;
+  globalThis.RTCSessionDescription = _origRTCSessionDescription;
+});
 
 beforeEach(() => {
   vi.useFakeTimers();

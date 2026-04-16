@@ -22,6 +22,10 @@ import {
   TransportState
 } from '@lib/nostra/transport';
 
+afterAll(() => {
+  vi.restoreAllMocks();
+});
+
 // Mock RTCPeerConnection factory
 function createMockRTCPeerConnection(): RTCPeerConnection {
   const listeners: Map<string, Set<(...args: any[]) => void>> = new Map();

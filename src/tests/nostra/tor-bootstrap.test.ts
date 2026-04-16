@@ -5,9 +5,12 @@
 
 import '../setup';
 
-// No rootScope mock needed — we test behavior, not events
-
-import {PrivacyTransport} from '@lib/nostra/privacy-transport';
+// Mock rootScope to prevent MTProtoMessagePort.getInstance() crash
+vi.mock('@lib/rootScope', () => ({
+  default: {
+    dispatchEvent: vi.fn()
+  }
+}));
 
 // ─── Mock helpers ─────────────────────────────────────────────────
 
@@ -88,6 +91,25 @@ function createMockWebtorClient(options: {shouldFail?: boolean} = {}) {
     async close(): Promise<void> {}
   };
 }
+
+let PrivacyTransport: any;
+
+beforeAll(async() => {
+  vi.resetModules();
+  vi.doMock('@lib/rootScope', () => ({
+    default: {
+      dispatchEvent: vi.fn()
+    }
+  }));
+
+  const mod = await import('@lib/nostra/privacy-transport');
+  PrivacyTransport = mod.PrivacyTransport;
+});
+
+afterAll(() => {
+  vi.unmock('@lib/rootScope');
+  vi.restoreAllMocks();
+});
 
 describe('Tor Bootstrap Behavior', () => {
   it('bootstrap is fire-and-forget — constructor returns immediately', () => {
