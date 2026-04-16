@@ -58,6 +58,7 @@ TESTS=(
   e2e-send-image.ts
   e2e-send-voice.ts
   e2e-send-file.ts
+  e2e-update-controlled.ts
 )
 
 PASSED=0

@@ -12,6 +12,14 @@ export const MANIFEST_SOURCES: ManifestSource[] = [
   {name: 'ipfs', url: 'https://ipfs.nostra.chat/update-manifest.json'}
 ];
 
+function getSources(): ManifestSource[] {
+  if(typeof globalThis !== 'undefined') {
+    const override = (globalThis as any).__NOSTRA_TEST_MANIFEST_SOURCES__;
+    if(Array.isArray(override)) return override;
+  }
+  return MANIFEST_SOURCES;
+}
+
 const SUPPORTED_SCHEMA = 1;
 
 async function fetchOne(source: ManifestSource): Promise<Manifest> {
@@ -37,9 +45,10 @@ function keyFields(m: Manifest): string {
 }
 
 export async function verifyManifestsAcrossSources(): Promise<IntegrityResult> {
-  const results = await Promise.allSettled(MANIFEST_SOURCES.map(fetchOne));
+  const sources = getSources();
+  const results = await Promise.allSettled(sources.map(fetchOne));
 
-  const sourcesBreakdown: IntegrityResult['sources'] = MANIFEST_SOURCES.map((src, i) => {
+  const sourcesBreakdown: IntegrityResult['sources'] = sources.map((src, i) => {
     const r = results[i];
     if(r.status === 'fulfilled') {
       const m = r.value;
@@ -49,7 +58,7 @@ export async function verifyManifestsAcrossSources(): Promise<IntegrityResult> {
   });
 
   const ok = results
-  .map((r, i) => r.status === 'fulfilled' ? {source: MANIFEST_SOURCES[i].name, manifest: r.value} : null)
+  .map((r, i) => r.status === 'fulfilled' ? {source: sources[i].name, manifest: r.value} : null)
   .filter((x): x is {source: string; manifest: Manifest} => x !== null);
 
   const checkedAt = Date.now();
