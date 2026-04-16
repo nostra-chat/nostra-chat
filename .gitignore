@@ -4,6 +4,7 @@ node_modules/
 # Build outputs
 dist/
 build/
+!src/scripts/build/
 coverage/
 public/*.js
 public/*.js.map
