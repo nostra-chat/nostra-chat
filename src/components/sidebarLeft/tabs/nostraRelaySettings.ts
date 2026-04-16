@@ -1,15 +1,10 @@
-/*
- * Nostra.chat — Relay Settings UI
- *
- * Full CRUD: per-relay status dot, latency, read/write toggles,
- * enable/disable, add, remove, reset to defaults.
- */
-
 import {SliderSuperTab} from '@components/slider';
 import SettingSection from '@components/settingSection';
 import Row from '@components/row';
-import {attachClickEvent} from '@helpers/dom/clickEvent';
+import CheckboxField from '@components/checkboxField';
+import InputField from '@components/inputField';
 import Button from '@components/button';
+import {attachClickEvent} from '@helpers/dom/clickEvent';
 import rootScope from '@lib/rootScope';
 import {NostrRelayPool, RelayConfig, DEFAULT_RELAYS} from '@lib/nostra/nostr-relay-pool';
 
@@ -17,7 +12,8 @@ const LS_ONLY_MY_RELAYS = 'nostra-only-my-relays';
 
 export default class AppNostraRelaySettingsTab extends SliderSuperTab {
   private relayPool: NostrRelayPool | null = null;
-  private relayListEl: HTMLElement | null = null;
+  private cardListEl: HTMLElement | null = null;
+  private captionEl: HTMLElement | null = null;
   private stateCleanup: (() => void) | null = null;
   private listCleanup: (() => void) | null = null;
 
@@ -25,119 +21,105 @@ export default class AppNostraRelaySettingsTab extends SliderSuperTab {
     this.container.classList.add('nostra-relay-settings');
     this.setTitle('Nostr Relays' as any);
 
-    if(relayPool) {
-      this.relayPool = relayPool;
-    } else {
-      this.relayPool = (window as any).__nostraPool ?? null;
-    }
+    this.relayPool = relayPool ?? (window as any).__nostraPool ?? null;
 
-    // --- "Solo i miei relay" toggle ---
-    const toggleSection = new SettingSection({});
-    const onlyMineWrap = document.createElement('div');
-    onlyMineWrap.classList.add('relay-only-mine');
+    // ─── Preferences ────────────────────────────────────────
+    const prefSection = new SettingSection({
+      name: 'Preferenze' as any,
+      caption: 'Ignora i relay di default e usa solo quelli che hai aggiunto tu' as any
+    });
 
-    const onlyMineLabel = document.createElement('label');
-    onlyMineLabel.textContent = 'Usa solo i miei relay';
-
-    const onlyMineCheckbox = document.createElement('input');
-    onlyMineCheckbox.type = 'checkbox';
-    onlyMineCheckbox.checked = localStorage.getItem(LS_ONLY_MY_RELAYS) === '1';
-    onlyMineCheckbox.addEventListener('change', () => {
+    const onlyMineCheckbox = new CheckboxField({
+      toggle: true,
+      checked: localStorage.getItem(LS_ONLY_MY_RELAYS) === '1'
+    });
+    onlyMineCheckbox.input.addEventListener('change', () => {
       localStorage.setItem(LS_ONLY_MY_RELAYS, onlyMineCheckbox.checked ? '1' : '0');
     });
 
-    onlyMineWrap.append(onlyMineLabel, onlyMineCheckbox);
-    toggleSection.content.append(onlyMineWrap);
+    const onlyMineRow = new Row({
+      title: 'Usa solo i miei relay',
+      checkboxField: onlyMineCheckbox,
+      clickable: true
+    });
+    prefSection.content.append(onlyMineRow.container);
 
-    // --- Current Relays ---
+    // ─── Current Relays ─────────────────────────────────────
     const relaysSection = new SettingSection({
-      name: 'Current Relays' as any
+      name: 'I tuoi relay' as any,
+      caption: true
     });
+    this.captionEl = relaysSection.caption;
 
-    const relayList = document.createElement('div');
-    relayList.classList.add('relay-list');
-    this.relayListEl = relayList;
-    relaysSection.content.append(relayList);
+    const cardList = document.createElement('div');
+    cardList.classList.add('relay-card-list');
+    this.cardListEl = cardList;
+    relaysSection.content.append(cardList);
 
-    this.renderRelayList(relayList);
+    this.renderCards();
 
-    // Listen for relay state updates (status dots + latency)
-    const stateHandler = () => {
-      this.renderRelayList(relayList);
-    };
+    const stateHandler = () => this.renderCards();
     rootScope.addEventListener('nostra_relay_state', stateHandler);
-    this.stateCleanup = () => {
-      rootScope.removeEventListener('nostra_relay_state', stateHandler);
-    };
+    this.stateCleanup = () => rootScope.removeEventListener('nostra_relay_state', stateHandler);
 
-    // Listen for relay list changes (external adds/removes)
-    const listHandler = () => {
-      this.renderRelayList(relayList);
-    };
+    const listHandler = () => this.renderCards();
     rootScope.addEventListener('nostra_relay_list_changed', listHandler);
-    this.listCleanup = () => {
-      rootScope.removeEventListener('nostra_relay_list_changed', listHandler);
-    };
+    this.listCleanup = () => rootScope.removeEventListener('nostra_relay_list_changed', listHandler);
 
-    // --- Add Relay ---
+    // ─── Add Relay ──────────────────────────────────────────
     const addSection = new SettingSection({
-      name: 'Add Relay' as any
+      name: 'Aggiungi relay' as any
     });
 
-    const inputWrapper = document.createElement('div');
-    inputWrapper.classList.add('input-field');
+    const urlInput = new InputField({
+      labelText: 'wss://relay.example.com',
+      name: 'relay-url',
+      plainText: true
+    });
 
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.placeholder = 'wss://relay.example.com';
-    input.classList.add('input-clear');
-
-    const inputLabel = document.createElement('label');
-    inputLabel.textContent = 'Relay URL';
-
-    inputWrapper.append(input, inputLabel);
-
-    const addButton = Button('btn-primary btn-color-primary');
-    addButton.textContent = 'Add Relay';
-    attachClickEvent(addButton, () => {
-      const url = input.value.trim();
+    const addBtn = Button('btn-primary btn-color-primary');
+    addBtn.textContent = 'Aggiungi';
+    addBtn.style.width = '100%';
+    addBtn.style.marginTop = '8px';
+    attachClickEvent(addBtn, () => {
+      const url = urlInput.value.trim();
       if(!url || !url.startsWith('wss://')) {
-        input.classList.add('error');
+        urlInput.container.classList.add('error');
         return;
       }
-      input.classList.remove('error');
-
+      urlInput.container.classList.remove('error');
       if(this.relayPool) {
         this.relayPool.addRelay({url, read: true, write: true});
-        input.value = '';
-        this.renderRelayList(relayList);
+        urlInput.value = '';
+        this.renderCards();
       }
     }, {listenerSetter: this.listenerSetter});
 
-    addSection.content.append(inputWrapper, addButton);
+    addSection.content.append(urlInput.container, addBtn);
 
-    // --- Reset ---
-    const resetSection = new SettingSection({});
+    // ─── Reset ──────────────────────────────────────────────
+    const resetSection = new SettingSection({
+      caption: 'Ripristina la lista ai relay di default di Nostra.chat' as any
+    });
 
-    const resetButton = Button('btn-primary btn-color-primary btn-transparent danger');
-    resetButton.textContent = 'Reset to Defaults';
-    attachClickEvent(resetButton, () => {
-      if(this.relayPool) {
-        const current = this.relayPool.getRelays();
-        for(const relay of current) {
-          this.relayPool.removeRelay(relay.url);
-        }
-        for(const relay of DEFAULT_RELAYS) {
-          this.relayPool.addRelay(relay);
-        }
-        this.renderRelayList(relayList);
+    const resetBtn = Button('btn-primary btn-color-primary btn-transparent danger');
+    resetBtn.textContent = 'Ripristina predefiniti';
+    attachClickEvent(resetBtn, () => {
+      if(!this.relayPool) return;
+      const current = this.relayPool.getRelays();
+      for(const relay of current) {
+        this.relayPool.removeRelay(relay.url);
       }
+      for(const relay of DEFAULT_RELAYS) {
+        this.relayPool.addRelay(relay);
+      }
+      this.renderCards();
     }, {listenerSetter: this.listenerSetter});
 
-    resetSection.content.append(resetButton);
+    resetSection.content.append(resetBtn);
 
     this.scrollable.append(
-      toggleSection.container,
+      prefSection.container,
       relaysSection.container,
       addSection.container,
       resetSection.container
@@ -149,27 +131,33 @@ export default class AppNostraRelaySettingsTab extends SliderSuperTab {
     if(this.listCleanup) this.listCleanup();
   }
 
-  private renderRelayList(container: HTMLElement): void {
+  private renderCards(): void {
+    const container = this.cardListEl;
+    if(!container) return;
     container.innerHTML = '';
 
     const relays: RelayConfig[] = this.relayPool?.getRelays() ?? [];
     const states = this.relayPool?.getRelayStates() ?? [];
-    const stateMap = new Map(states.map(s => [s.url, s]));
+    const stateMap = new Map(states.map((s: any) => [s.url, s]));
     const entries = this.relayPool?.getRelayEntries() ?? [];
-    const instanceMap = new Map(entries.map(e => [e.config.url, e.instance]));
+    const instanceMap = new Map(entries.map((e: any) => [e.config.url, e.instance]));
 
     if(relays.length === 0) {
       const empty = document.createElement('div');
       empty.classList.add('relay-list-empty');
-      empty.textContent = 'No relays configured';
+      empty.textContent = 'Nessun relay configurato';
       container.append(empty);
+      this.updateCaption(0, 0);
       return;
     }
 
-    // Aggregate Tor overhead bar
     let overheadSum = 0;
     let overheadCount = 0;
+    let connectedCount = 0;
+
     for(const relay of relays) {
+      const st = stateMap.get(relay.url);
+      if(st?.connected) connectedCount++;
       const instance = instanceMap.get(relay.url);
       const torLat = instance?.torLatencyMs ?? -1;
       const dirLat = instance?.directLatencyMs ?? -1;
@@ -178,13 +166,16 @@ export default class AppNostraRelaySettingsTab extends SliderSuperTab {
         overheadCount++;
       }
     }
+
     if(overheadCount > 0) {
       const avgOverhead = Math.round(overheadSum / overheadCount);
       const aggEl = document.createElement('div');
       aggEl.classList.add('relay-tor-aggregate');
-      aggEl.textContent = `Avg Tor overhead: +${avgOverhead}ms across ${overheadCount} relay${overheadCount > 1 ? 's' : ''}`;
+      aggEl.textContent = `🧅 Avg Tor overhead: +${avgOverhead}ms across ${overheadCount} relay${overheadCount > 1 ? 's' : ''}`;
       container.append(aggEl);
     }
+
+    this.updateCaption(connectedCount, relays.length);
 
     for(const relay of relays) {
       const st = stateMap.get(relay.url);
@@ -195,121 +186,107 @@ export default class AppNostraRelaySettingsTab extends SliderSuperTab {
       const torLatency = instance?.torLatencyMs ?? -1;
       const directLatency = instance?.directLatencyMs ?? -1;
 
-      // Status dot color
-      let dotColor: string;
-      if(!connected) {
-        dotColor = 'red';
-      } else if(latencyMs > 1000) {
-        dotColor = 'yellow';
-      } else {
-        dotColor = 'green';
-      }
-
-      // Row container
-      const rowEl = document.createElement('div');
-      rowEl.classList.add('relay-row');
-      if(!enabled) rowEl.classList.add('relay-row--disabled');
-
-      // Status dot
-      const dot = document.createElement('span');
-      dot.classList.add('relay-status-dot', `relay-status-dot--${dotColor}`);
-      rowEl.append(dot);
-
-      // URL
-      const urlEl = document.createElement('span');
-      urlEl.classList.add('relay-url');
-      urlEl.textContent = relay.url;
-      rowEl.append(urlEl);
-
-      // Latency (with optional Tor overhead)
-      const latEl = document.createElement('span');
-      latEl.classList.add('relay-latency');
-      if(latencyMs >= 0) {
-        if(torLatency >= 0 && directLatency >= 0) {
-          const overhead = torLatency - directLatency;
-          latEl.textContent = `${latencyMs}ms (Tor +${overhead}ms)`;
-          if(overhead < 200) latEl.classList.add('latency-good');
-          else if(overhead < 500) latEl.classList.add('latency-moderate');
-          else latEl.classList.add('latency-slow');
-        } else {
-          latEl.textContent = `${latencyMs}ms`;
-        }
-      } else {
-        latEl.textContent = '--';
-      }
-      rowEl.append(latEl);
-
-      // Read toggle
-      const readLabel = document.createElement('label');
-      readLabel.classList.add('relay-toggle');
-      const readCb = document.createElement('input');
-      readCb.type = 'checkbox';
-      readCb.checked = relay.read;
-      readCb.addEventListener('change', () => {
-        this.updateRelayRW(relay.url, readCb.checked, writeCb.checked);
-      });
-      const readSpan = document.createElement('span');
-      readSpan.textContent = 'R';
-      readLabel.append(readCb, readSpan);
-      rowEl.append(readLabel);
-
-      // Write toggle
-      const writeLabel = document.createElement('label');
-      writeLabel.classList.add('relay-toggle');
-      const writeCb = document.createElement('input');
-      writeCb.type = 'checkbox';
-      writeCb.checked = relay.write;
-      writeCb.addEventListener('change', () => {
-        this.updateRelayRW(relay.url, readCb.checked, writeCb.checked);
-      });
-      const writeSpan = document.createElement('span');
-      writeSpan.textContent = 'W';
-      writeLabel.append(writeCb, writeSpan);
-      rowEl.append(writeLabel);
-
-      // Enable/Disable toggle
-      const enableLabel = document.createElement('label');
-      enableLabel.classList.add('relay-toggle');
-      const enableCb = document.createElement('input');
-      enableCb.type = 'checkbox';
-      enableCb.checked = enabled;
-      enableCb.addEventListener('change', () => {
-        if(this.relayPool) {
-          if(enableCb.checked) {
-            this.relayPool.enableRelay(relay.url);
-          } else {
-            this.relayPool.disableRelay(relay.url);
-          }
-          this.renderRelayList(container);
-        }
-      });
-      const enableSpan = document.createElement('span');
-      enableSpan.textContent = 'On';
-      enableLabel.append(enableCb, enableSpan);
-      rowEl.append(enableLabel);
-
-      // Delete button
-      const deleteBtn = document.createElement('button');
-      deleteBtn.classList.add('btn-icon', 'tgico-close');
-      deleteBtn.addEventListener('click', () => {
-        if(this.relayPool) {
-          this.relayPool.removeRelay(relay.url);
-          this.renderRelayList(container);
-        }
-      });
-      rowEl.append(deleteBtn);
-
-      container.append(rowEl);
+      container.append(
+        this.createCard(relay, connected, latencyMs, enabled, torLatency, directLatency)
+      );
     }
+  }
+
+  private createCard(
+    relay: RelayConfig,
+    connected: boolean,
+    latencyMs: number,
+    enabled: boolean,
+    torLatency: number,
+    directLatency: number
+  ): HTMLElement {
+    const card = document.createElement('div');
+    card.classList.add('relay-card');
+    if(!enabled) card.classList.add('relay-card--disabled');
+
+    const header = document.createElement('div');
+    header.classList.add('relay-card__header');
+
+    const dot = document.createElement('span');
+    const dotColor = !connected ? 'red' : latencyMs > 1000 ? 'yellow' : 'green';
+    dot.classList.add('relay-card__dot', `relay-card__dot--${dotColor}`);
+
+    const url = document.createElement('span');
+    url.classList.add('relay-card__url');
+    url.textContent = relay.url;
+
+    const lat = document.createElement('span');
+    lat.classList.add('relay-card__latency');
+    if(latencyMs >= 0) {
+      if(torLatency >= 0 && directLatency >= 0) {
+        const overhead = torLatency - directLatency;
+        lat.textContent = `${latencyMs}ms (Tor +${overhead}ms)`;
+        lat.classList.add(overhead < 200 ? 'latency-good' : overhead < 500 ? 'latency-moderate' : 'latency-slow');
+      } else {
+        lat.textContent = `${latencyMs}ms`;
+      }
+    } else {
+      lat.textContent = connected ? '…' : 'offline';
+    }
+
+    header.append(dot, url, lat);
+
+    const footer = document.createElement('div');
+    footer.classList.add('relay-card__footer');
+
+    const readChip = this.createChip('R', relay.read, () => {
+      this.updateRelayRW(relay.url, !relay.read, relay.write);
+    });
+
+    const writeChip = this.createChip('W', relay.write, () => {
+      this.updateRelayRW(relay.url, relay.read, !relay.write);
+    });
+
+    const onChip = this.createChip('On', enabled, () => {
+      if(!this.relayPool) return;
+      if(enabled) {
+        this.relayPool.disableRelay(relay.url);
+      } else {
+        this.relayPool.enableRelay(relay.url);
+      }
+      this.renderCards();
+    });
+
+    footer.append(readChip, writeChip, onChip);
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.classList.add('relay-card__delete', 'tgico-close');
+    deleteBtn.addEventListener('click', () => {
+      if(this.relayPool) {
+        this.relayPool.removeRelay(relay.url);
+        this.renderCards();
+      }
+    });
+
+    card.append(header, footer, deleteBtn);
+    return card;
+  }
+
+  private createChip(label: string, active: boolean, onClick: () => void): HTMLButtonElement {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.classList.add('relay-chip');
+    if(active) chip.classList.add('relay-chip--active');
+    chip.textContent = label;
+    chip.addEventListener('click', onClick);
+    return chip;
   }
 
   private updateRelayRW(url: string, read: boolean, write: boolean): void {
     if(!this.relayPool) return;
-    // Remove then re-add with new read/write flags
     this.relayPool.removeRelay(url);
     this.relayPool.addRelay({url, read, write});
-    if(this.relayListEl) {
-      this.renderRelayList(this.relayListEl);
+    this.renderCards();
+  }
+
+  private updateCaption(connected: number, total: number): void {
+    if(this.captionEl) {
+      this.captionEl.textContent = `${connected}/${total} connessi`;
     }
   }
 }
