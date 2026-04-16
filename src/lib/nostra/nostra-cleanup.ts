@@ -28,7 +28,16 @@ const NOSTRA_LS_KEYS = [
   'nostra:read-receipts-enabled',
   'nostra-folders-last-published',
   'nostra-folders-last-modified',
-  'nostra-profile-cache'
+  'nostra-profile-cache',
+  'nostra.update.installedVersion',
+  'nostra.update.installedSwUrl',
+  'nostra.update.lastAcceptedVersion',
+  'nostra.update.lastIntegrityCheck',
+  'nostra.update.lastIntegrityResult',
+  'nostra.update.lastIntegrityDetails',
+  'nostra.update.pendingFinalization',
+  'nostra.update.pendingManifest',
+  'nostra.update.flowState'
 ];
 
 // The seed lives here — kept by `clearAllExceptSeed()`
