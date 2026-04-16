@@ -39,6 +39,8 @@ pnpm test:nostra        # Full P2P test suite
 pnpm lint           # ESLint on src/**/*.ts
 ```
 
+**Pre-commit hook**: husky + lint-staged runs `eslint` on staged `src/**/*.ts` files. Do NOT use `--no-verify` to skip it — fix the lint error instead.
+
 Debug query params: `?test=1` (test DCs), `?debug=1` (verbose logging), `?noSharedWorker=1` (disable shared worker).
 
 ## Directory Structure
