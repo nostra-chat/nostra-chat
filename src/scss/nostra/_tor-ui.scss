@@ -253,3 +253,8 @@
     color: var(--secondary-text-color);
   }
 }
+
+.row-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}

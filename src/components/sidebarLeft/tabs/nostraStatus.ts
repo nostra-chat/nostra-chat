@@ -10,14 +10,16 @@ import SettingSection from '@components/settingSection';
 import Row from '@components/row';
 import rootScope from '@lib/rootScope';
 import {DEFAULT_RELAYS} from '@lib/nostra/nostr-relay-pool';
+import {PrivacyTransport} from '@lib/nostra/privacy-transport';
 
-type TorState = 'bootstrapping' | 'active' | 'direct' | 'failed';
+type TorState = 'bootstrapping' | 'active' | 'direct' | 'failed' | 'disabled';
 
 const TOR_STATE_LABELS: Record<TorState, string> = {
   active: '🟢 Active — traffic routed through Tor',
   bootstrapping: '⏳ Bootstrapping Tor circuit...',
   direct: '🟠 Direct connection (IP visible to relays)',
-  failed: '🔴 Tor bootstrap failed'
+  failed: '🔴 Tor bootstrap failed',
+  disabled: '⚪ Disabilitato — connessione diretta'
 };
 
 const MODE_ICONS: Record<string, string> = {
@@ -82,6 +84,20 @@ export default class AppNostraStatusTab extends SliderSuperTab {
     });
     torErrorRow.container.style.display = 'none';
 
+    const torCircuitRow = new Row({
+      title: 'View Tor Circuit',
+      subtitle: 'Guard → Middle → Exit, rebuild, exit IP',
+      icon: 'forward',
+      clickable: () => {
+        if(!PrivacyTransport.isTorEnabled()) return;
+        import('@components/sidebarLeft/tabs/nostraTorDashboard').then(
+          ({default: AppNostraTorDashboardTab}) => {
+            this.slider.createTab(AppNostraTorDashboardTab).open();
+          }
+        );
+      }
+    });
+
     const updateTorState = (state: TorState, error?: string) => {
       torStatusRow.subtitle.textContent = TOR_STATE_LABELS[state] || state;
 
@@ -89,7 +105,9 @@ export default class AppNostraStatusTab extends SliderSuperTab {
         '🧅 Tor SOCKS (WebSocket over Tor)' :
         state === 'bootstrapping' ?
           '⏳ Waiting for Tor bootstrap...' :
-          '🌐 Direct WebSocket (no Tor)';
+          state === 'disabled' ?
+            '🌐 Direct WebSocket (Tor disabilitato)' :
+            '🌐 Direct WebSocket (no Tor)';
       torTransportRow.subtitle.textContent = transport;
 
       if(state === 'failed' && error) {
@@ -98,11 +116,26 @@ export default class AppNostraStatusTab extends SliderSuperTab {
       } else {
         torErrorRow.container.style.display = 'none';
       }
+
+      if(state === 'disabled') {
+        torCircuitRow.container.classList.add('row-disabled');
+      } else {
+        torCircuitRow.container.classList.remove('row-disabled');
+      }
     };
 
-    // Seed from the live transport if available, else assume direct
-    const initialTor = (window as any).__nostraPrivacyTransport?.getState?.() as TorState | undefined;
-    updateTorState(initialTor || 'direct');
+    const computeInitialTor = (): TorState => {
+      if(!PrivacyTransport.isTorEnabled()) return 'disabled';
+      const raw = (window as any).__nostraPrivacyTransport?.getState?.();
+      const map: Record<string, TorState> = {
+        active: 'active',
+        bootstrapping: 'bootstrapping',
+        direct: 'direct',
+        failed: 'failed'
+      };
+      return map[raw] || 'direct';
+    };
+    updateTorState(computeInitialTor());
 
     rootScope.addEventListener('nostra_tor_state', (payload) => {
       const state = (typeof payload === 'string' ? payload : payload?.state) as TorState;
@@ -110,19 +143,8 @@ export default class AppNostraStatusTab extends SliderSuperTab {
       updateTorState(state || 'direct', error);
     });
 
-    // "View Tor Circuit" entry — routes to the AppNostraTorDashboardTab.
-    // Uses the Row `clickable` callback so it matches the rest of the tab.
-    const torCircuitRow = new Row({
-      title: 'View Tor Circuit',
-      subtitle: 'Guard → Middle → Exit, rebuild, exit IP',
-      icon: 'forward',
-      clickable: () => {
-        import('@components/sidebarLeft/tabs/nostraTorDashboard').then(
-          ({default: AppNostraTorDashboardTab}) => {
-            this.slider.createTab(AppNostraTorDashboardTab).open();
-          }
-        );
-      }
+    rootScope.addEventListener('nostra_tor_enabled_changed', () => {
+      updateTorState(computeInitialTor());
     });
 
     torSection.content.append(
@@ -203,9 +225,45 @@ export default class AppNostraStatusTab extends SliderSuperTab {
       clearInterval(interval);
     });
 
+    // ─── Section: Quick links ───────────────────────────────
+
+    const linksSection = new SettingSection({});
+
+    const privacyLink = new Row({
+      title: 'Impostazioni privacy e Tor',
+      subtitle: 'Abilita o disabilita Tor, gestisci privacy',
+      icon: 'lock',
+      clickable: () => {
+        import('@components/sidebarLeft/tabs/privacyAndSecurity').then(
+          ({default: AppPrivacyAndSecurityTab}) => {
+            this.slider.createTab(AppPrivacyAndSecurityTab).open();
+          }
+        );
+      }
+    });
+
+    const relaysLink = new Row({
+      title: 'Gestisci Nostr relays',
+      subtitle: 'Aggiungi, rimuovi e configura i relay',
+      icon: 'link',
+      clickable: () => {
+        import('@components/sidebarLeft/tabs/nostraRelaySettings').then(
+          ({default: AppNostraRelaySettingsTab}) => {
+            this.slider.createTab(AppNostraRelaySettingsTab).open();
+          }
+        );
+      }
+    });
+
+    linksSection.content.append(
+      privacyLink.container,
+      relaysLink.container
+    );
+
     this.scrollable.append(
       torSection.container,
-      relaySection.container
+      relaySection.container,
+      linksSection.container
     );
   }
 }
