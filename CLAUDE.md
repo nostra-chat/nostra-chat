@@ -361,11 +361,15 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 **Commands:**
 - TS check: `npx tsc --noEmit 2>&1 | grep "error TS"` (Vite checker may show stale cached errors). Expect ~30 pre-existing errors from `@vendor/emoji`, `@vendor/bezierEasing`.
 - Unit tests: `npx vitest run src/tests/nostra/` — peer mapper, VMT server, sync, relay pool, crypto.
-- `pnpm test:nostra:quick` lists files explicitly — add new tests there or they won't run in the fast path. It exits code 1 due to 2 pre-existing unhandled rejections in `tor-ui.test.ts`; verify the `Tests N passed (N)` line, not the exit code.
+- `pnpm test:nostra:quick` lists files explicitly — add new tests there or they won't run in the fast path.
+- `pnpm test:nostra` runs 78 files / 1044 tests. Must exit with 0 failures and 0 unhandled errors.
 
 **Vitest quirks** (`isolate: false` + `threads: false` — shared module registry across files):
 - `vi.mock()` factories persist across files. Use `mockImplementation()` in `beforeEach`, not shared state.
 - Always pair `vi.mock('@lib/rootScope')` with `afterAll(() => { vi.unmock('@lib/rootScope'); vi.restoreAllMocks(); })` — else later tests get the mock instead of real rootScope and cascade-fail.
+- **`vi.mock()` cannot override already-cached modules** under `isolate: false`. If a module was loaded by a previous test file, `vi.mock` at file top has no effect. The reliable pattern: `vi.resetModules()` + `vi.doMock()` + dynamic `await import()` inside `beforeAll`. See `tor-bootstrap.test.ts` or `migration.test.ts` for examples.
+- **Global object mutations leak across files.** `globalThis.RTCPeerConnection`, `(global as any).indexedDB`, etc. must be saved before and restored in `afterAll`. See `mesh-manager.test.ts` and `virtual-peers-db.test.ts`.
+- **`rootScope.dispatchEvent` crashes in vitest** — it forwards events via `MTProtoMessagePort.getInstance().invokeVoid()` which is undefined. Mocking `@lib/mainWorker/mainMessagePort` doesn't help under `isolate: false` (rootScope already cached with real import). Mock rootScope itself via `vi.doMock('@lib/rootScope', ...)`.
 - `fake-indexeddb/auto`: use unique IDs per test (e.g. `uniqueConvId()`) — IndexedDB state persists across files.
 - Don't mock `MOUNT_CLASS_TO` via `vi.mock('@config/debug')` — it's a mutable singleton. Set `MOUNT_CLASS_TO.apiManagerProxy = {...}` directly in `beforeEach`.
 
@@ -441,6 +445,7 @@ Solid uses event delegation, so **synthetic clicks do not fire delegated handler
 
 ### Profile Tab Structure (`editProfile/`)
 - `src/components/sidebarLeft/tabs/editProfile/` is a directory; consumers still `import from '@components/sidebarLeft/tabs/editProfile'` (resolves to `index.ts`).
+- Tests using `fs.readFileSync` must use `editProfile/index.ts`, not `editProfile.ts` — the latter no longer exists.
 - Files: `index.ts` (orchestrator — boot, save, focus, pubkey row) / `basic-info-section.ts` (Name/Bio/Website/Lightning via `createBasicInfoSection`) / `nip05-section.ts` (alias + setup + verify).
 - Add a new input: extend `BasicInfoSection` (or new section file), wire via `setInitialValues`/`getValues`, extend `publishKind0Metadata` in `index.ts` `save()`.
 
