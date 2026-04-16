@@ -1,6 +1,6 @@
 # Trust-Minimized Update Distribution
 
-> **Status:** Design proposal — not implemented
+> **Status:** Phase A implemented (Ships 1-6 merged). Phases B/C/D not yet implemented.
 > **Target:** Post-v1, multi-phase rollout
 > **Owner:** TBD
 
@@ -244,7 +244,7 @@ Partial mitigations:
 
 | Phase | What ships | Blocks on |
 |---|---|---|
-| **Phase A — Baseline** | Step 1 (user-controlled update prompt). No crypto. | Nothing. Can ship in the next release cycle. |
+| **Phase A — Baseline** ✅ | Step 1 (user-controlled update prompt) + cross-source manifest verification + SW integrity defenses. No crypto. | **Implemented.** See `docs/superpowers/specs/2026-04-16-phase-a-controlled-updates-design.md`. |
 | **Phase B — Reproducibility** | Step 2 (deterministic build pipeline). Document how to reproduce, publish official build hashes alongside each release. | Engineering investment, build infra changes. |
 | **Phase C — Maintainer signatures** | Step 3 + partial Step 6 (verify maintainer signature before activating update). | Phase B. Maintainer Nostr publishing workflow. |
 | **Phase D — Audit layer** | Steps 4, 5, 6, 7 fully. Threshold signing, auditor set configuration, UI for audit state. | Phase C. **Having real human auditors committed to reviewing releases.** This is a social prerequisite, not a technical one. |

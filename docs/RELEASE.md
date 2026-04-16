@@ -86,3 +86,28 @@ Store as `CLOUDFLARE_DNS_API_TOKEN` secret (separate from `CLOUDFLARE_API_TOKEN`
 
 - Settings → Actions → General → Workflow permissions: **"Allow GitHub Actions to create and approve pull requests" MUST stay enabled** or release-please can't open its release PR.
 - "Allow auto-merge" is on and usable on feature PRs via `gh pr merge N --auto --squash --delete-branch`. Never on the release-please release PR.
+
+## Phase A Controlled Updates — Pre-release checklist
+
+Before cutting a release that touches the Phase A update flow, manually verify:
+
+- [ ] First install in fresh Chrome → SW registered, no popup
+- [ ] First install in fresh Firefox → idem
+- [ ] First install in fresh Safari → idem (verify `updateViaCache` respected)
+- [ ] Simulated upgrade in Chrome (local mock manifest with higher version) → popup appears with changelog
+- [ ] Simulated upgrade in Safari → idem
+- [ ] "Più tardi" → close tab → reopen → popup reappears
+- [ ] Block nostra.chat in DevTools → verdict falls to verified-partial (2 sources)
+- [ ] Go fully offline → no popup, no warning
+- [ ] Settings → Aggiornamenti → "Check for updates" → spinner → result
+- [ ] With Tor enabled → boot does not fetch anything before PrivacyTransport.settled
+- [ ] With Tor enabled → after settled, check fires via webtor
+- [ ] PWA installed (home screen) → flow identical
+- [ ] Mid-download network drop → state recovers, no orphan register
+- [ ] Cross-source conflict scenario → Aggiorna button disabled
+
+Run E2E suite as part of the gate:
+```bash
+pnpm start &
+pnpm test:e2e src/tests/e2e/e2e-update-controlled.ts
+```
