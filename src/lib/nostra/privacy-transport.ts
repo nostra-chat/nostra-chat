@@ -82,7 +82,7 @@ export class PrivacyTransport {
     try {
       const rootScope = (await import('@lib/rootScope')).default;
       rootScope.dispatchEvent('nostra_tor_enabled_changed', enabled);
-    } catch {}
+    } catch{}
 
     if(enabled) {
       await this.retryTor();

@@ -75,12 +75,12 @@ function deleteDB(name: string): Promise<boolean> {
 }
 
 async function clearNostraData(opts: {keepSeed: boolean}): Promise<string[]> {
-  const dbNames = opts.keepSeed
-    ? NOSTRA_DB_NAMES.filter((n) => n !== SEED_DB_NAME)
-    : NOSTRA_DB_NAMES;
-  const lsKeys = opts.keepSeed
-    ? NOSTRA_LS_KEYS.filter((k) => k !== SEED_LS_KEY)
-    : NOSTRA_LS_KEYS;
+  const dbNames = opts.keepSeed ?
+    NOSTRA_DB_NAMES.filter((n) => n !== SEED_DB_NAME) :
+    NOSTRA_DB_NAMES;
+  const lsKeys = opts.keepSeed ?
+    NOSTRA_LS_KEYS.filter((k) => k !== SEED_LS_KEY) :
+    NOSTRA_LS_KEYS;
 
   // 1. Close open DB connections held by singletons (none of these touch Nostra.chat)
   const closes: Promise<void>[] = [];
