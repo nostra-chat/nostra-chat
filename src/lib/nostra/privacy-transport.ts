@@ -79,6 +79,11 @@ export class PrivacyTransport {
   async setTorEnabled(enabled: boolean) {
     localStorage.setItem('nostra-tor-enabled', String(enabled));
 
+    try {
+      const rootScope = (await import('@lib/rootScope')).default;
+      rootScope.dispatchEvent('nostra_tor_enabled_changed', enabled);
+    } catch {}
+
     if(enabled) {
       await this.retryTor();
     } else {

@@ -249,6 +249,7 @@ export type BroadcastEvents = {
   'nostra_identity_updated': {displayName?: string, nip05?: string, picture?: string, about?: string, website?: string, lud16?: string, banner?: string},
   'nostra_peer_profile_updated': {peerId: PeerId, pubkey: string, profile: import('./nostra/nostr-profile').NostrProfile},
 
+  'nostra_tor_enabled_changed': boolean,
   'nostra_tor_state': {
     state: 'bootstrapping' | 'active' | 'direct' | 'failed';
     error?: string;
