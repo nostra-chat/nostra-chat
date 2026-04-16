@@ -22,7 +22,7 @@ const EXCLUDE_PATTERNS: RegExp[] = [
 
 function sha256File(path: string): string {
   const h = createHash('sha256');
-  h.update(readFileSync(path));
+  h.update(readFileSync(path) as unknown as Uint8Array);
   return 'sha256-' + h.digest('hex');
 }
 
@@ -53,7 +53,7 @@ function main() {
     if(EXCLUDE_PATTERNS.some(p => p.test(f))) continue;
     const rel = './' + relative(DIST_DIR, f).replace(/\\/g, '/');
     bundleHashes[rel] = sha256File(f);
-    if(/^\.\/sw-[a-z0-9]+\.js$/.test(rel)) {
+    if(/^\.\/sw-[a-zA-Z0-9_-]+\.js$/.test(rel)) {
       swUrl = rel;
     }
   }
