@@ -1,54 +1,28 @@
 /**
  * SearchBarStatusIcons — Tor onion + Nostrich relay status indicators
- *
- * Two small SVG icons (16px) on the right side of the search bar input.
- * Colors indicate connection state. Clicking opens the Status page.
  */
 
 import {createSignal, onCleanup, JSX} from 'solid-js';
 import rootScope from '@lib/rootScope';
+import {TorUiState, TOR_UI_COLORS, computeTorUiState} from '@components/nostra/tor-ui-state';
 
-// ─── Types ───────────────────────────────────────────────────────
-
-type TorState = 'active' | 'bootstrap' | 'direct' | 'error';
 type RelayState = 'all' | 'partial' | 'none';
 
-// ─── Color mapping ───────────────────────────────────────────────
-
-const TOR_COLORS: Record<TorState, string> = {
-  active: '#4caf50',    // green  — circuit ready
-  bootstrap: '#f44336', // red    — still bootstrapping (not usable yet)
-  direct: '#ff9800',    // orange — clearnet fallback
-  error: '#f44336'      // red    — failed/offline
-};
-
 const RELAY_COLORS: Record<RelayState, string> = {
-  all: '#4caf50',      // green  — every configured relay up
-  partial: '#ffeb3b',  // yellow — some but not all
-  none: '#f44336'      // red    — zero connected
+  all: '#4caf50',
+  partial: '#ffeb3b',
+  none: '#f44336'
 };
-
-// Map every privacy-transport state to one of our 4 buckets.
-// `bootstrapping` / `offline` / `failed` / unknown → red.
-function normalizeTorState(raw: string | undefined): TorState {
-  switch(raw) {
-    case 'active': return 'active';
-    case 'direct': return 'direct';
-    case 'bootstrap':
-    case 'bootstrapping': return 'bootstrap';
-    default: return 'error';
-  }
-}
 
 // ─── SVG Icons ───────────────────────────────────────────────────
 
-function TorOnionIcon(props: {color: string; onClick?: () => void}): JSX.Element {
+function TorOnionIcon(props: {color: string; opacity?: number; onClick?: () => void}): JSX.Element {
   return (
     <svg
       width="16" height="16" viewBox="0 0 24 24"
       fill="none" stroke={props.color} stroke-width="2"
       stroke-linecap="round" stroke-linejoin="round"
-      style={{'cursor': 'pointer', 'margin-left': '4px'}}
+      style={{'cursor': 'pointer', 'margin-left': '4px', 'opacity': String(props.opacity ?? 1)}}
       onClick={props.onClick}
     >
       <ellipse cx="12" cy="14" rx="4" ry="6" />
@@ -94,7 +68,7 @@ export default function SearchBarStatusIcons(props: {
   onRelayClick?: () => void;
 }): JSX.Element {
   // Default both to red — "prove you're connected" rather than the other way.
-  const [torState, setTorState] = createSignal<TorState>('error');
+  const [torState, setTorState] = createSignal<TorUiState>(computeTorUiState());
   const [relayState, setRelayState] = createSignal<RelayState>('none');
 
   // Per-URL connection map. `nostra_relay_state` fires once per relay with
@@ -112,9 +86,12 @@ export default function SearchBarStatusIcons(props: {
     else setRelayState('partial');
   };
 
-  const torHandler = (state: any) => {
-    const raw = typeof state === 'string' ? state : state?.state;
-    setTorState(normalizeTorState(raw));
+  const torHandler = () => {
+    setTorState(computeTorUiState());
+  };
+
+  const torEnabledHandler = () => {
+    setTorState(computeTorUiState());
   };
 
   const relayHandler = (state: any) => {
@@ -125,10 +102,12 @@ export default function SearchBarStatusIcons(props: {
 
   rootScope.addEventListener('nostra_tor_state', torHandler);
   rootScope.addEventListener('nostra_relay_state', relayHandler);
+  rootScope.addEventListener('nostra_tor_enabled_changed', torEnabledHandler);
 
   onCleanup(() => {
     rootScope.removeEventListener('nostra_tor_state', torHandler);
     rootScope.removeEventListener('nostra_relay_state', relayHandler);
+    rootScope.removeEventListener('nostra_tor_enabled_changed', torEnabledHandler);
   });
 
   // Seed from the live pool so the icon is correct on first paint, before
@@ -147,13 +126,6 @@ export default function SearchBarStatusIcons(props: {
     }
   } catch{}
 
-  // Seed Tor state from the live privacy transport if present.
-  try {
-    const transport = (window as any).__nostraPrivacyTransport;
-    const s = transport?.state ?? transport?.getState?.();
-    if(s) setTorState(normalizeTorState(s));
-  } catch{}
-
   return (
     <div
       class="search-bar-status-icons"
@@ -169,7 +141,8 @@ export default function SearchBarStatusIcons(props: {
       }}
     >
       <TorOnionIcon
-        color={TOR_COLORS[torState()]}
+        color={TOR_UI_COLORS[torState()]}
+        opacity={torState() === 'disabled' ? 0.55 : 1}
         onClick={props.onTorClick}
       />
       <NostrichIcon
