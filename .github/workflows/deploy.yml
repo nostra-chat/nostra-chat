@@ -82,6 +82,24 @@ jobs:
       - uses: actions/deploy-pages@v4
         id: deployment
 
+  upload-release-manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Upload manifest to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/update-manifest.json
+          tag_name: ${{ github.ref_name }}
+          fail_on_unmatched_files: true
+
   deploy-ipfs:
     needs: build
     runs-on: ubuntu-latest
