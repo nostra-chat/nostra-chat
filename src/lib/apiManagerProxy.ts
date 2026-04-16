@@ -673,7 +673,7 @@ class ApiManagerProxy extends MTProtoMessagePort {
       // new URL('../../../sw.ts', import.meta.url),
       // '../../../sw',
       ServiceWorkerURL,
-      {type: 'module', scope: './'}
+      {type: 'module', scope: './', updateViaCache: 'all'}
     ).then((registration) => {
       if(TEST_NO_STREAMING) {
         throw 1;
