@@ -23,6 +23,28 @@ export default {
   async fetch(request) {
     const reqUrl = new URL(request.url);
 
+    // Phase A: manifest must never be cached — freshness is security-critical.
+    if(reqUrl.pathname === '/update-manifest.json') {
+      try {
+        const cid = await resolveDnsLinkCID();
+        const upstreamUrl = `https://${cid}${UPSTREAM_GATEWAY_SUFFIX}${reqUrl.pathname}${reqUrl.search}`;
+        const upstreamResp = await fetch(upstreamUrl, {
+          cf: {cacheTtl: 0, cacheEverything: false}
+        });
+        const response = new Response(upstreamResp.body, upstreamResp);
+        response.headers.set('Cache-Control', 'no-cache, must-revalidate');
+        response.headers.set('x-ipfs-gateway', 'dweb.link');
+        response.headers.set('x-ipfs-cid', cid);
+        response.headers.set('x-dnslink-source', DNSLINK_NAME);
+        return response;
+      } catch(e) {
+        return new Response(`IPFS gateway error: ${e.message}\n`, {
+          status: 502,
+          headers: {'content-type': 'text/plain; charset=utf-8'}
+        });
+      }
+    }
+
     try {
       const cid = await resolveDnsLinkCID();
       const upstreamUrl = `https://${cid}${UPSTREAM_GATEWAY_SUFFIX}${reqUrl.pathname}${reqUrl.search}`;
