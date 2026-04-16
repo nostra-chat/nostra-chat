@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.6.0](https://github.com/nostra-chat/nostra-chat/compare/v0.5.0...v0.6.0) (2026-04-16)
+
+
+### Features
+
+* **auth:** add keepNostraIdentity flag to logOut() ([b0c963d](https://github.com/nostra-chat/nostra-chat/commit/b0c963d1e2368e3aad426262919506b4f92cca6b))
+* **boot:** surface Reset Local Data confirmation toast ([3c1e89c](https://github.com/nostra-chat/nostra-chat/commit/3c1e89cb4e20e64b5d234caa00861677974a8835))
+* **nostra:** add per-peer kind 0 profile cache with SWR refresh ([bf95604](https://github.com/nostra-chat/nostra-chat/commit/bf956043897cb6b3388475ff2a5160f2737eae8b))
+* **nostra:** add usePeerNostraProfile Solid store ([703f654](https://github.com/nostra-chat/nostra-chat/commit/703f65429816435b611cbb93c7aa8dffd080197d))
+* **nostra:** hydrate UserFull.about from peer profile cache ([b74ce5d](https://github.com/nostra-chat/nostra-chat/commit/b74ce5d96e7589f25fc1aab8da0a53a284a15e76))
+* **nostra:** P2P media send — images, files, voice notes via AES-GCM E2EE + Blossom ([be2f720](https://github.com/nostra-chat/nostra-chat/commit/be2f720ff75aa117bb183189f4912a9731bf7e26))
+* **nostra:** wipe peer profile cache on logout ([d7bbbc9](https://github.com/nostra-chat/nostra-chat/commit/d7bbbc956ff89bd29d2dd14e44927285fb8d5398))
+* **popups:** add Reset Local Data popup ([a3f1213](https://github.com/nostra-chat/nostra-chat/commit/a3f1213440b8bfff1ff6ed13be974c332cfce4dd))
+* **profile:** render peer kind 0 website/lud16/nip05 rows ([eaf09ec](https://github.com/nostra-chat/nostra-chat/commit/eaf09ec638ced8e94eef5ae12a2cc03dc69351e0))
+* **settings:** add Reset Local Data menu entry above Logout ([fcf46c8](https://github.com/nostra-chat/nostra-chat/commit/fcf46c80660aab9409ff0f523b0796909b3b4fe0))
+
 ## [0.5.0](https://github.com/nostra-chat/nostra-chat/compare/v0.4.2...v0.5.0) (2026-04-15)
 
 
