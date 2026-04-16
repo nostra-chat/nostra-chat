@@ -411,6 +411,7 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
       }
       throw err;
     }
+    import('@lib/update/update-popup-controller');
   }
 
   await checkLastActiveAccountFromTMe();
