@@ -1,0 +1,190 @@
+import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
+import {updateBootstrap, __resetForTest} from '@lib/update/update-bootstrap';
+
+function mockSWRegistration(opts: {
+  activeScriptURL: string;
+  waiting?: {scriptURL: string} | null;
+  updateImpl?: () => Promise<void>;
+}): {registration: any; updateSpy: any} {
+  const updateSpy = vi.fn(opts.updateImpl || (async() => {}));
+  const registration: any = {
+    active: {scriptURL: opts.activeScriptURL},
+    waiting: opts.waiting ?? null,
+    update: updateSpy
+  };
+  // Preserve userAgent so that userAgent.ts can read it when rootScope is first imported
+  const ua = (global as any).navigator?.userAgent || 'Mozilla/5.0 (jsdom)';
+  (global as any).navigator = {
+    userAgent: ua,
+    ...(global as any).navigator,
+    serviceWorker: {ready: Promise.resolve(registration)}
+  };
+  return {registration, updateSpy};
+}
+
+describe('updateBootstrap — Step 0 first install', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    __resetForTest();
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('saves baseline to localStorage on first boot', async() => {
+    mockSWRegistration({activeScriptURL: 'https://app.example.com/sw-abc.js'});
+    await updateBootstrap({skipNetworkChecks: true});
+    expect(localStorage.getItem('nostra.update.installedSwUrl')).toBe('https://app.example.com/sw-abc.js');
+    // installedVersion is BUILD_VERSION which is injected at build; in test env it becomes the literal string or falls back
+    expect(localStorage.getItem('nostra.update.installedVersion')).toBeTruthy();
+    expect(localStorage.getItem('nostra.update.lastAcceptedVersion')).toBeTruthy();
+  });
+
+  it('does not throw on first install', async() => {
+    mockSWRegistration({activeScriptURL: 'https://app.example.com/sw-abc.js'});
+    await expect(updateBootstrap({skipNetworkChecks: true})).resolves.not.toThrow();
+  });
+});
+
+describe('updateBootstrap — Step 1a URL consistency', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    __resetForTest();
+    localStorage.setItem('nostra.update.installedVersion', 'test-version');
+    localStorage.setItem('nostra.update.installedSwUrl', 'https://app.example.com/sw-abc.js');
+    localStorage.setItem('nostra.update.lastAcceptedVersion', 'test-version');
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('throws CompromiseAlertError when scriptURL differs from installedSwUrl', async() => {
+    mockSWRegistration({activeScriptURL: 'https://app.example.com/sw-EVIL.js'});
+    await expect(updateBootstrap({skipNetworkChecks: true})).rejects.toThrow(/sw-url-changed/);
+  });
+
+  it('passes when scriptURL matches', async() => {
+    mockSWRegistration({activeScriptURL: 'https://app.example.com/sw-abc.js'});
+    await expect(updateBootstrap({skipNetworkChecks: true})).resolves.not.toThrow();
+  });
+});
+
+describe('updateBootstrap — Step 1b registration.update byte check', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    __resetForTest();
+    localStorage.setItem('nostra.update.installedVersion', 'test-version');
+    localStorage.setItem('nostra.update.installedSwUrl', 'https://app.example.com/sw-abc.js');
+    localStorage.setItem('nostra.update.lastAcceptedVersion', 'test-version');
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('throws CompromiseAlertError when unexpected waiting SW appears after update()', async() => {
+    const newWaiting = {scriptURL: 'https://app.example.com/sw-abc.js'};
+    const registration: any = {
+      active: {scriptURL: 'https://app.example.com/sw-abc.js'},
+      waiting: null,
+      update: vi.fn(async function(this: any) { registration.waiting = newWaiting; })
+    };
+    const ua = (global as any).navigator?.userAgent || 'Mozilla/5.0 (jsdom)';
+    (global as any).navigator = {userAgent: ua, ...(global as any).navigator, serviceWorker: {ready: Promise.resolve(registration)}};
+
+    await expect(updateBootstrap({skipManifestCheck: true})).rejects.toThrow(/sw-body-changed-at-same-url/);
+  });
+
+  it('does not throw if update() produces no waiting', async() => {
+    mockSWRegistration({activeScriptURL: 'https://app.example.com/sw-abc.js'});
+    await expect(updateBootstrap({skipManifestCheck: true})).resolves.not.toThrow();
+  });
+
+  it('does not throw if pendingFinalization is set (expected waiting)', async() => {
+    localStorage.setItem('nostra.update.pendingFinalization', '1');
+    const newWaiting = {scriptURL: 'https://app.example.com/sw-abc.js'};
+    const registration: any = {
+      active: {scriptURL: 'https://app.example.com/sw-abc.js'},
+      waiting: null,
+      update: vi.fn(async function() { registration.waiting = newWaiting; })
+    };
+    const ua = (global as any).navigator?.userAgent || 'Mozilla/5.0 (jsdom)';
+    (global as any).navigator = {userAgent: ua, ...(global as any).navigator, serviceWorker: {ready: Promise.resolve(registration)}};
+
+    await expect(updateBootstrap({skipManifestCheck: true})).resolves.not.toThrow();
+  });
+});
+
+describe('updateBootstrap — Step 2 manifest cross-source verification', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    __resetForTest();
+    localStorage.setItem('nostra.update.installedVersion', 'test-version');
+    localStorage.setItem('nostra.update.installedSwUrl', 'https://app.example.com/sw-abc.js');
+    localStorage.setItem('nostra.update.lastAcceptedVersion', 'test-version');
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('writes integrity result to localStorage', async() => {
+    mockSWRegistration({activeScriptURL: 'https://app.example.com/sw-abc.js'});
+    const mv = await import('@lib/update/manifest-verifier');
+    vi.spyOn(mv, 'verifyManifestsAcrossSources').mockResolvedValue({
+      verdict: 'offline', sources: [], checkedAt: 12345
+    });
+    await updateBootstrap();
+    expect(localStorage.getItem('nostra.update.lastIntegrityResult')).toBe('offline');
+    expect(Number(localStorage.getItem('nostra.update.lastIntegrityCheck'))).toBe(12345);
+  });
+
+  it('dispatches update_available when verdict verified and newer version', async() => {
+    mockSWRegistration({activeScriptURL: 'https://app.example.com/sw-abc.js'});
+    const mv = await import('@lib/update/manifest-verifier');
+    vi.spyOn(mv, 'verifyManifestsAcrossSources').mockResolvedValue({
+      verdict: 'verified',
+      manifest: {
+        schemaVersion: 1, version: '99.0.0', gitSha: 'xxx', published: 'x',
+        swUrl: './sw-new.js', bundleHashes: {'./sw-new.js': 'sha256-x'},
+        changelog: 'note'
+      },
+      sources: [],
+      checkedAt: Date.now()
+    });
+
+    const rs = (await import('@lib/rootScope')).default;
+    const spy = vi.spyOn(rs, 'dispatchEventSingle');
+    await updateBootstrap();
+
+    const call = spy.mock.calls.find(c => c[0] === 'update_available');
+    expect(call).toBeDefined();
+    expect((call![1] as any).version).toBe('99.0.0');
+  });
+});
+
+describe('updateBootstrap — Phase 6 post-reload finalization', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    __resetForTest();
+    localStorage.setItem('nostra.update.installedVersion', '0.7.0');
+    localStorage.setItem('nostra.update.installedSwUrl', 'http://localhost:3000/sw-old.js');
+    localStorage.setItem('nostra.update.lastAcceptedVersion', '0.7.0');
+    localStorage.setItem('nostra.update.pendingFinalization', '1');
+    localStorage.setItem('nostra.update.pendingManifest', JSON.stringify({
+      schemaVersion: 1, version: '0.8.0', gitSha: 'xxx', published: 'x',
+      swUrl: './sw-new.js', bundleHashes: {'./sw-new.js': 'sha256-y'},
+      changelog: ''
+    }));
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('promotes pending manifest to installed state when active SW matches', async() => {
+    mockSWRegistration({activeScriptURL: 'http://localhost:3000/sw-new.js'});
+
+    // Stub location so new URL(manifest.swUrl, location.origin) resolves cleanly
+    const savedLocation = (global as any).location;
+    (global as any).location = {origin: 'http://localhost:3000'};
+
+    try {
+      await updateBootstrap({skipManifestCheck: true});
+    } finally {
+      (global as any).location = savedLocation;
+    }
+
+    expect(localStorage.getItem('nostra.update.installedVersion')).toBe('0.8.0');
+    expect(localStorage.getItem('nostra.update.installedSwUrl')).toBe('http://localhost:3000/sw-new.js');
+    expect(localStorage.getItem('nostra.update.pendingFinalization')).toBeNull();
+    expect(localStorage.getItem('nostra.update.pendingManifest')).toBeNull();
+  });
+});
