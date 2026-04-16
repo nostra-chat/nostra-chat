@@ -264,6 +264,20 @@ watchCacheStoragesLifetime({
 watchMtprotoOnDev({connectedWindows, onWindowConnected});
 
 const onFetch = (event: FetchEvent): void => {
+  // Phase A: intercept navigation so the SW serves cached index.html.
+  // This prevents a compromised CDN from swapping /index.html to redirect
+  // the browser to attacker-controlled chunk URLs that bypass the trusted bundle.
+  if(
+    import.meta.env.PROD &&
+    (
+      event.request.mode === 'navigate' ||
+      /\/$|\.html?($|\?)/.test(event.request.url)
+    ) &&
+    new URL(event.request.url).origin === location.origin
+  ) {
+    return event.respondWith(requestCache(event));
+  }
+
   if(
     import.meta.env.PROD &&
     !IS_SAFARI &&
@@ -348,13 +362,36 @@ const onChangeState = () => {
 
 ctx.addEventListener('install', (event) => {
   log('installing');
-  event.waitUntil(ctx.skipWaiting().then(() => log('skipped waiting'))); // Activate worker immediately
+  event.waitUntil((async() => {
+    try {
+      const cache = await ctx.caches.open(CACHE_ASSETS_NAME);
+      await cache.addAll(['./', './index.html']);
+      log('pre-cached navigation entry');
+    } catch(err) {
+      log.warn('failed to pre-cache index.html', err);
+    }
+    // NO skipWaiting() — new SW stays in waiting until user consent via main-thread SKIP_WAITING message.
+  })());
 });
 
 ctx.addEventListener('activate', (event) => {
   log('activating', ctx);
-  event.waitUntil(ctx.caches.delete(CACHE_ASSETS_NAME).then(() => log('cleared assets cache')));
-  event.waitUntil(ctx.clients.claim().then(() => log('claimed clients')));
+  event.waitUntil((async() => {
+    // Clear old asset cache — reached either on explicit user consent (normal Phase A flow)
+    // or on the one-time silent migration from pre-Phase A SW (spec: "migration strategy").
+    await ctx.caches.delete(CACHE_ASSETS_NAME);
+    log('cleared assets cache');
+    // NO clients.claim() — reload is handled by main thread via controllerchange listener.
+  })());
+});
+
+// Phase A: main thread sends {type: 'SKIP_WAITING'} after user consent.
+// This is the ONLY path that promotes a waiting SW to active (no skipWaiting in install).
+ctx.addEventListener('message', (event) => {
+  if(event.data && event.data.type === 'SKIP_WAITING') {
+    log('received SKIP_WAITING message, promoting this SW to active');
+    ctx.skipWaiting();
+  }
 });
 
 // ctx.onerror = (error) => {
