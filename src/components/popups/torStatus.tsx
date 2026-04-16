@@ -11,13 +11,14 @@ export interface RelayStateInfo {
   write: boolean;
 }
 
-type TorState = 'bootstrapping' | 'active' | 'direct' | 'failed';
+type TorState = 'bootstrapping' | 'active' | 'direct' | 'failed' | 'disabled';
 
 const STATE_LABELS: Record<TorState, {text: string; color: string}> = {
   active: {text: 'Attivo', color: 'green'},
   bootstrapping: {text: 'Bootstrap...', color: 'yellow'},
   direct: {text: 'Diretto', color: 'yellow'},
-  failed: {text: 'Errore', color: 'red'}
+  failed: {text: 'Errore', color: 'red'},
+  disabled: {text: 'Disabilitato', color: 'gray'}
 };
 
 export default function TorStatus(props: {
@@ -110,8 +111,14 @@ export default function TorStatus(props: {
             Chiudi
           </button>
           <button
-            class="tor-popup__btn tor-popup__btn--link"
+            class={classNames(
+              'tor-popup__btn',
+              'tor-popup__btn--link',
+              props.torState === 'disabled' && 'tor-popup__btn--disabled'
+            )}
+            disabled={props.torState === 'disabled'}
             onClick={() => {
+              if(props.torState === 'disabled') return;
               props.onClose();
               import('@components/sidebarLeft/tabs/nostraTorDashboard').then(({default: AppNostraTorDashboardTab}) => {
                 appSidebarLeft.createTab(AppNostraTorDashboardTab).open();

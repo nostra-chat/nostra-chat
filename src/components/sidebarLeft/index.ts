@@ -1179,8 +1179,9 @@ export class AppSidebarLeft extends SidebarSlider {
   private openTorStatusPopup(): void {
     Promise.all([
       import('@components/popups/torStatus'),
-      import('solid-js/web')
-    ]).then(([{default: TorStatus}, {render}]) => {
+      import('solid-js/web'),
+      import('@components/nostra/tor-ui-state')
+    ]).then(([{default: TorStatus}, {render}, {computeTorUiState}]) => {
       // Gather relay states from pool. Prefer getRelayStates() (canonical
       // {url, connected, latencyMs, read, write} shape) and fall back to
       // getRelayEntries() + config unpacking for older pool builds.
@@ -1207,15 +1208,14 @@ export class AppSidebarLeft extends SidebarSlider {
         console.warn('[TorStatusPopup] failed to gather relay states:', e);
       }
 
-      // Get Tor state
-      const transport = (window as any).__nostraPrivacyTransport;
-      const torState = transport?.getState?.() ?? 'direct';
-      const torStateMap: Record<string, string> = {
+      // Get Tor state (disabled check first)
+      const torUiState = computeTorUiState();
+      const torStateForPopup: Record<string, string> = {
         active: 'active',
-        bootstrapping: 'bootstrapping',
+        bootstrap: 'bootstrapping',
         direct: 'direct',
-        failed: 'failed',
-        offline: 'failed'
+        error: 'failed',
+        disabled: 'disabled'
       };
 
       // Mount popup overlay
@@ -1224,7 +1224,7 @@ export class AppSidebarLeft extends SidebarSlider {
 
       const cleanup = render(() => TorStatus({
         relayStates,
-        torState: (torStateMap[torState] || 'direct') as any,
+        torState: (torStateForPopup[torUiState] || 'direct') as any,
         onClose: () => {
           overlayEl.remove();
         }
