@@ -107,15 +107,20 @@ export function parseMessageContent(content: string): {id?: string; content: str
   }
 }
 
-/** Extract file metadata from kind 15 rumor */
+/**
+ * Extract file metadata from a rumor. Normally a kind 15 rumor, but we also
+ * accept kind 14 rumors whose parsed.content JSON carries {url, sha256}
+ * (current Nostra sender publishes everything as kind 14 for historical
+ * reasons — see chat-api.ts sendMessage; upgrading the wire kind is a
+ * protocol follow-up that doesn't affect the receive path).
+ */
 export function extractFileMetadata(
   parsed: any,
-  rumorKind?: number
+  _rumorKind?: number
 ): ChatMessage['fileMetadata'] | undefined {
-  if(rumorKind !== 15) return undefined;
   try {
     const fileParsed = typeof parsed.content === 'string' ? JSON.parse(parsed.content) : parsed;
-    if(fileParsed.url && fileParsed.sha256) {
+    if(fileParsed.url && fileParsed.sha256 && fileParsed.key && fileParsed.iv) {
       return {
         url: fileParsed.url,
         sha256: fileParsed.sha256,
@@ -124,7 +129,9 @@ export function extractFileMetadata(
         width: fileParsed.width,
         height: fileParsed.height,
         keyHex: fileParsed.key || fileParsed.keyHex || '',
-        ivHex: fileParsed.iv || fileParsed.ivHex || ''
+        ivHex: fileParsed.iv || fileParsed.ivHex || '',
+        duration: typeof fileParsed.duration === 'number' ? fileParsed.duration : undefined,
+        waveform: typeof fileParsed.waveform === 'string' ? fileParsed.waveform : undefined
       };
     }
   } catch{
@@ -347,7 +354,9 @@ export async function handleRelayMessage(
         width: fileMetadata.width,
         height: fileMetadata.height,
         keyHex: fileMetadata.keyHex,
-        ivHex: fileMetadata.ivHex
+        ivHex: fileMetadata.ivHex,
+        duration: fileMetadata.duration,
+        waveform: fileMetadata.waveform
       } : undefined
     }).catch((err) => {
       ctx.log.warn('[ChatAPI] failed to save incoming message:', err);

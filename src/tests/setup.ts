@@ -17,6 +17,18 @@ if(!globalScope.crypto) {
   });
 }
 
+// jsdom's Blob lacks arrayBuffer(); polyfill via FileReader for test runs
+if(typeof globalScope.Blob !== 'undefined' && typeof globalScope.Blob.prototype.arrayBuffer !== 'function') {
+  globalScope.Blob.prototype.arrayBuffer = function(this: Blob): Promise<ArrayBuffer> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as ArrayBuffer);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsArrayBuffer(this);
+    });
+  };
+}
+
 // Mock WebRTC APIs for testing
 if(typeof global.RTCPeerConnection === 'undefined') {
   class MockRTCPeerConnection {

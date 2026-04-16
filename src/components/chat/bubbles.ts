@@ -1533,6 +1533,57 @@ export default class ChatBubbles {
   }
 
   public constructPeerHelpers() {
+    // [Nostra.chat] P2P file upload progress / failed / completed listeners.
+    // These update the in-flight media bubble with a progress bar and a retry
+    // affordance on hard failure.
+    const findBubbleByMid = (mid: number): HTMLElement | null => {
+      return this.chatInner?.querySelector?.(`[data-mid="${mid}"]`) as HTMLElement | null;
+    };
+
+    this.listenerSetter.add(rootScope)('nostra_file_upload_progress', ({peerId, mid, percent}) => {
+      if(peerId !== this.peerId) return;
+      const bubble = findBubbleByMid(mid);
+      if(!bubble) return;
+      let bar = bubble.querySelector('.media-upload-progress') as HTMLElement | null;
+      if(!bar) {
+        bar = document.createElement('div');
+        bar.className = 'media-upload-progress';
+        const inner = document.createElement('div');
+        inner.className = 'media-upload-progress-inner';
+        bar.appendChild(inner);
+        bubble.appendChild(bar);
+      }
+      const inner = bar.querySelector('.media-upload-progress-inner') as HTMLElement | null;
+      if(inner) inner.style.width = percent + '%';
+    });
+
+    this.listenerSetter.add(rootScope)('nostra_file_upload_completed', ({peerId, mid}) => {
+      if(peerId !== this.peerId) return;
+      const bubble = findBubbleByMid(mid);
+      if(!bubble) return;
+      bubble.querySelector('.media-upload-progress')?.remove();
+      bubble.classList.remove('upload-failed');
+      bubble.querySelector('.media-upload-retry')?.remove();
+    });
+
+    this.listenerSetter.add(rootScope)('nostra_file_upload_failed', ({peerId, mid}) => {
+      if(peerId !== this.peerId) return;
+      const bubble = findBubbleByMid(mid);
+      if(!bubble) return;
+      bubble.classList.add('upload-failed');
+      bubble.querySelector('.media-upload-progress')?.remove();
+      if(!bubble.querySelector('.media-upload-retry')) {
+        const retry = document.createElement('div');
+        retry.className = 'media-upload-retry';
+        retry.title = 'Retry';
+        retry.addEventListener('click', (e) => {
+          e.stopPropagation();
+          rootScope.dispatchEvent('nostra_retry_file_send', {peerId, mid});
+        });
+        bubble.appendChild(retry);
+      }
+    });
+
     // will call when message is sent (only 1)
     this.listenerSetter.add(rootScope)('history_append', async({storageKey, message}) => {
       if(storageKey !== this.chat.messagesStorageKey || this.chat.type === ChatType.Scheduled || this.chat.type === ChatType.Static || this.chat.type === ChatType.Logs) return;

@@ -1571,6 +1571,49 @@ export class AppMessagesManager extends AppManager {
 
     await this.checkSendOptions(options);
 
+    // [Nostra.chat] P2P media shortcut: skip the MTProto chunk upload path.
+    // The Virtual MTProto Server handles Blossom upload + AES-GCM encryption
+    // + kind 15 rumor publish. Bubble injection and message-store persist
+    // happen inside the VMT handler, so we only need to dispatch message_sent
+    // after the bridge returns.
+    if(Number(peerId) >= 1e15 && (file instanceof File || file instanceof Blob)) {
+      const mime = (file.type || '').toLowerCase();
+      const nostraType: 'image' | 'video' | 'file' | 'voice' =
+        options.isVoiceMessage ? 'voice' :
+        mime.startsWith('image/') ? 'image' :
+        mime.startsWith('video/') ? 'video' :
+        'file';
+      const tempMid = -Date.now();
+      try {
+        const updates: any = await this.apiManager.invokeApi('nostraSendFile' as any, {
+          peerId,
+          blob: file,
+          type: nostraType,
+          caption: options.caption || '',
+          tempMid,
+          width: options.width,
+          height: options.height,
+          duration: options.duration,
+          waveform: options.waveform
+        } as any);
+        if(updates?.nostraMid) {
+          const storage = this.getHistoryMessagesStorage(peerId);
+          const realMid = updates.nostraMid;
+          this.rootScope.dispatchEvent('messages_pending');
+          this.rootScope.dispatchEvent('message_sent', {
+            storageKey: storage.key,
+            tempId: tempMid,
+            tempMessage: undefined as any,
+            mid: realMid,
+            message: undefined as any
+          });
+        }
+      } catch(err) {
+        this.log.error('sendFile P2P shortcut failed:', err);
+      }
+      return;
+    }
+
     const isDocument = !(file instanceof File) && !(file instanceof Blob);
     if(isDocument) {
       file = this.appDocsManager.getDoc((file as MyDocument).id) || file;
