@@ -54,6 +54,7 @@
     "@typescript-eslint/eslint-plugin": "^8.24.0",
     "@typescript-eslint/parser": "^8.24.0",
     "@vitejs/plugin-basic-ssl": "^1.1.0",
+    "@vitest/coverage-v8": "0.34.6",
     "autoprefixer": "^10.4.16",
     "bezier-easing": "^3.0.0",
     "big-integer": "^1.6.52",

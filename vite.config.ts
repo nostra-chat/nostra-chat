@@ -151,12 +151,12 @@ export default defineConfig({
       '**/.worktrees/**',
       '**/.claude/**',
     ],
-    // coverage: {
-    //   provider: 'v8',
-    //   reporter: ['text', 'lcov'],
-    //   include: ['src/**/*.ts', 'store/src/**/*.ts', 'web/src/**/*.ts'],
-    //   exclude: ['**/*.d.ts', 'src/server/*.ts', 'store/src/**/server.ts']
-    // },
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'lcov'],
+      include: ['src/**/*.ts'],
+      exclude: ['**/*.d.ts', 'src/vendor/**']
+    },
     environment: 'jsdom',
     testTransformMode: {web: ['.[jt]sx?$']},
     // otherwise, solid would be loaded twice:
