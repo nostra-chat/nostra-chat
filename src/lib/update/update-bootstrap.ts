@@ -33,6 +33,31 @@ function semverGt(a: string, b: string): boolean {
 }
 
 export async function updateBootstrap(opts: BootstrapOptions = {}): Promise<void> {
+  // In privacy mode, defer network ops until Tor settles and route through webtor.
+  // This prevents the integrity checks from leaking the user's IP to CDN/GitHub/IPFS
+  // gateways during the Tor bootstrap window. Intentionally best-effort — if privacy
+  // integration modules are absent we fall back gracefully to direct fetch.
+  try {
+    const isTor = !!(window as any).__nostraTransport ||
+      localStorage.getItem('nostra-relay-config')?.includes('privacy');
+    if(isTor) {
+      try {
+        const pt = (window as any).__nostraPrivacyTransport;
+        if(pt && typeof pt.waitUntilSettled === 'function') {
+          await pt.waitUntilSettled();
+        }
+        const webtorClient = (window as any).__nostraTransport?.webtorClient ||
+          (window as any).__nostraPrivacyTransport?.webtorClient;
+        if(webtorClient && typeof webtorClient.fetch === 'function') {
+          const {setUpdateTransport} = await import('@lib/update/update-transport');
+          setUpdateTransport((url, init) => webtorClient.fetch(url, init));
+        }
+      } catch(err) {
+        console.warn('[UPDATE] privacy integration failed, falling back to direct fetch', err);
+      }
+    }
+  } catch{}
+
   const reg = await navigator.serviceWorker.ready;
 
   // Phase 6 post-reload finalization (runs BEFORE Step 0 so pendingFinalization branch is handled on its own terms)
