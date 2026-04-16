@@ -273,7 +273,7 @@ describe('migration', () => {
 
       // Verify pending message was re-encrypted
       const messages = await loadAllQueuedMessages();
-      const reEncrypted = messages.find(m => m.id === 'oq-1');
+      const reEncrypted = messages.find((m: any) => m.id === 'oq-1');
       expect(reEncrypted).toBeDefined();
       expect(reEncrypted!.payload).not.toBe('Hello from old identity');
 
@@ -284,7 +284,7 @@ describe('migration', () => {
       expect(decrypted).toBe('Hello from old identity');
 
       // Verify delivered message was NOT re-encrypted
-      const delivered = messages.find(m => m.id === 'oq-2');
+      const delivered = messages.find((m: any) => m.id === 'oq-2');
       expect(delivered).toBeDefined();
       expect(delivered!.payload).toBe('Already delivered');
     });
