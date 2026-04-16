@@ -13,6 +13,7 @@ import SettingSection from '@components/settingSection';
 import AppNostraRelaySettingsTab from '@components/sidebarLeft/tabs/nostraRelaySettings';
 import AppEditProfileTab from '@components/sidebarLeft/tabs/editProfile';
 import showLogOutPopup from '@components/popups/logOut';
+import showResetLocalDataPopup from '@components/popups/resetLocalData';
 import {loadCachedProfile} from '@lib/nostra/profile-cache';
 import {loadEncryptedIdentity} from '@lib/nostra/key-storage';
 import {decodePubkey} from '@lib/nostra/nostr-identity';
@@ -30,6 +31,12 @@ export default class AppSettingsTab extends SliderSuperTab {
       listenerSetter: this.listenerSetter,
       direction: 'bottom-left',
       buttons: [{
+        icon: 'delete',
+        regularText: 'Reset Local Data',
+        onClick: () => {
+          showResetLocalDataPopup();
+        }
+      }, {
         icon: 'logout',
         text: 'EditAccount.Logout',
         onClick: () => {

@@ -335,6 +335,7 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 - Nostra localStorage: `nostra_identity`, `nostra-relay-config`, `nostra-last-seen-timestamp`, `nostra:read-receipts-enabled`.
 - `.toasts-container` has `z-index: 5` — too low for popup transitions. Use a dedicated overlay with `z-index: 9999` for destructive-action feedback.
 - E2E: `npx tsx src/tests/e2e/e2e-logout.ts`.
+- **Reset Local Data** (sibling of logout): `showResetLocalDataPopup()` in `src/components/popups/resetLocalData.ts` wipes everything except the seed via `clearAllExceptSeed()` in `nostra-cleanup.ts` and calls `apiManager.logOut(undefined, {keepNostraIdentity: true})` so the Worker-side `deleteEncryptedIdentity()` is skipped. A `sessionStorage` marker (`nostra-just-reset`) triggers a confirmation toast on the next boot via `maybeShowResetToast()` called from `src/index.ts`.
 
 ### UI Components
 - The active "Add Contact" dialog is in `src/components/sidebarLeft/tabs/contacts.ts` (imperative DOM), NOT `src/components/nostra/AddContact.tsx` (Solid.js — unused).
