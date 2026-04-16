@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.1](https://github.com/nostra-chat/nostra-chat/compare/v0.7.0...v0.7.1) (2026-04-16)
+
+
+### Bug Fixes
+
+* **lint:** fix eslint errors and add pre-commit hook ([e1e782a](https://github.com/nostra-chat/nostra-chat/commit/e1e782a0d29d0db599ea977f0c2e70c5536a0d61))
+* **tests:** repair all nostra test failures and unhandled rejections ([f4b76a5](https://github.com/nostra-chat/nostra-chat/commit/f4b76a54ad4a54faa21cf4efc6e4e207411ba882))
+
 ## [0.7.0](https://github.com/nostra-chat/nostra-chat/compare/v0.6.0...v0.7.0) (2026-04-16)
 
 
