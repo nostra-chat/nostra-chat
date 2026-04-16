@@ -57,6 +57,8 @@ import useHasFoldersSidebar, {useIsSidebarCollapsed} from '@stores/foldersSideba
 import appNavigationController from '@components/appNavigationController';
 import {preventCrossTabDynamicImportDeadlock} from '@helpers/preventDeadlock';
 import noop from '@helpers/noop';
+import {updateBootstrap} from '@lib/update/update-bootstrap';
+import {CompromiseAlertError} from '@lib/update/types';
 
 // import commonStateStorage from '@lib/commonStateStorage';
 // import { STATE_INIT } from '@config/state';
@@ -395,6 +397,22 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
   listenForWindowPrint();
   cancelImageEvents();
   setRootClasses();
+
+  // Update integrity bootstrap — runs before IDB / worker init so a compromise
+  // alert can take over the page before any sensitive data is loaded.
+  if('serviceWorker' in navigator) {
+    try {
+      await updateBootstrap();
+    } catch(err) {
+      if(err instanceof CompromiseAlertError) {
+        const {mountCompromiseAlert} = await import('@lib/update/compromise-alert-mount');
+        await mountCompromiseAlert(err.reason);
+        return;
+      }
+      throw err;
+    }
+  }
+
   await checkLastActiveAccountFromTMe();
 
   if(IS_INSTALL_PROMPT_SUPPORTED) {

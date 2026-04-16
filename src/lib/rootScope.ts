@@ -293,6 +293,13 @@ export type BroadcastEvents = {
   'nostra_conversation_deleted': {peerPubkey: string; conversationId: string},
   'nostra_recovery_requested': void,
   'nostra_read_receipts_toggle': boolean,
+
+  'update_available': import('@lib/update/types').Manifest,
+  'update_state_changed': import('@lib/update/types').UpdateFlowState,
+  'update_download_progress': {completed: number; total: number},
+  'update_completed': string,
+  'update_compromise_detected': import('@lib/update/types').CompromiseReason,
+  'update_integrity_check_completed': import('@lib/update/types').IntegrityResult,
 };
 
 export type BroadcastEventsListeners = {
