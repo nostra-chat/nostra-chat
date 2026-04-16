@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.0](https://github.com/nostra-chat/nostra-chat/compare/v0.6.0...v0.7.0) (2026-04-16)
+
+
+### Features
+
+* **relay-ui:** add card-based SCSS for relay settings restyle ([a74dee5](https://github.com/nostra-chat/nostra-chat/commit/a74dee5be579956d6b6c370c2d02635a2bcb3f70))
+* **relay-ui:** restyle relay settings with card layout and pill chips ([01889f6](https://github.com/nostra-chat/nostra-chat/commit/01889f626392ecf56babc4765cdde848752ffb75))
+* **tor-ui:** add nostra_tor_enabled_changed event and shared TorUiState helper ([84e7af6](https://github.com/nostra-chat/nostra-chat/commit/84e7af6d530da77ff464ab839f30831d91e20fcc))
+* **tor-ui:** disabled state on Status tab + shortcut links to Privacy and Relays ([44fd678](https://github.com/nostra-chat/nostra-chat/commit/44fd678de242340348eb5c22c5058bb95683f136))
+* **tor-ui:** show 'Disabilitato' in TorStatus popup when Tor is off ([9be8154](https://github.com/nostra-chat/nostra-chat/commit/9be81542470f3fb8129a6d431437a452fde76f0c))
+* **tor-ui:** show grey disabled onion icon when Tor is off ([f051240](https://github.com/nostra-chat/nostra-chat/commit/f0512409962ca5638e25883c750f2bfc3cd52910))
+
 ## [0.6.0](https://github.com/nostra-chat/nostra-chat/compare/v0.5.0...v0.6.0) (2026-04-16)
 
 
