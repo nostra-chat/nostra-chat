@@ -107,7 +107,8 @@ if(USE_OWN_SOLID) {
 export default defineConfig({
   define: {
     'import.meta.env.VITE_VERSION': JSON.stringify(pkgVersion),
-    'import.meta.env.VITE_VERSION_FULL': JSON.stringify(pkgVersion)
+    'import.meta.env.VITE_VERSION_FULL': JSON.stringify(pkgVersion),
+    '__BUILD_VERSION__': JSON.stringify(pkgVersion)
   },
   plugins: [
     // devtools({

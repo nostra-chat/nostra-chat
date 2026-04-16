@@ -208,4 +208,6 @@ declare global {
     animationGroup?: AnimationItemGroup,
     managers?: AppManagers
   };
+
+  const __BUILD_VERSION__: string;
 }
