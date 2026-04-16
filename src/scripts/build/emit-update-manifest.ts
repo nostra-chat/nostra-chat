@@ -5,35 +5,22 @@
  * Output: dist/update-manifest.json
  */
 
-import {readFileSync, writeFileSync, readdirSync, statSync} from 'fs';
+import {readFileSync, writeFileSync} from 'fs';
 import {createHash} from 'crypto';
 import {join, relative} from 'path';
 import {execSync} from 'child_process';
+import {walkFiles, DIST_EXCLUDE_PATTERNS} from './fs-utils';
 
 const DIST_DIR = 'dist';
 const PKG = JSON.parse(readFileSync('package.json', 'utf8'));
 const VERSION: string = PKG.version;
 const GIT_SHA: string = process.env.GITHUB_SHA || execSync('git rev-parse HEAD').toString().trim();
 
-const EXCLUDE_PATTERNS: RegExp[] = [
-  /\.map$/,
-  /update-manifest\.json$/
-];
-
 function sha256File(path: string): string {
   const h = createHash('sha256');
+  // Buffer is runtime-compatible with Uint8Array but TS typings disagree without @types/node.
   h.update(readFileSync(path) as unknown as Uint8Array);
   return 'sha256-' + h.digest('hex');
-}
-
-function walkFiles(dir: string): string[] {
-  const results: string[] = [];
-  for(const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    if(statSync(full).isDirectory()) results.push(...walkFiles(full));
-    else results.push(full);
-  }
-  return results;
 }
 
 function extractChangelog(version: string): string {
@@ -47,20 +34,24 @@ function extractChangelog(version: string): string {
 function main() {
   const files = walkFiles(DIST_DIR);
   const bundleHashes: Record<string, string> = {};
-  let swUrl: string | undefined;
+  const swCandidates: string[] = [];
 
   for(const f of files) {
-    if(EXCLUDE_PATTERNS.some(p => p.test(f))) continue;
+    if(DIST_EXCLUDE_PATTERNS.some(p => p.test(f))) continue;
     const rel = './' + relative(DIST_DIR, f).replace(/\\/g, '/');
     bundleHashes[rel] = sha256File(f);
     if(/^\.\/sw-[a-zA-Z0-9_-]+\.js$/.test(rel)) {
-      swUrl = rel;
+      swCandidates.push(rel);
     }
   }
 
-  if(!swUrl) {
+  if(swCandidates.length === 0) {
     throw new Error('SW file not found in dist/ (expected ./sw-<hash>.js)');
   }
+  if(swCandidates.length > 1) {
+    throw new Error(`Multiple SW candidates found in dist/: ${swCandidates.join(', ')} — only one expected`);
+  }
+  const swUrl = swCandidates[0];
 
   const manifest = {
     schemaVersion: 1,

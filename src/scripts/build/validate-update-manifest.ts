@@ -4,24 +4,15 @@
  * on malformed manifests before publish.
  */
 
-import {readFileSync, readdirSync, statSync} from 'fs';
+import {readFileSync} from 'fs';
 import {join, relative} from 'path';
+import {walkFiles, DIST_EXCLUDE_PATTERNS} from './fs-utils';
 
 const PKG = JSON.parse(readFileSync('package.json', 'utf8'));
 
 function die(msg: string): never {
   console.error(`validate-update-manifest: ${msg}`);
   process.exit(1);
-}
-
-function walkFiles(dir: string): string[] {
-  const results: string[] = [];
-  for(const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    if(statSync(full).isDirectory()) results.push(...walkFiles(full));
-    else results.push(full);
-  }
-  return results;
 }
 
 const manifestPath = process.argv[2];
@@ -44,11 +35,10 @@ if(!m.bundleHashes[m.swUrl]) die(`swUrl ${m.swUrl} not found in bundleHashes`);
 const distDir = 'dist';
 const files = walkFiles(distDir);
 const covered = new Set(Object.keys(m.bundleHashes));
-const EXCLUDED = [/\.map$/, /update-manifest\.json$/];
 
 const missing: string[] = [];
 for(const f of files) {
-  if(EXCLUDED.some(p => p.test(f))) continue;
+  if(DIST_EXCLUDE_PATTERNS.some(p => p.test(f))) continue;
   const rel = './' + relative(distDir, f).replace(/\\/g, '/');
   if(!covered.has(rel)) missing.push(rel);
 }
@@ -57,6 +47,11 @@ if(missing.length > 0) {
   die(`files in dist/ not covered by bundleHashes:\n${missing.map(f => '  - ' + f).join('\n')}`);
 }
 
+// NOTE: Ship 1 only checks hash FORMAT. The validator does not re-hash files to
+// verify stored hashes match content — this closes when Ship 2 lands and the
+// manifest becomes a live security gate. If the emitter is trusted at CI time,
+// format-only check catches typos and truncation; tampering detection requires
+// a re-hash pass that should be added alongside the client-side consumption.
 for(const [k, v] of Object.entries(m.bundleHashes as Record<string, string>)) {
   if(!/^sha256-[a-f0-9]{64}$/.test(v)) die(`invalid hash format for ${k}: ${v}`);
 }
