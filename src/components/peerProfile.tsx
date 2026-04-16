@@ -3,6 +3,7 @@ import {render} from 'solid-js/web';
 import Section from '@components/section';
 import numberThousandSplitter from '@helpers/number/numberThousandSplitter';
 import {useChat, usePeer} from '@stores/peers';
+import {usePeerNostraProfile} from '@stores/peerNostraProfile';
 import {BusinessWorkHours, Chat, ChatFull, GeoPoint, HelpTimezonesList, Photo, StoryItem, Document, MessageMedia, Timezone, User, UserFull, UserStatus} from '@layer';
 import {useFullPeer} from '@stores/fullPeers';
 import {useHotReloadGuard} from '@lib/solidjs/hotReloadGuard';
@@ -918,7 +919,12 @@ PeerProfile.Bio = () => {
   const appConfig = useAppConfig();
   const peerTranslation = usePeerTranslation(context.peerId);
 
-  const about = createMemo(() => context.fullPeer?.about);
+  const nostraProfile = usePeerNostraProfile(context.peerId);
+  const about = createMemo(() => {
+    const fromFull = context.fullPeer?.about;
+    if(fromFull) return fromFull;
+    return nostraProfile()?.about || '';
+  });
   const bioLanguagePromise = createMemo(() => detectLanguageForTranslation(about()));
 
   const aboutWrapped = createMemo(() => {
@@ -1423,6 +1429,108 @@ PeerProfile.StoryPreviews = (props: {
   );
 };
 
+PeerProfile.NostraWebsite = () => {
+  const context = useContext(PeerProfileContext);
+  const {i18n, I18n, toast} = useHotReloadGuard();
+  const profile = usePeerNostraProfile(context.peerId);
+  const url = createMemo(() => profile()?.website?.trim() || '');
+
+  const copy = () => {
+    copyTextToClipboard(url());
+    toast(I18n.format('LinkCopied', true));
+  };
+
+  const open = () => {
+    const u = url();
+    safeWindowOpen(/^https?:\/\//i.test(u) ? u : 'https://' + u);
+  };
+
+  return (
+    <Show when={url()}>
+      <Row
+        clickable={copy}
+        contextMenu={{
+          buttons: [{
+            icon: 'copy',
+            text: 'Text.CopyLabel_ShareLink',
+            onClick: copy
+          }, {
+            icon: 'next',
+            text: 'Open',
+            onClick: open
+          }]
+        }}
+      >
+        <Row.Icon icon="link" />
+        <Row.Title>{url()}</Row.Title>
+        <Row.Subtitle>{i18n('SetUrlPlaceholder')}</Row.Subtitle>
+      </Row>
+    </Show>
+  );
+};
+
+PeerProfile.NostraLightning = () => {
+  const context = useContext(PeerProfileContext);
+  const {I18n, toast} = useHotReloadGuard();
+  const profile = usePeerNostraProfile(context.peerId);
+  const lud16 = createMemo(() => profile()?.lud16?.trim() || '');
+
+  const copy = () => {
+    copyTextToClipboard(lud16());
+    toast(I18n.format('TextCopied', true));
+  };
+
+  return (
+    <Show when={lud16()}>
+      <Row
+        clickable={copy}
+        contextMenu={{
+          buttons: [{
+            icon: 'copy',
+            text: 'Copy',
+            onClick: copy
+          }]
+        }}
+      >
+        <Row.Icon icon="gift_premium" />
+        <Row.Title>{lud16()}</Row.Title>
+        <Row.Subtitle>Lightning address</Row.Subtitle>
+      </Row>
+    </Show>
+  );
+};
+
+PeerProfile.NostraNip05 = () => {
+  const context = useContext(PeerProfileContext);
+  const {I18n, toast} = useHotReloadGuard();
+  const profile = usePeerNostraProfile(context.peerId);
+  const nip05 = createMemo(() => profile()?.nip05?.trim() || '');
+
+  const copy = () => {
+    copyTextToClipboard(nip05());
+    toast(I18n.format('TextCopied', true));
+  };
+
+  return (
+    <Show when={nip05()}>
+      <Row
+        clickable={copy}
+        contextMenu={{
+          buttons: [{
+            icon: 'copy',
+            text: 'Copy',
+            onClick: copy
+          }]
+        }}
+      >
+        <Row.Icon icon="email" />
+        <Row.Title>{nip05()}</Row.Title>
+        <Row.Subtitle>NIP-05</Row.Subtitle>
+      </Row>
+    </Show>
+  );
+};
+
 PeerProfile.MainSection = () => {
   const context = useContext(PeerProfileContext);
 
@@ -1439,6 +1547,9 @@ PeerProfile.MainSection = () => {
         <PeerProfile.Username />
         <PeerProfile.Location />
         <PeerProfile.Bio />
+        <PeerProfile.NostraWebsite />
+        <PeerProfile.NostraLightning />
+        <PeerProfile.NostraNip05 />
         <PeerProfile.Link />
         <PeerProfile.Birthday />
         <PeerProfile.ContactNote />

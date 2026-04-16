@@ -10,6 +10,7 @@
 
 import {NostraPeerMapper} from './nostra-peer-mapper';
 import {getMessageStore} from './message-store';
+import {loadCachedPeerProfile, refreshPeerProfileFromRelays} from './peer-profile-cache';
 import {getPubkey, getMapping} from './virtual-peers-db';
 
 const LOG_PREFIX = '[VirtualMTProto]';
@@ -604,6 +605,17 @@ export class NostraMTProtoServer {
     const mapping = await getMapping(pubkey);
     const user = this.mapper.createTwebUser({peerId: absPeerId, firstName: mapping?.displayName, pubkey});
 
+    // Hydrate `about` from cache and fire background refresh. The refresh
+    // lands via nostra_peer_profile_updated and is consumed by the
+    // peerNostraProfile store, which drives the User Info rows directly.
+    let about = '';
+    if(pubkey) {
+      const cached = loadCachedPeerProfile(pubkey);
+      if(cached?.profile.about) about = cached.profile.about;
+      // Fire-and-forget — do NOT await; UI updates via rootScope event.
+      refreshPeerProfileFromRelays(pubkey, absPeerId as unknown as PeerId).catch(() => {});
+    }
+
     return {
       _: 'users.userFull',
       users: [user],
@@ -615,7 +627,7 @@ export class NostraMTProtoServer {
         profile_photo: {_: 'photoEmpty', id: 0},
         notify_settings: {_: 'peerNotifySettings', pFlags: {}},
         common_chats_count: 0,
-        about: ''
+        about
       }
     };
   }

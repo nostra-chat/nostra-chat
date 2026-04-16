@@ -109,7 +109,7 @@ export async function fetchOwnKind0(
 
 const QUERY_TIMEOUT_MS = 5000;
 
-function queryRelayForProfileWithMeta(relayUrl: string, pubkey: string): Promise<NostrProfileWithMeta | null> {
+export function queryRelayForProfileWithMeta(relayUrl: string, pubkey: string): Promise<NostrProfileWithMeta | null> {
   return new Promise((resolve, reject) => {
     let ws: WebSocket;
     const subId = 'ownprof-' + Math.random().toString(36).slice(2, 8);
