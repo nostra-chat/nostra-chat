@@ -31,27 +31,37 @@ function extractChangelog(version: string): string {
   return match[0].replace(/^##\s*\[[^\]]+\][^\n]*\n+/, '').trim();
 }
 
+function resolveSwUrl(distDir: string): string {
+  // Vite may emit multiple `sw-*.js` files (the registered SW plus worker-internal
+  // chunks that happen to share the naming). The production SW is the one actually
+  // registered by the app's main entry chunk, which is referenced from index.html.
+  const indexHtml = readFileSync(join(distDir, 'index.html'), 'utf8');
+  const mainChunkMatch = indexHtml.match(/index-[a-zA-Z0-9_-]+\.js/);
+  if(!mainChunkMatch) {
+    throw new Error('Could not locate main entry chunk in dist/index.html');
+  }
+  const mainChunk = readFileSync(join(distDir, mainChunkMatch[0]), 'utf8');
+  const swMatch = mainChunk.match(/sw-[a-zA-Z0-9_-]+\.js/);
+  if(!swMatch) {
+    throw new Error(`Main chunk ${mainChunkMatch[0]} does not reference any sw-*.js`);
+  }
+  return './' + swMatch[0];
+}
+
 function main() {
   const files = walkFiles(DIST_DIR);
   const bundleHashes: Record<string, string> = {};
-  const swCandidates: string[] = [];
 
   for(const f of files) {
     if(DIST_EXCLUDE_PATTERNS.some(p => p.test(f))) continue;
     const rel = './' + relative(DIST_DIR, f).replace(/\\/g, '/');
     bundleHashes[rel] = sha256File(f);
-    if(/^\.\/sw-[a-zA-Z0-9_-]+\.js$/.test(rel)) {
-      swCandidates.push(rel);
-    }
   }
 
-  if(swCandidates.length === 0) {
-    throw new Error('SW file not found in dist/ (expected ./sw-<hash>.js)');
+  const swUrl = resolveSwUrl(DIST_DIR);
+  if(!bundleHashes[swUrl]) {
+    throw new Error(`Resolved swUrl ${swUrl} not present in bundleHashes`);
   }
-  if(swCandidates.length > 1) {
-    throw new Error(`Multiple SW candidates found in dist/: ${swCandidates.join(', ')} — only one expected`);
-  }
-  const swUrl = swCandidates[0];
 
   const manifest = {
     schemaVersion: 1,

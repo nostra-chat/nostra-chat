@@ -31,7 +31,7 @@
     "change-version": "node ./src/scripts/change_version.js",
     "apply-new-lang": "node ./src/scripts/apply_new_lang.js",
     "watch-lang": "node watch-lang.js",
-    "lint": "npx eslint \"src/**/**.ts\"",
+    "lint": "npx eslint \"src/**/*.{ts,tsx}\"",
     "build:solid": "node ./src/scripts/build_solid.js",
     "format-lang": "node ./src/scripts/format_lang.js"
   },
@@ -105,6 +105,6 @@
     "solid-js": "^1.9.11"
   },
   "lint-staged": {
-    "src/**/*.ts": "eslint"
+    "src/**/*.{ts,tsx}": "eslint"
   }
 }
