@@ -13,6 +13,7 @@
  */
 
 import initWebtor, {TorClient, TorClientOptions, setDebugEnabled, setLogCallback} from '/webtor/webtor_wasm';
+import {logSwallow} from './log-swallow';
 import {
   getCachedConsensus,
   saveCachedConsensus,
@@ -540,7 +541,7 @@ export class WebtorClient implements TorPrivacyClient {
       const client: any = this._client;
       // Abort any in-flight operations before close so close() can't hang on
       // a stuck circuit/fetch.
-      try { if(typeof client.abort === 'function') client.abort(); } catch{}
+      try { if(typeof client.abort === 'function') client.abort(); } catch(e) { logSwallow('WebtorFallback.abort', e); }
       try {
         await Promise.race([
           client.close(),

@@ -8,6 +8,7 @@
  */
 
 import type {NostrProfile} from './nostr-profile';
+import {logSwallow} from './log-swallow';
 
 const DB_NAME = 'nostra-virtual-peers';
 const DB_VERSION = 1;
@@ -262,13 +263,13 @@ export class VirtualPeersDB {
     try {
       const db = await this._db;
       db.close();
-    } catch{}
+    } catch(e) { logSwallow('VirtualPeersDB.destroy.classLevel', e); }
     // Close the module-level singleton connection
     if(_dbPromise) {
       try {
         const db = await _dbPromise;
         db.close();
-      } catch{}
+      } catch(e) { logSwallow('VirtualPeersDB.destroy.moduleLevel', e); }
     }
     _dbPromise = null;
     _instance = null;

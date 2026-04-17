@@ -36,6 +36,7 @@ const mockCreateTwebMessage = vi.fn().mockReturnValue({
   _: 'message',
   mid: 2000000001,
   id: 2000000001,
+  peerId: 1000000000000001,
   date: 1712345678,
   message: 'Hello from peer',
   pFlags: {out: false}

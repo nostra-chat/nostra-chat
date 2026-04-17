@@ -10,6 +10,8 @@ import {NostraPeerMapper} from '@lib/nostra/nostra-peer-mapper';
 import {MOUNT_CLASS_TO} from '@config/debug';
 import rootScope from '@lib/rootScope';
 import {buildNostraMedia, type NostraFileMetadata} from '@lib/nostra/nostra-media-shape';
+import {logSwallow} from '@lib/nostra/log-swallow';
+import {assertInvariant, validateTwebMessage, validateDialogTopMessage} from '@lib/nostra/bridge-invariants';
 
 export interface IncomingMessageData {
   senderPubkey: string;
@@ -44,7 +46,7 @@ const lastDialogs = new Map<number, any>();
       const v = +obj[k];
       if(v > 0) unreadCounts.set(+k, v);
     }
-  } catch{}
+  } catch(e) { logSwallow('MessageHandler.loadUnreadCounts', e); }
 })();
 
 function persistUnreadCounts(): void {
@@ -53,7 +55,7 @@ function persistUnreadCounts(): void {
     const obj: Record<string, number> = {};
     unreadCounts.forEach((v, k) => { if(v > 0) obj[k] = v; });
     localStorage.setItem(UNREAD_STORAGE_KEY, JSON.stringify(obj));
-  } catch{}
+  } catch(e) { logSwallow('MessageHandler.persistUnreadCounts', e); }
 }
 
 function isChatOpenFor(peerId: number): boolean {
@@ -97,7 +99,7 @@ export function buildTwebMessage(data: IncomingMessageData): any {
   const media = data.message.fileMetadata ?
     buildNostraMedia(data.mid, data.message.fileMetadata) :
     undefined;
-  return mapper.createTwebMessage({
+  const msg = mapper.createTwebMessage({
     mid: data.mid,
     peerId: data.peerId,
     fromPeerId: data.peerId,
@@ -106,6 +108,8 @@ export function buildTwebMessage(data: IncomingMessageData): any {
     isOutgoing: false,
     media
   });
+  assertInvariant('Rule6/TwebMessageShape', validateTwebMessage(msg));
+  return msg;
 }
 
 /**
@@ -122,6 +126,7 @@ export function buildTwebDialog(peerId: number, msg: any, timestamp: number, unr
     unreadCount
   });
   (dialog as any).topMessage = msg;
+  assertInvariant('Rule8/DialogTopMessage', validateDialogTopMessage(dialog));
   return dialog;
 }
 
@@ -194,14 +199,14 @@ export async function injectIntoMirrors(
 
         await updateMappingProfile(senderPubkey, k0Name, profile);
 
-        try { await rootScope.managers.appUsersManager.updateP2PUserName(peerId, k0Name); } catch{}
+        try { await rootScope.managers.appUsersManager.updateP2PUserName(peerId, k0Name); } catch(e) { logSwallow('MessageHandler.updateP2PUserName', e); }
 
         if(proxy?.mirrors?.peers?.[peerId]) {
           proxy.mirrors.peers[peerId].first_name = k0Name;
           try {
             const {reconcilePeer} = await import('@stores/peers');
             reconcilePeer(peerId, proxy.mirrors.peers[peerId]);
-          } catch{}
+          } catch(e) { logSwallow('MessageHandler.reconcilePeer.kind0', e); }
         }
 
         rootScope.dispatchEvent('peer_title_edit', {peerId: (peerId as number).toPeerId(false)});
