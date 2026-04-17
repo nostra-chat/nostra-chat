@@ -288,3 +288,7 @@ export function getVirtualPeersDB(): VirtualPeersDB {
   }
   return _instance;
 }
+
+if(typeof window !== 'undefined') {
+  (window as any).__nostraVirtualPeersDB = getVirtualPeersDB();
+}
