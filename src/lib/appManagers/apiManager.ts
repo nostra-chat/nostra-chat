@@ -29,6 +29,7 @@ import bytesToHex from '@helpers/bytes/bytesToHex';
 import isObject from '@helpers/object/isObject';
 import pause from '@helpers/schedulers/pause';
 import {NostraMTProtoServer} from '@lib/nostra/virtual-mtproto-server';
+import {assertInvariant, validateActionPrefixes, validateBridgeMethods} from '@lib/nostra/bridge-invariants';
 import MTProtoMessagePort from '@lib/mainWorker/mainMessagePort';
 import ApiManagerMethods from '@appManagers/apiManagerMethods';
 import {getEnvironment} from '@environment/utils';
@@ -814,7 +815,17 @@ export class ApiManager extends ApiManagerMethods {
     'nostraSendFile'
   ]);
 
+  private static _invariantsChecked = false;
+
   private nostraIntercept(method: string, params: any): any {
+    // Validate static intercept config once at first call (see
+    // src/lib/nostra/bridge-invariants.ts — rules 2 and 15).
+    if(!ApiManager._invariantsChecked) {
+      ApiManager._invariantsChecked = true;
+      assertInvariant('NOSTRA_ACTION_PREFIXES', validateActionPrefixes(ApiManager.NOSTRA_ACTION_PREFIXES));
+      assertInvariant('NOSTRA_BRIDGE_METHODS', validateBridgeMethods(ApiManager.NOSTRA_BRIDGE_METHODS));
+    }
+
     // Main thread: use local server directly (unchanged)
     if(this.nostraMTProtoServer) {
       return this.nostraMTProtoServer.handleMethod(method, params);

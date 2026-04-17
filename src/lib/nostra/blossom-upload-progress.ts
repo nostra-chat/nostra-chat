@@ -7,6 +7,7 @@
  */
 
 import {finalizeEvent} from 'nostr-tools/pure';
+import {logSwallow} from './log-swallow';
 
 export const BLOSSOM_SERVERS = [
   'https://blossom.primal.net',
@@ -67,7 +68,7 @@ function putWithProgress(
     const xhr = new XMLHttpRequest();
 
     const onAbort = () => {
-      try { xhr.abort(); } catch{}
+      try { xhr.abort(); } catch(e) { logSwallow('BlossomUpload.abort', e); }
       reject(new Error('upload aborted'));
     };
 
@@ -121,7 +122,7 @@ function getBlossomServers(): readonly string[] {
     const w: any = typeof window !== 'undefined' ? window : null;
     const override = w?.__nostraTestBlossom;
     if(typeof override === 'string' && override) return [override];
-  } catch{}
+  } catch(e) { logSwallow('BlossomUpload.testOverride', e); }
   return BLOSSOM_SERVERS;
 }
 

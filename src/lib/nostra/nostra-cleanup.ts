@@ -9,6 +9,7 @@
  */
 
 import {clearPeerProfileCache} from './peer-profile-cache';
+import {logSwallow} from './log-swallow';
 
 // All Nostra IndexedDB database names
 const NOSTRA_DB_NAMES = [
@@ -59,12 +60,13 @@ function forceCloseDB(name: string): Promise<void> {
         req.transaction.abort();
       };
       req.onsuccess = () => {
-        try { req.result.close(); } catch{}
+        try { req.result.close(); } catch(e) { logSwallow('Cleanup.forceCloseDB.close', e); }
         resolve();
       };
       req.onerror = () => resolve();
       req.onblocked = () => resolve();
-    } catch{
+    } catch(e) {
+      logSwallow('Cleanup.forceCloseDB.open', e);
       resolve();
     }
   });
@@ -77,7 +79,8 @@ function deleteDB(name: string): Promise<boolean> {
       req.onsuccess = () => resolve(true);
       req.onerror = () => resolve(false);
       req.onblocked = () => resolve(false);
-    } catch{
+    } catch(e) {
+      logSwallow('Cleanup.deleteDB', e);
       resolve(false);
     }
   });
@@ -96,19 +99,19 @@ async function clearNostraData(opts: {keepSeed: boolean}): Promise<string[]> {
   try {
     const {getMessageStore} = await import('./message-store');
     closes.push(getMessageStore().destroy());
-  } catch{}
+  } catch(e) { logSwallow('Cleanup.messageStore', e); }
   try {
     const {getMessageRequestStore} = await import('./message-requests');
     closes.push(getMessageRequestStore().destroy());
-  } catch{}
+  } catch(e) { logSwallow('Cleanup.messageRequestStore', e); }
   try {
     const {getVirtualPeersDB} = await import('./virtual-peers-db');
     closes.push(getVirtualPeersDB().destroy());
-  } catch{}
+  } catch(e) { logSwallow('Cleanup.virtualPeersDB', e); }
   try {
     const {getGroupStore} = await import('./group-store');
     closes.push(getGroupStore().destroy());
-  } catch{}
+  } catch(e) { logSwallow('Cleanup.groupStore', e); }
   await Promise.allSettled(closes);
 
   // 2. Force-close any remaining connections
@@ -124,7 +127,7 @@ async function clearNostraData(opts: {keepSeed: boolean}): Promise<string[]> {
   for(const key of lsKeys) {
     try {
       localStorage.removeItem(key);
-    } catch{}
+    } catch(e) { logSwallow('Cleanup.removeLSKey:' + key, e); }
   }
   clearPeerProfileCache();
 

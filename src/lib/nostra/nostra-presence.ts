@@ -13,6 +13,7 @@
 import rootScope from '@lib/rootScope';
 import {MOUNT_CLASS_TO} from '@config/debug';
 import {DEFAULT_RELAYS} from './nostr-relay-pool';
+import {logSwallow} from './log-swallow';
 
 const LOG_PREFIX = '[NostraPresence]';
 
@@ -268,7 +269,7 @@ export function destroyPresence(): void {
     staleCheckTimer = null;
   }
   for(const ws of presenceWs) {
-    try { ws.close(); } catch{}
+    try { ws.close(); } catch(e) { logSwallow('Presence.destroy.wsClose', e); }
   }
   presenceWs.length = 0;
   lastActivity.clear();

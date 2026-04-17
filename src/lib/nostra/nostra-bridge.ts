@@ -17,6 +17,7 @@ import {MeshManager} from '@lib/nostra/mesh-manager';
 import {MessageRouter} from '@lib/nostra/message-router';
 import {isSignalKind} from '@lib/nostra/mesh-signaling';
 import rootScope from '@lib/rootScope';
+import {swallowHandler} from '@lib/nostra/log-swallow';
 
 // Virtual ID ranges — all use BigInt to avoid floating-point precision loss
 export const VIRTUAL_PEER_BASE = BigInt(10 ** 15);
@@ -253,7 +254,7 @@ export class NostraBridge {
         const contacts = (window as any).__nostraContacts || [];
         for(const pubkey of contacts) {
           setTimeout(() => {
-            meshManager.connect(pubkey).catch(() => {});
+            meshManager.connect(pubkey).catch(swallowHandler('NostraBridge.autoConnectMesh'));
           }, Math.random() * 5000);
         }
       });

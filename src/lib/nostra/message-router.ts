@@ -1,4 +1,5 @@
 import type {NostrEvent} from '@lib/nostra/relay-store';
+import {swallowHandler} from '@lib/nostra/log-swallow';
 
 export type RoutePath = 'mesh-direct' | 'mesh-forward' | 'relay-external';
 
@@ -36,7 +37,7 @@ export class MessageRouter {
       );
       if(sent) {
         // Also publish to relay as backup (belt and suspenders)
-        this.deps.relayPublish(event).catch(() => {});
+        this.deps.relayPublish(event).catch(swallowHandler('MessageRouter.directBackupPublish'));
         return {path: 'mesh-direct', delivered: true};
       }
     }
@@ -51,7 +52,7 @@ export class MessageRouter {
           JSON.stringify(['EVENT', event])
         );
         if(sent) {
-          this.deps.relayPublish(event).catch(() => {});
+          this.deps.relayPublish(event).catch(swallowHandler('MessageRouter.forwardBackupPublish'));
           return {path: 'mesh-forward', delivered: true, forwardedVia: contactPubkey};
         }
       }

@@ -1,3 +1,5 @@
+import {logSwallow} from './log-swallow';
+
 export const LS_KEY_LAST_PUBLISHED = 'nostra-folders-last-published';
 export const LS_KEY_LAST_MODIFIED = 'nostra-folders-last-modified';
 
@@ -15,7 +17,7 @@ function readTs(key: string): number {
 function writeTs(key: string, value: number): void {
   try {
     localStorage.setItem(key, String(value));
-  } catch{}
+  } catch(e) { logSwallow('FoldersSyncState.writeTs:' + key, e); }
 }
 
 export const getLastPublishedAt = (): number => readTs(LS_KEY_LAST_PUBLISHED);

@@ -1,5 +1,6 @@
 import {getRtcConfig, DATA_CHANNEL_NAME, DATA_CHANNEL_OPTIONS, SignalMessage} from '@lib/nostra/webrtc-config';
 import {createSignalEvent, parseSignalContent} from '@lib/nostra/mesh-signaling';
+import {logSwallow} from '@lib/nostra/log-swallow';
 
 const MAX_CONNECTIONS = 50;
 const PING_INTERVAL = 30000;
@@ -220,7 +221,7 @@ export class MeshManager {
 
       try {
         await this.callbacks.sendSignal(pubkey, signal);
-      } catch{}
+      } catch(e) { logSwallow('MeshManager.sendIceCandidate', e); }
     });
   }
 
@@ -278,7 +279,7 @@ export class MeshManager {
 
     try {
       state.pc.close();
-    } catch{}
+    } catch(e) { logSwallow('MeshManager.handleDisconnect.pcClose', e); }
 
     if(wasConnected) {
       this.callbacks.onPeerDisconnected(pubkey);
@@ -310,7 +311,7 @@ export class MeshManager {
         if(newState) {
           newState.reconnectAttempts = current.reconnectAttempts;
         }
-      } catch{}
+      } catch(e) { logSwallow('MeshManager.reconnect', e); }
     }, delay);
   }
 
@@ -329,11 +330,11 @@ export class MeshManager {
 
     try {
       if(state.dc) state.dc.close();
-    } catch{}
+    } catch(e) { logSwallow('MeshManager.disconnect.dcClose', e); }
 
     try {
       state.pc.close();
-    } catch{}
+    } catch(e) { logSwallow('MeshManager.disconnect.pcClose', e); }
 
     state.status = 'disconnected';
     this.peers.delete(pubkey);

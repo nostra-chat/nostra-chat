@@ -16,6 +16,7 @@ import {wrapNip17Message, unwrapNip17Message} from './nostr-crypto';
 import {finalizeEvent} from 'nostr-tools/pure';
 import {loadEncryptedIdentity, loadBrowserKey, decryptKeys} from './key-storage';
 import {importFromMnemonic} from './nostr-identity';
+import {logSwallow, swallowHandler} from './log-swallow';
 
 // Use the etc namespace for utility functions
 const {bytesToHex, hexToBytes} = secp256k1.etc;
@@ -403,7 +404,7 @@ export class NostrRelay {
     return new Promise<NostrEvent[]>((resolve) => {
       const timeout = setTimeout(() => {
         this.rawQueryResolvers.delete(queryId);
-        try { this.ws?.send(JSON.stringify(['CLOSE', queryId])); } catch{}
+        try { this.ws?.send(JSON.stringify(['CLOSE', queryId])); } catch(e) { logSwallow('NostrRelay.queryRawEvents.closeReq', e); }
         resolve(collected);
       }, 10_000);
 
@@ -626,7 +627,7 @@ export class NostrRelay {
         // may be closing.
         try {
           ws.send(JSON.stringify(['CLOSE', pingId]));
-        } catch{}
+        } catch(e) { logSwallow('NostrRelay.measureLatency.closePing', e); }
         if(latency >= 0) this.directLatencyMs = latency;
         this.setLatency(latency);
         resolve(latency);
@@ -672,10 +673,10 @@ export class NostrRelay {
   private startLatencyRefresh(): void {
     this.stopLatencyRefresh();
     setTimeout(() => {
-      this.measureLatency().catch(() => {});
+      this.measureLatency().catch(swallowHandler('NostrRelay.measureLatency.initial'));
     }, 500);
     this.latencyInterval = setInterval(() => {
-      this.measureLatency().catch(() => {});
+      this.measureLatency().catch(swallowHandler('NostrRelay.measureLatency.interval'));
     }, this.latencyRefreshMs);
   }
 

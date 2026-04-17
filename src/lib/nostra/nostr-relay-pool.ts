@@ -13,6 +13,7 @@ import {buildNip65Event} from './nip65';
 import {loadEncryptedIdentity, loadBrowserKey, decryptKeys} from './key-storage';
 import {importFromMnemonic} from './nostr-identity';
 import rootScope from '@lib/rootScope';
+import {swallowHandler} from './log-swallow';
 
 // ─── Types ─────────────────────────────────────────────────────────
 
@@ -542,7 +543,7 @@ export class NostrRelayPool {
   measureAll(): void {
     for(const entry of this.relayEntries) {
       if(entry.instance.getState() === 'connected') {
-        entry.instance.measureLatency().catch(() => {});
+        entry.instance.measureLatency().catch(swallowHandler('RelayPool.measureAll'));
       }
     }
   }

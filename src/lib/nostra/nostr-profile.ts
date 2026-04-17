@@ -7,6 +7,7 @@
  */
 
 import {DEFAULT_RELAYS} from './nostr-relay-pool';
+import {logSwallow} from './log-swallow';
 
 /** Extract relay URLs from DEFAULT_RELAYS (which are RelayConfig objects) */
 const DEFAULT_RELAY_URLS = DEFAULT_RELAYS.map((r) => r.url);
@@ -118,7 +119,7 @@ export function queryRelayForProfileWithMeta(relayUrl: string, pubkey: string): 
     const timeout = setTimeout(() => {
       if(!resolved) {
         resolved = true;
-        try { ws.close(); } catch{}
+        try { ws.close(); } catch(e) { logSwallow('NostrProfile.ownProfile.wsCloseTimeout', e); }
         resolve(null);
       }
     }, QUERY_TIMEOUT_MS);
@@ -191,7 +192,7 @@ function queryRelayForProfile(relayUrl: string, pubkey: string): Promise<NostrPr
     const timeout = setTimeout(() => {
       if(!resolved) {
         resolved = true;
-        try { ws.close(); } catch{}
+        try { ws.close(); } catch(e) { logSwallow('NostrProfile.queryProfile.wsCloseTimeout', e); }
         resolve(null);
       }
     }, QUERY_TIMEOUT_MS);

@@ -18,6 +18,7 @@
 
 import {NostrRelayPool, PublishResult} from './nostr-relay-pool';
 import {OfflineQueue} from './offline-queue';
+import {logSwallow} from './log-swallow';
 import {WebtorClient} from './webtor-fallback';
 import rootScope from '@lib/rootScope';
 
@@ -82,7 +83,7 @@ export class PrivacyTransport {
     try {
       const rootScope = (await import('@lib/rootScope')).default;
       rootScope.dispatchEvent('nostra_tor_enabled_changed', enabled);
-    } catch{}
+    } catch(e) { logSwallow('PrivacyTransport.setTorEnabled.dispatch', e); }
 
     if(enabled) {
       await this.retryTor();
@@ -127,7 +128,7 @@ export class PrivacyTransport {
         if(attempt < maxAttempts) {
           // Tear down the wedged client and build a fresh one (only when
           // we own the client lifecycle — injected test mocks stay put).
-          try { await this.webtorClient.close(); } catch{}
+          try { await this.webtorClient.close(); } catch(e) { logSwallow('PrivacyTransport.bootstrap.webtorClose', e); }
           if(!this.webtorInjected) {
             this.webtorClient = new WebtorClient();
           }
@@ -158,7 +159,7 @@ export class PrivacyTransport {
    * constructor) and reuses bootstrap()'s retry loop.
    */
   async retryTor(): Promise<void> {
-    try { await this.webtorClient.close(); } catch{}
+    try { await this.webtorClient.close(); } catch(e) { logSwallow('PrivacyTransport.retryTor.webtorClose', e); }
     if(!this.webtorInjected) {
       this.webtorClient = new WebtorClient();
     }

@@ -13,6 +13,7 @@ import {getMessageStore} from './message-store';
 import {loadCachedPeerProfile, refreshPeerProfileFromRelays} from './peer-profile-cache';
 import {buildNostraMedia} from './nostra-media-shape';
 import {getPubkey, getMapping} from './virtual-peers-db';
+import {swallowHandler} from './log-swallow';
 
 const LOG_PREFIX = '[VirtualMTProto]';
 
@@ -250,7 +251,7 @@ export class NostraMTProtoServer {
           waveform: pending.waveform
         });
       });
-    }).catch(() => {});
+    }).catch(swallowHandler('VirtualMTProto.pendingFlush'));
   }
 
   async handleMethod(method: string, params: any): Promise<any> {
@@ -650,7 +651,7 @@ export class NostraMTProtoServer {
       const cached = loadCachedPeerProfile(pubkey);
       if(cached?.profile.about) about = cached.profile.about;
       // Fire-and-forget — do NOT await; UI updates via rootScope event.
-      refreshPeerProfileFromRelays(pubkey, absPeerId as unknown as PeerId).catch(() => {});
+      refreshPeerProfileFromRelays(pubkey, absPeerId as unknown as PeerId).catch(swallowHandler('VirtualMTProto.refreshPeerProfile'));
     }
 
     return {
