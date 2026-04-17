@@ -126,10 +126,10 @@ export default defineConfig({
     solidPlugin(),
     handlebarsPlugin as any,
     USE_SELF_SIGNED_CERTS ? basicSsl(BASIC_SSL_CONFIG) : undefined,
-    visualizer({
+    process.env.ANALYZE ? visualizer({
       gzipSize: true,
       template: 'treemap'
-    })
+    }) : undefined
   ].filter(Boolean),
   test: {
     // include: ['**/*.{test,spec}.?(c|m)[jt]s?(x)'],
@@ -173,7 +173,7 @@ export default defineConfig({
   base: '',
   build: {
     target: 'es2020',
-    sourcemap: true,
+    sourcemap: false,
     assetsDir: '',
     copyPublicDir: true,
     emptyOutDir: true,

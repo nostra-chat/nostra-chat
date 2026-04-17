@@ -25,7 +25,7 @@
     "test:e2e:headed": "E2E_HEADED=1 npx tsx",
     "test:e2e:debug": "E2E_HEADED=1 E2E_SLOWMO=300 npx tsx",
     "pretest:e2e": "rm -rf node_modules/.vite",
-    "whybundled": "pnpm run profile && whybundled stats.json",
+    "analyze": "ANALYZE=1 pnpm build",
     "generate-mtproto-types": "node ./src/scripts/generate_mtproto_types.js src/",
     "generate-changelog": "node ./src/scripts/generate_changelog.js",
     "generate-icons": "node ./src/scripts/icomoon/icomoon_generate.js",
