@@ -59,6 +59,10 @@ Keys are stored locally in IndexedDB with AES-GCM encryption, protected by an op
 
 Tor integration runs entirely in the browser via a WASM build of [Arti](https://gitlab.torproject.org/tpo/core/arti) (webtor-rs). When enabled, all relay connections are routed through Tor circuits using Snowflake bridges, hiding your IP address from relay operators and bypassing national firewalls. If Tor fails, the app asks before falling back to a direct connection — there is no silent privacy degradation.
 
+### Controlled updates (no silent code injection)
+
+Starting from v0.8.0, Nostra.chat does **not** auto-update. When a new release is available, the app shows a popup with the changelog and asks for explicit consent before downloading or activating any new code. Before the prompt is shown, each release is **cross-verified against 3 independent distribution origins** (Cloudflare, GitHub Releases, IPFS) — if any of them disagrees on the published hashes, the update is blocked and a warning is shown. A compromised Service Worker also cannot lie about its own integrity because the check uses the browser-native `registration.update()` which bypasses the SW fetch handler. See [`docs/TRUST-MINIMIZED-UPDATES.md`](docs/TRUST-MINIMIZED-UPDATES.md) for the full threat model and [`docs/superpowers/specs/2026-04-16-phase-a-controlled-updates-design.md`](docs/superpowers/specs/2026-04-16-phase-a-controlled-updates-design.md) for the design.
+
 ### Features
 
 **Messaging**
@@ -87,6 +91,7 @@ Tor integration runs entirely in the browser via a WASM build of [Arti](https://
 - Read receipts privacy toggle
 - Group invite privacy (Everyone / Contacts / Nobody)
 - Passcode lock screen
+- User-controlled PWA updates with cross-source integrity verification (3 independent origins, hash-verified bundle, consent popup, compromise alert) — see [controlled updates](#controlled-updates-no-silent-code-injection)
 
 **Infrastructure**
 - Multi-relay pool with configurable relay list and NIP-65 publication
@@ -335,8 +340,9 @@ against, what it does not, and how to privately report vulnerabilities.
 | Network eavesdropper linking your IP to your pubkey | ✅ Tor (when enabled) |
 | Censorship of a single relay | ✅ Multi-relay redundancy |
 | Censorship of the distribution mirrors | ✅ IPFS fallback, multiple mirrors |
-| DNS / CDN hijack serving modified code | 🔜 Planned — trust-minimized updates |
-| Compromised maintainer key / malicious release | 🔜 Planned — threshold auditor signatures |
+| DNS / CDN hijack serving modified code | ✅ Phase A controlled updates: cross-source manifest verification, per-file hash check, SW integrity via `registration.update()` |
+| Coordinated compromise of all 3 distribution origins | 🔜 Planned — Phase C maintainer signatures |
+| Compromised maintainer key / malicious release | 🔜 Planned — Phase D threshold auditor signatures |
 | Endpoint compromise (malware, keylogger, screen capture) | ❌ No client-side messenger defends against this |
 | Traffic-analysis correlation by a global passive adversary | ❌ Partial mitigation via Tor only |
 
