@@ -22,6 +22,9 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 TESTS=(
+  # Run dev-boot-smoke first: fastest, cheapest, catches regressions that
+  # would silently break every other test's prerequisites (onboarding mount).
+  e2e-dev-boot-smoke.ts
   e2e-branding.ts
   e2e-status-ui.ts
   e2e-avatar.ts
