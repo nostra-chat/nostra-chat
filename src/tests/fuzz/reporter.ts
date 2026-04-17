@@ -9,12 +9,15 @@ const FINDINGS_PATH = 'docs/FUZZ-FINDINGS.md';
 const ARTIFACTS_ROOT = 'docs/fuzz-reports';
 
 export function computeSignature(input: {invariantId: string; message: string; stackTopFrame?: string}): string {
+  // stackTopFrame is accepted for forward compatibility with Phase 3 (where
+  // stack capture becomes cross-worker) but is NOT included in the Phase 1
+  // hash — it's never populated by the current throw sites, so including it
+  // would add zero entropy while making signatures depend on whether the
+  // caller bothered to pass the field.
   const h = createHash('sha256');
   h.update(input.invariantId);
   h.update('\0');
   h.update(input.message.slice(0, 200));
-  h.update('\0');
-  h.update(input.stackTopFrame || '');
   return h.digest('hex').slice(0, 8);
 }
 

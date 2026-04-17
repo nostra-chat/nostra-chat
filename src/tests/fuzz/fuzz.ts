@@ -1,7 +1,7 @@
 // @ts-nocheck
 import * as fc from 'fast-check';
 import {parseCli, HELP_TEXT} from './cli';
-import {bootHarness} from './harness';
+import {bootHarness, type HarnessOptions} from './harness';
 import {actionArb, findAction} from './actions';
 import {runTier} from './invariants';
 import {runPostconditions} from './postconditions';
@@ -10,14 +10,15 @@ import {replayFinding, replayFile} from './replay';
 import type {Action, FuzzContext, FailureDetails} from './types';
 
 /**
- * Fast-check shrinks by re-running the property with a smaller input until it
- * finds the minimal failing array. Each re-run discards its FuzzContext (fresh
- * harness) but we still need to surface the LAST failure details + the LAST
- * context for artifact capture. We stash them in module-level refs that the
- * property function updates on every failure, and the outer catch reads.
+ * Cross-iteration channel: runSequence sets these when an invariant fires so
+ * the outer loop can record the finding + capture artifacts from the still-live
+ * browser pair. Scoped per iteration (reset at top of the while body). Phase 3
+ * parallel pairs will replace module-level refs with per-worker channels.
  */
 let lastFailure: FailureDetails | null = null;
 let lastContext: FuzzContext | null = null;
+let lastTeardown: (() => Promise<void>) | null = null;
+let lastFailedActionIndex = -1;
 
 async function main() {
   const opts = parseCli(process.argv);
@@ -28,11 +29,13 @@ async function main() {
     process.exit(2);
   }
 
+  const harnessOpts: HarnessOptions = {headed: opts.headed, slowMo: opts.slowMo};
+
   if(opts.replay || opts.replayFile) {
     const trace = opts.replay
       ? await replayFinding(opts.replay)
       : await replayFile(opts.replayFile!);
-    await runReplay(trace);
+    await runReplay(trace, harnessOpts);
     return;
   }
 
@@ -47,28 +50,37 @@ async function main() {
     console.log(`[fuzz] iteration ${iterations} seed=${iterSeed}`);
     lastFailure = null;
     lastContext = null;
+    lastTeardown = null;
+    lastFailedActionIndex = -1;
 
     // Sample a deterministic action sequence from the seed. No shrinking: a
-    // failing sequence is reported as-is. Phase 3 may add a dedicated --shrink
-    // mode that re-runs with fast-check's Property API to minimise a trace.
+    // failing sequence is reported as-is, truncated to the step that failed.
+    // Phase 3 may add a dedicated --shrink mode that re-runs with fast-check's
+    // Property API to minimise a trace across multiple runs.
     const actions = fc.sample(
       fc.array(actionArb, {minLength: 1, maxLength: opts.maxCommands}),
       {seed: iterSeed, numRuns: 1}
     )[0] as Action[];
 
     try{
-      await runSequence(actions);
+      await runSequence(actions, harnessOpts);
     } catch(err: any) {
       if(!lastFailure) {
         console.error('[fuzz] iteration errored without invariant failure:', err?.message || err);
+        if(lastTeardown) await lastTeardown().catch(() => {});
         continue;
       }
     }
 
     if(lastFailure) {
       findings++;
-      const {signature, isNew} = await recordFinding(lastFailure, actions, iterSeed, lastContext || undefined);
+      const minimalTrace = lastFailedActionIndex >= 0
+        ? actions.slice(0, lastFailedActionIndex + 1)
+        : actions;
+      const {signature, isNew} = await recordFinding(lastFailure, minimalTrace, iterSeed, lastContext || undefined);
       console.log(`[fuzz] FIND-${signature} (${lastFailure.invariantId}) ${isNew ? 'NEW' : 'dup'}`);
+      // Artifact capture done — now release the context we kept alive for it.
+      if(lastTeardown) await lastTeardown().catch(() => {});
     }
   }
 
@@ -76,11 +88,13 @@ async function main() {
 }
 
 /**
- * Runs ONE command sequence on a fresh harness. Throws on invariant failure to
- * trigger fast-check shrinking; stashes details in module refs first.
+ * Runs ONE command sequence on a fresh harness. On invariant failure, stashes
+ * details + context in module refs and throws. The finally block tears down
+ * IFF no failure was captured for this context (so artifact capture can still
+ * happen against the live browser). The outer loop tears down after recording.
  */
-async function runSequence(actions: Action[]): Promise<void> {
-  const {ctx, teardown} = await bootHarness();
+async function runSequence(actions: Action[], harnessOpts: HarnessOptions): Promise<void> {
+  const {ctx, teardown} = await bootHarness(harnessOpts);
   try{
     for(let i = 0; i < actions.length; i++) {
       ctx.actionIndex = i;
@@ -93,26 +107,29 @@ async function runSequence(actions: Action[]): Promise<void> {
       const postFail = await runPostconditions(ctx, executed);
       if(postFail) {
         console.log(`[runseq] POST FAIL ${postFail.invariantId}: ${postFail.message.slice(0, 200)}`);
-        lastFailure = postFail; lastContext = ctx; throw new Error(postFail.message);
+        lastFailure = postFail; lastContext = ctx; lastTeardown = teardown; lastFailedActionIndex = i;
+        throw new Error(postFail.message);
       }
 
       const cheap = await runTier('cheap', ctx, executed);
       if(cheap) {
         console.log(`[runseq] INV FAIL ${cheap.invariantId}: ${cheap.message.slice(0, 200)}`);
-        lastFailure = cheap; lastContext = ctx; throw new Error(cheap.message);
+        lastFailure = cheap; lastContext = ctx; lastTeardown = teardown; lastFailedActionIndex = i;
+        throw new Error(cheap.message);
       }
       console.log(`[runseq] action ${i + 1}: OK`);
     }
   } finally {
-    // Teardown only AFTER failure details are captured — keep ctx alive for
-    // artifact capture on the final (minimal) run, close at the very end.
+    // Teardown here ONLY when no failure was captured against this context.
+    // When a failure is captured, the outer loop owns teardown so artifacts
+    // can be snapshotted against a live browser first.
     if(!lastFailure || lastContext !== ctx) await teardown();
   }
 }
 
-async function runReplay(trace: Action[]): Promise<void> {
+async function runReplay(trace: Action[], harnessOpts: HarnessOptions): Promise<void> {
   console.log(`[fuzz] REPLAY ${trace.length} actions`);
-  const {ctx, teardown} = await bootHarness();
+  const {ctx, teardown} = await bootHarness(harnessOpts);
   try{
     for(let i = 0; i < trace.length; i++) {
       ctx.actionIndex = i;

@@ -23,6 +23,7 @@ export interface CliOptions {
   backend: 'local' | 'real';
   tor: boolean;
   headed: boolean;
+  slowMo: number;
   pairs: number;
   replay?: string;
   replayFile?: string;
@@ -37,6 +38,7 @@ const DEFAULTS: CliOptions = {
   backend: 'local',
   tor: false,
   headed: false,
+  slowMo: 0,
   pairs: 1,
   smokeOnly: false,
   help: false
@@ -54,6 +56,7 @@ export function parseCli(argv: string[]): CliOptions {
     else if(arg.startsWith('--max-commands=')) opts.maxCommands = Number(arg.slice(15));
     else if(arg.startsWith('--backend=')) opts.backend = arg.slice(10) as 'local' | 'real';
     else if(arg.startsWith('--pairs=')) opts.pairs = Number(arg.slice(8));
+    else if(arg.startsWith('--slowmo=')) opts.slowMo = Number(arg.slice(9));
     else if(arg.startsWith('--replay=')) opts.replay = arg.slice(9);
     else if(arg.startsWith('--replay-file=')) opts.replayFile = arg.slice(14);
     else throw new Error(`Unknown flag: ${arg}`);
@@ -84,6 +87,7 @@ pnpm fuzz [options]
   --backend=<local|real> Relay backend. Default local. (real = Phase 3)
   --tor                  Enable Tor (Phase 3).
   --headed               Visible browsers.
+  --slowmo=<ms>          Slow down Playwright actions by N ms (headed debug).
   --pairs=<n>            Parallel pairs (Phase 3). Default 1.
   --replay=<FIND-id>     Deterministic replay of a finding.
   --replay-file=<path>   Replay from a trace.json.

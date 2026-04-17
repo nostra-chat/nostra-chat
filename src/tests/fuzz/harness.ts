@@ -18,6 +18,10 @@ const CONSOLE_BUFFER_MAX = 5000;
 export interface HarnessOptions {
   /** How many console lines to retain per user (ring buffer). Default 5000. */
   consoleBufferMax?: number;
+  /** Launch visible browsers instead of headless. Overrides E2E_HEADED env. */
+  headed?: boolean;
+  /** Slow down Playwright actions by N ms (useful with headed). Overrides E2E_SLOWMO env. */
+  slowMo?: number;
 }
 
 const log = (m: string) => console.log(`[harness] ${m}`);
@@ -32,7 +36,12 @@ export async function bootHarness(opts: HarnessOptions = {}): Promise<{
   log('boot: LocalRelay + 2 contexts + onboarding');
   const relay = new LocalRelay();
   await relay.start();
-  const browser = await chromium.launch(launchOptions);
+  const launch = {
+    ...launchOptions,
+    ...(opts.headed !== undefined && {headless: !opts.headed}),
+    ...(opts.slowMo ? {slowMo: opts.slowMo} : {})
+  };
+  const browser = await chromium.launch(launch);
 
   const userA = await createUser(browser, 'userA', 'Alice-Fuzz', relay.url, opts);
   const userB = await createUser(browser, 'userB', 'Bob-Fuzz', relay.url, opts);
