@@ -92,7 +92,7 @@ The release pipeline must produce a **deterministic artifact** from a git SHA:
   function of the source tree only.
 
 Verification: any third party should be able to run
-`git clone && git checkout <sha> && pnpm install --frozen-lockfile && pnpm build`
+`git clone && git checkout <sha> && pnpm install --frozen-lockfile && pnpm build:release`
 and obtain byte-identical output.
 
 This is the **hard prerequisite** for everything that follows. Without it, the

@@ -4,7 +4,7 @@ Detailed reference for the Nostra.chat release pipeline. For the day-to-day rule
 
 ## Pipeline
 
-`.github/workflows/deploy.yml` triggers **only** on `push: tags: v*`. Daily commits to `main` do NOT run CI or deploy — `main` is unprotected, push directly. Tag push runs `pnpm lint` → `npx tsc --noEmit` → `pnpm build` as a server-side gate, then publishes to 4 mirrors.
+`.github/workflows/deploy.yml` triggers **only** on `push: tags: v*`. Daily commits to `main` do NOT run CI or deploy — `main` is unprotected, push directly. Tag push runs `pnpm lint` → `npx tsc --noEmit` → `pnpm build:release` as a server-side gate, then publishes to 4 mirrors. `build:release` differs from `build` only by a `pnpm run update-tor-consensus` prelude that refreshes `public/webtor/*.br.bin` against live directory authorities; `build` uses the committed snapshot so local dev builds stay reproducible without network access to Tor dir auths.
 
 **Do NOT re-add `push: branches: main` or `pull_request:` triggers** — the pipeline is intentionally tag-triggered so every production update flows through a version tag.
 
