@@ -9,6 +9,7 @@ coverage/
 public/*.js
 public/*.js.map
 public/*.css
+public/changelogs/
 !public/recorder.min.js
 
 # OS files
