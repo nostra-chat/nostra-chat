@@ -2,21 +2,29 @@
 import type {Invariant, FuzzContext, UserHandle, InvariantResult, Action} from '../types';
 
 type BubbleSnapshot = {
-  bubbles: Array<{dataset: any; classList: string[] | DOMTokenList}>;
+  bubbles: Array<{dataset: Record<string, string>; classList: string[]}>;
 };
 
 /**
- * Run a DOM inspection script against both users and return the first failure.
- *
- * `browserScript` is a *pure* function from snapshot → InvariantResult. It gets
- * passed directly to `page.evaluate` so that (a) in real Playwright, the page
- * passes a freshly-collected DOM snapshot to it, and (b) in unit tests, the
- * `page.evaluate` stub can invoke it with fake-snapshot data directly.
- *
- * The page-side helper `window.__fuzzCollectBubbles` is installed once per
- * Playwright context by the harness; it returns the current bubble snapshot so
- * `page.evaluate(script)` can be self-contained. The helper is not required for
- * tests because the mock bypasses the browser entirely.
+ * Browser-side DOM collector. Serialised and sent into the page by
+ * `page.evaluate` — MUST be a pure arrow with no closures. Unit tests mock
+ * `page.evaluate` to return a canned snapshot and don't run this collector.
+ */
+const COLLECT_BUBBLES = (): BubbleSnapshot => {
+  const nodes = Array.from(document.querySelectorAll('.bubbles-inner .bubble[data-mid]'));
+  return {
+    bubbles: nodes.map((n) => ({
+      dataset: {...(n as HTMLElement).dataset},
+      classList: Array.from((n as HTMLElement).classList)
+    }))
+  };
+};
+
+/**
+ * Two-phase invariant runner: (1) collect a DOM snapshot in the browser,
+ * (2) run the invariant predicate against it in Node. Keeps browserScript a
+ * pure function on plain data so tests can mock `page.evaluate` to return the
+ * snapshot directly.
  */
 async function forEachUser(
   ctx: FuzzContext,
@@ -24,7 +32,8 @@ async function forEachUser(
 ): Promise<InvariantResult> {
   for(const id of ['userA', 'userB'] as const) {
     const user: UserHandle = ctx.users[id];
-    const result: InvariantResult = await user.page.evaluate(browserScript as any);
+    const snapshot: BubbleSnapshot = await user.page.evaluate(COLLECT_BUBBLES);
+    const result = await browserScript(snapshot);
     if(!result.ok) return {...result, evidence: {...(result.evidence || {}), user: id}};
   }
   return {ok: true};

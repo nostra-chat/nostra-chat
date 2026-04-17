@@ -3,20 +3,19 @@ import {noDupMid, bubbleChronological, noAutoPin} from './bubbles';
 import type {FuzzContext, UserHandle} from '../types';
 
 function userWithBubbles(bubbles: Array<{mid: string; timestamp: number; pinned?: boolean}>): UserHandle {
+  // forEachUser calls page.evaluate(COLLECT_BUBBLES) to fetch a snapshot, then
+  // runs the invariant logic in Node against it. The mock returns the fake
+  // snapshot regardless of which collector was passed.
+  const snapshot = {
+    bubbles: bubbles.map((b) => ({
+      dataset: {mid: b.mid, timestamp: String(b.timestamp)},
+      classList: b.pinned ? ['bubble', 'is-pinned'] : ['bubble']
+    }))
+  };
   return {
     id: 'userA',
     context: null as any,
-    page: {
-      evaluate: vi.fn(async (fn: any) => {
-        // Simulate the browser-side script against the fake bubble list.
-        return fn({
-          bubbles: bubbles.map((b) => ({
-            dataset: {mid: b.mid, timestamp: String(b.timestamp)},
-            classList: b.pinned ? ['bubble', 'is-pinned'] : ['bubble']
-          }))
-        });
-      })
-    } as any,
+    page: {evaluate: vi.fn(async () => snapshot)} as any,
     displayName: 'A',
     npub: '',
     remotePeerId: 0,
