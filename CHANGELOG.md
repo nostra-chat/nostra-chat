@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.5](https://github.com/nostra-chat/nostra-chat/compare/v0.7.4...v0.7.5) (2026-04-17)
+
+
+### Bug Fixes
+
+* **contacts:** consolidate P2P contact add into single robust helper ([c10fc89](https://github.com/nostra-chat/nostra-chat/commit/c10fc89bf6c4f5d530a5dd6abf16a20d7680c9a2))
+
 ## [0.7.4](https://github.com/nostra-chat/nostra-chat/compare/v0.7.3...v0.7.4) (2026-04-17)
 
 
