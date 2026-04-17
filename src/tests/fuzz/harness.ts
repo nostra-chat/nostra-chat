@@ -132,26 +132,18 @@ async function linkContacts(a: UserHandle, b: UserHandle): Promise<void> {
 }
 
 async function injectContact(self: UserHandle, other: UserHandle): Promise<number> {
+  // Delegate to the canonical addP2PContact helper. It handles pubkey decoding,
+  // peerId derivation (SHA-256 → VIRTUAL_PEER_BASE + % VIRTUAL_PEER_RANGE),
+  // virtualPeersDB storeMapping, appUsersManager.injectP2PUser, mirror sync,
+  // ChatAPI.connect, and dialog dispatch in one fully-consistent pass. This is
+  // the same path the UI's Add Contact flow uses.
   return self.page.evaluate(async ({otherNpub, otherName}) => {
-    const rs = (window as any).rootScope;
-    const {nip19} = await import('/@fs/' + 'nostr-tools-nip19'); // resolved by Vite
-    // Fallback: use built-in util exposed on chatAPI when nip19 import path is fragile.
-    const chatAPI = (window as any).__nostraChatAPI;
-    const pubkeyHex = chatAPI?.npubToHex
-      ? chatAPI.npubToHex(otherNpub)
-      : (function decode(s: string) {
-        const {data} = (window as any).nostrTools?.nip19?.decode?.(s) ?? {data: s};
-        return typeof data === 'string' ? data : Buffer.from(data).toString('hex');
-      })(otherNpub);
-
-    const virtualPeersDB = (window as any).__nostraVirtualPeersDB
-      || (await import('/src/lib/nostra/virtual-peers-db.ts')).virtualPeersDB;
-    const peerId = await virtualPeersDB.storeMapping(pubkeyHex, null, otherName);
-
-    const appUsersManager = rs.managers?.appUsersManager;
-    if(appUsersManager?.injectP2PUser) {
-      appUsersManager.injectP2PUser({peerId, pubkey: pubkeyHex, firstName: otherName});
-    }
-    return peerId;
+    const {addP2PContact} = await import('/src/lib/nostra/add-p2p-contact.ts');
+    const result = await addP2PContact({
+      pubkey: otherNpub,
+      nickname: otherName,
+      source: 'fuzzer-harness'
+    });
+    return result.peerId;
   }, {otherNpub: other.npub, otherName: other.displayName});
 }
