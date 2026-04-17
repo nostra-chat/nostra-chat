@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.4](https://github.com/nostra-chat/nostra-chat/compare/v0.7.3...v0.7.4) (2026-04-17)
+
+
+### Bug Fixes
+
+* **boot:** skip update-bootstrap in dev; lazy-load confirmationPopup in resetLocalData ([b1c4721](https://github.com/nostra-chat/nostra-chat/commit/b1c4721c784d1c5fd13449e784bc55acb63b8483))
+
 ## [0.7.3](https://github.com/nostra-chat/nostra-chat/compare/v0.7.2...v0.7.3) (2026-04-17)
 
 
