@@ -119,21 +119,12 @@ export default function KeyExchange(props: KeyExchangeProps) {
     launchQRScanner({
       onDetected: async(scannedNpub) => {
         try {
-          const [{decodePubkey}, {NostraBridge}, appImManagerModule] = await Promise.all([
-            import('@lib/nostra/nostr-identity'),
-            import('@lib/nostra/nostra-bridge'),
-            import('@lib/appImManager')
-          ]);
-          const bridge = NostraBridge.getInstance();
-          const hex = decodePubkey(scannedNpub);
-          const peerId = await bridge.mapPubkeyToPeerId(hex);
-          // Subscribe to the peer's gift-wrap stream so incoming messages
-          // arrive without waiting for initGlobalSubscription to catch up.
-          const chatAPI = (window as any).__nostraChatAPI;
-          chatAPI?.connect(hex).catch((connectErr: any) => {
-            console.warn('[KeyExchange] chatAPI.connect failed', connectErr);
+          const {addP2PContact} = await import('@lib/nostra/add-p2p-contact');
+          await addP2PContact({
+            pubkey: scannedNpub,
+            openChat: true,
+            source: 'key-exchange-scan'
           });
-          appImManagerModule.default.setInnerPeer({peerId: peerId.toPeerId(false)});
         } catch(err) {
           console.error('[KeyExchange] failed to open scanned peer', err);
         }

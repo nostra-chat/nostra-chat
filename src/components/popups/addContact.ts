@@ -130,32 +130,22 @@ export function showAddContactPopup(opts: ShowAddContactOptions): void {
 
 /**
  * Default npub → peer resolution used when the caller does not supply an
- * `onSubmit` override. Mirrors the core steps of `AppContactsTab.handleNpubInput`
- * but omits tab-specific side-effects (like closing the slider). Callers that
- * need the full behavior should pass their own `onSubmit`.
+ * `onSubmit` override. Delegates to the canonical `addP2PContact` helper
+ * which ensures mirrors, Worker state, message-store, dialog and ChatAPI
+ * are all consistent before the chat is opened.
  */
 async function addNpubContact(
-  managers: AppManagers,
+  _managers: AppManagers,
   npub: string,
   nickname: string,
   onContactAdded?: (peerId: PeerId) => void
 ): Promise<void> {
-  const {decodePubkey} = await import('@lib/nostra/nostr-identity');
-  const {NostraBridge} = await import('@lib/nostra/nostra-bridge');
-
-  const hexPubkey = decodePubkey(npub);
-  const bridge = NostraBridge.getInstance();
-  const peerId = await bridge.mapPubkeyToPeerId(hexPubkey);
-  const userNickname = nickname?.trim() || undefined;
-  await bridge.storePeerMapping(hexPubkey, peerId, userNickname);
-
-  const chatAPI = (window as any).__nostraChatAPI;
-  chatAPI?.connect(hexPubkey).catch((err: any) => {
-    console.warn('[AddContactPopup] chatAPI.connect failed', err);
+  const {addP2PContact} = await import('@lib/nostra/add-p2p-contact');
+  const result = await addP2PContact({
+    pubkey: npub,
+    nickname,
+    openChat: true,
+    source: 'add-contact-popup'
   });
-
-  const appImManager = (await import('@lib/appImManager')).default;
-  appImManager.setInnerPeer({peerId: peerId.toPeerId(false)});
-
-  onContactAdded?.(peerId.toPeerId(false));
+  onContactAdded?.(result.peerIdTweb);
 }

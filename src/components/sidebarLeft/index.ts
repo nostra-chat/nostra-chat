@@ -1106,43 +1106,16 @@ export class AppSidebarLeft extends SidebarSlider {
 
   private async handleNpubInput(npub: string) {
     try {
-      const {decodePubkey} = await import('@lib/nostra/nostr-identity');
-      const {NostraBridge} = await import('@lib/nostra/nostra-bridge');
-
-      const hexPubkey = decodePubkey(npub);
-      const bridge = NostraBridge.getInstance();
-      const peerId = await bridge.mapPubkeyToPeerId(hexPubkey);
-
-      // Derive display name from truncated pubkey
-      const displayName = 'P2P ' + hexPubkey.slice(0, 6).toUpperCase();
-      await bridge.storePeerMapping(hexPubkey, peerId, displayName);
-
-      // Inject synthetic user into Worker + main thread mirrors
-      const avatar = bridge.deriveAvatarFromPubkeySync(hexPubkey);
-      try {
-        await rootScope.managers.appUsersManager.injectP2PUser(
-          hexPubkey, peerId, displayName, avatar
-        );
-      } catch(err) {
-        console.warn('[Nostra.chat] Worker injectP2PUser failed:', err);
-      }
-      const {NostraPeerMapper} = await import('@lib/nostra/nostra-peer-mapper');
-      const mapper = new NostraPeerMapper();
-      const user = mapper.createTwebUser({peerId, firstName: displayName, pubkey: hexPubkey});
-      const {MOUNT_CLASS_TO: MC} = await import('@config/debug');
-      const proxyRef = MC.apiManagerProxy;
-      if(proxyRef?.mirrors?.peers) proxyRef.mirrors.peers[peerId.toPeerId(false)] = user;
-      const {reconcilePeer} = await import('@stores/peers');
-      reconcilePeer(peerId.toPeerId(false), user);
-
-      // Set active peer on ChatAPI
-      const chatAPI = (window as any).__nostraChatAPI;
-      if(chatAPI) {
-        chatAPI.setActivePeer(hexPubkey);
-      }
-
+      const {addP2PContact} = await import('@lib/nostra/add-p2p-contact');
       const {toast} = await import('@components/toast');
-      toast('Contact added: ' + displayName);
+
+      const result = await addP2PContact({
+        pubkey: npub,
+        openChat: true,
+        source: 'sidebar-search'
+      });
+
+      toast('Contact added: ' + result.displayName);
       simulateClickEvent(this.backBtn);
     } catch(err) {
       console.error('[Nostra.chat] failed to add contact from npub:', err);

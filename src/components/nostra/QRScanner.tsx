@@ -148,6 +148,10 @@ function QRScannerComponent(props: QRScannerProps) {
           if('npub' in result) {
             detected = true;
             cleanup();
+            // Toast gives the user visible confirmation that the scan
+            // succeeded — without it the overlay just disappears and the
+            // detection can feel like nothing happened.
+            toast('QR code detected');
             try {
               props.onDetected(result.npub);
             } finally {

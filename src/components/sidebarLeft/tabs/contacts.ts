@@ -207,119 +207,17 @@ export default class AppContactsTab extends SliderSuperTab {
 
   private async handleNpubInput(npub: string, nickname?: string) {
     try {
-      const {decodePubkey} = await import('@lib/nostra/nostr-identity');
-      const {NostraBridge} = await import('@lib/nostra/nostra-bridge');
+      const {addP2PContact} = await import('@lib/nostra/add-p2p-contact');
       const {toast} = await import('@components/toast');
 
-      const hexPubkey = decodePubkey(npub);
-      const bridge = NostraBridge.getInstance();
-      const peerId = await bridge.mapPubkeyToPeerId(hexPubkey);
-      const userNickname = nickname?.trim() || undefined;
-      await bridge.storePeerMapping(hexPubkey, peerId, userNickname);
-
-      // Inject synthetic user into Worker via managers proxy (persists in Worker memory)
-      const rootScope = (await import('@lib/rootScope')).default;
-      const avatar = bridge.deriveAvatarFromPubkeySync(hexPubkey);
-      const displayName = userNickname || npub.slice(0, 20);
-      try {
-        await rootScope.managers.appUsersManager.injectP2PUser(
-          hexPubkey, peerId, displayName, avatar
-        );
-      } catch(err) {
-        console.warn('[Nostra.chat] Worker injectP2PUser failed:', err);
-      }
-
-      // Inject user into main thread mirrors + Solid store immediately
-      const {NostraPeerMapper} = await import('@lib/nostra/nostra-peer-mapper');
-      const mapper = new NostraPeerMapper();
-      const user = mapper.createTwebUser({
-        peerId,
-        firstName: displayName,
-        pubkey: hexPubkey
+      const result = await addP2PContact({
+        pubkey: npub,
+        nickname,
+        openChat: true,
+        source: 'contacts-tab'
       });
-      const {MOUNT_CLASS_TO: MC} = await import('@config/debug');
-      const proxyRef = MC.apiManagerProxy;
-      if(proxyRef?.mirrors?.peers) proxyRef.mirrors.peers[peerId.toPeerId(false)] = user;
-      const {reconcilePeer} = await import('@stores/peers');
-      reconcilePeer(peerId.toPeerId(false), user);
 
-      // Connect ChatAPI to peer — initializes relay pool, subscribes to messages,
-      // and starts backfill so we can send AND receive messages
-      const chatAPI = (window as any).__nostraChatAPI;
-      if(chatAPI) {
-        chatAPI.connect(hexPubkey).catch((err: any) => {
-          console.warn('[Nostra.chat] ChatAPI connect failed:', err);
-        });
-      }
-
-      // Fire-and-forget kind 0 profile fetch — if the relay has a profile
-      // for this pubkey, update the display name in the background.
-      // The user-supplied nickname always takes priority (checked in updateMappingProfile).
-      import('@lib/nostra/nostr-profile').then(async({fetchNostrProfile, profileToDisplayName}) => {
-        const profile = await fetchNostrProfile(hexPubkey);
-        if(!profile) return;
-        const k0Name = profileToDisplayName(profile);
-        if(!k0Name) return;
-
-        // Persist in virtual-peers-db (respects existing nickname)
-        const {updateMappingProfile} = await import('@lib/nostra/virtual-peers-db');
-        await updateMappingProfile(hexPubkey, k0Name, profile);
-
-        // Update Worker-side user object
-        try {
-          await rootScope.managers.appUsersManager.updateP2PUserName(peerId, k0Name);
-        } catch{ /* non-critical */ }
-
-        // Refresh main-thread peer mirror + Solid store
-        if(proxyRef?.mirrors?.peers?.[peerId.toPeerId(false)]) {
-          proxyRef.mirrors.peers[peerId.toPeerId(false)].first_name = k0Name;
-          reconcilePeer(peerId.toPeerId(false), proxyRef.mirrors.peers[peerId.toPeerId(false)]);
-        }
-
-        // Refresh dialog so chat list subtitle updates
-        rootScope.dispatchEvent('dialogs_multiupdate' as any, new Map([[peerId, {dialog}]]));
-        // Refresh chat-list PeerTitle (imperative, listens on peer_title_edit)
-        rootScope.dispatchEvent('peer_title_edit', {peerId: peerId.toPeerId(false)});
-        console.log('[Nostra.chat] kind 0 profile applied:', k0Name, 'for', hexPubkey.slice(0, 8));
-      }).catch(() => { /* non-critical: relay may be offline */ });
-
-      // Persist conversation in message-store so Worker's getDialogs() can find it.
-      // Without this, virtual-mtproto-server.getDialogs() returns nothing for
-      // contacts that have no messages yet, breaking the chat list after reload
-      // and making the contact invisible to the Worker.
-      const ownPubkey = (window as any).__nostraOwnPubkey;
-      if(ownPubkey) {
-        const {getMessageStore} = await import('@lib/nostra/message-store');
-        const store = getMessageStore();
-        const conversationId = store.getConversationId(ownPubkey, hexPubkey);
-        const initEventId = 'contact-init-' + hexPubkey;
-        const initTimestamp = Math.floor(Date.now() / 1000);
-        const mid = await mapper.mapEventId(initEventId, initTimestamp);
-        await store.saveMessage({
-          eventId: initEventId,
-          conversationId,
-          senderPubkey: hexPubkey,
-          content: '',
-          type: 'text',
-          timestamp: initTimestamp,
-          deliveryState: 'delivered',
-          mid,
-          twebPeerId: peerId,
-          isOutgoing: false
-        });
-      }
-
-      // Create and dispatch dialog so contact appears in chat list
-      const dialog = mapper.createTwebDialog({
-        peerId,
-        topMessage: 0,
-        topMessageDate: Math.floor(Date.now() / 1000)
-      });
-      rootScope.dispatchEvent('dialogs_multiupdate', new Map([[peerId, {dialog}]]));
-      rootScope.dispatchEvent('peer_title_edit', {peerId: peerId.toPeerId(false)});
-      console.log('[Nostra.chat] dialog dispatched for peerId:', peerId, 'name:', displayName);
-
-      toast('Contact added: ' + (userNickname || npub.slice(0, 12) + '...'));
+      toast('Contact added: ' + result.displayName);
       this.close();
     } catch(err) {
       console.error('[Nostra.chat] failed to add contact from npub:', err);
