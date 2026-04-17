@@ -255,6 +255,18 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 - `stories.getAllStories` must include `peer_stories: []`, `stealth_mode: {}` — `appStoriesManager` iterates these.
 - `users.getFullUser` must include `profile_photo: {_: 'photoEmpty'}` — `appProfileManager` accesses it.
 
+### Bug Fuzzer (stateful property-based)
+
+`pnpm fuzz` runs a long-running fuzzer that generates random action sequences across 2 Playwright contexts + LocalRelay and verifies cheap-tier invariants after every action. Findings are appended (deduplicated by signature) to `docs/FUZZ-FINDINGS.md`; minimal replay traces live in `docs/fuzz-reports/FIND-<sig>/trace.json`.
+
+- `pnpm fuzz --duration=2h` — overnight run
+- `pnpm fuzz --replay=FIND-<sig>` — deterministic replay of a finding
+- `pnpm fuzz --headed --slowmo=200` — watch the fuzzer in a real browser
+- Spec: `docs/superpowers/specs/2026-04-17-bug-fuzzer-design.md`
+- Plan: `docs/superpowers/plans/2026-04-17-bug-fuzzer-phase-1.md`
+
+Adding an invariant = create a file in `src/tests/fuzz/invariants/`, register in `invariants/index.ts`. Adding an action = create a spec in `src/tests/fuzz/actions/`, register in `actions/index.ts`. Allowlist additions to `src/tests/fuzz/allowlist.ts` must cite why the noise is benign.
+
 ### Bubble Rendering
 - Kind 0 profile must be PUBLISHED during onboarding (not just saved locally) for other users to fetch it.
 - P2P messages are populated in mirrors automatically via the bridge pipeline (Worker calls getHistory → saveMessages → mirror).
