@@ -249,6 +249,7 @@ import {Message, Chat, User, InputPeer} from '@layer';
 - Do not edit `package.json` version manually — use `pnpm version` or release-please.
 - Do not open two Claude Code instances in the same working directory — use `git worktree add ../nostra.chat-wt/<name> -b <branch> main`, one Claude per worktree.
 - Do not remove the `!public/recorder.min.js` exception in `.gitignore` — it's a third-party UMD imported statically from `src/components/chat/input.ts`.
+- Do NOT narrow the `lint` / `lint-staged` globs back to `src/**/*.ts` — must be `src/**/*.{ts,tsx}`. Solid components live in `.tsx` files; the narrow glob lets indent/formatting errors reach CI where `vite-plugin-checker` catches them, blocking release.
 
 ## Running Tests
 
@@ -265,7 +266,7 @@ Full reference: [`docs/RELEASE.md`](docs/RELEASE.md). Day-to-day rules:
 
 - Pipeline triggers **only on `v*` tags** (`.github/workflows/deploy.yml`). Push to `main` directly — no CI on main.
 - Two release paths: merge the open `chore(main): release X.Y.Z` PR from release-please, OR run `pnpm version patch|minor|major` locally. Never edit `package.json` version or `CHANGELOG.md` by hand.
-- Conventional Commits: `feat:`/`fix:`/`perf:`/`revert:` bump version; everything else is hidden from changelog.
+- Conventional Commits: `feat:`/`fix:`/`perf:`/`revert:` bump version; everything else is hidden from changelog. **PR titles must also be Conventional** — squash-merge uses the PR title as the single commit on `main`, and release-please parses only that. Non-Conventional titles silently skip release-please (no release PR, no CHANGELOG entry). Recovery: `pnpm version patch` locally — but CHANGELOG will be empty for that bump.
 - Do NOT enable auto-merge on the release-please PR (accumulates commits, merge manually when releasing).
 - Do NOT re-add `push: branches: main` / `pull_request:` triggers to `deploy.yml`.
 - `pnpm version` runs `preversion = pnpm lint && npx tsc --noEmit` — **any pre-existing lint error anywhere in `src/**/*.ts` blocks the release**, even if unrelated to your change. Fix and push before re-running `pnpm version`.
@@ -453,6 +454,11 @@ Solid uses event delegation, so **synthetic clicks do not fire delegated handler
 - `src/lib/nostra/blossom-upload.ts` → `uploadToBlossom(blob, privkeyHex)`. Signs NIP-24242 (kind 24242), PUTs to fallback chain: `blossom.primal.net` → `cdn.satellite.earth` → `blossom.band`.
 - Avatar `Blob` exposed via `EditPeer.lastAvatarBlob` (widened `AvatarEdit.onChange`). `EditPeer.uploadAvatar()` is MTProto-only, NOT used here.
 - SHA-256 via Web Crypto (`crypto.subtle.digest`), no `@noble/hashes` / `blossom-client-sdk` deps.
+
+### Phase A Controlled Updates (`src/lib/update/`)
+User-controlled PWA updates with 3-source integrity verification (Cloudflare / GitHub Release / IPFS). Spec: `docs/superpowers/specs/2026-04-16-phase-a-controlled-updates-design.md`. Entry: `updateBootstrap()` called first in `src/index.ts` DOMContentLoaded — runs Step 0 (first-install baseline) → Step 1a (local SW URL consistency) → Step 1b (`registration.update()` byte-compare; bypasses SW fetch handler per spec, so compromised SWs can't lie) → Step 2 (cross-source manifest verification, 5 verdicts). SW lifecycle: no `skipWaiting()` in install (new SW stays in `waiting`), activation only via main-thread `postMessage({type: 'SKIP_WAITING'})`, navigation intercepted in `onFetch` to serve cached `index.html`. Update flow: `startUpdate(manifest)` in `update-flow.ts` — download each bundle file, SHA-256 verify against `manifest.bundleHashes`, `register()` new SW URL, SKIP_WAITING + reload. State persisted in `localStorage['nostra.update.*']` — cleared by `nostra-cleanup.ts`. Manifest emitted by `src/scripts/build/emit-update-manifest.ts` post-build; published to 3 origins via `.github/workflows/deploy.yml`.
+
+**Build quirk:** Vite emits multiple `sw-*.js` files — the registered production SW is only the one referenced from `dist/index.html`'s main chunk. `emit-update-manifest.ts` resolves this by parsing `index.html` → finding main chunk → grepping for the `sw-*.js` reference. A naive regex scan of `dist/` for `sw-*.js` picks up worker-internal chunks and produces the wrong `swUrl`.
 
 ### Ralph Loop Integration
 - `docs/RALPH_PROMPT_v2.md` — master prompt for automated bug fixing. `docs/CHECKLIST_v2.md` — single source of truth for P2P feature status, bugs, verification commands. Completion uses `<promise>TAG</promise>` exact match.
