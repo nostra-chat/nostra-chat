@@ -69,6 +69,7 @@ vi.mock('@lib/nostra/nostra-peer-mapper', () => ({
 const mockDispatchEvent = vi.fn();
 const mockSetMessageToStorage = vi.fn().mockResolvedValue(undefined);
 const mockInvalidateHistoryCache = vi.fn().mockResolvedValue(undefined);
+const mockInjectP2PUser = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('@lib/rootScope', () => ({
   default: {
@@ -79,7 +80,7 @@ vi.mock('@lib/rootScope', () => ({
         invalidateHistoryCache: (...args: any[]) => mockInvalidateHistoryCache(...args)
       },
       appUsersManager: {
-        injectP2PUser: vi.fn().mockResolvedValue(undefined)
+        injectP2PUser: (...args: any[]) => mockInjectP2PUser(...args)
       }
     }
   }
@@ -106,7 +107,8 @@ import {
   buildTwebDialog,
   injectIntoMirrors,
   dispatchDialogUpdate,
-  handleIncomingMessage
+  handleIncomingMessage,
+  handleIncomingEdit
 } from '@lib/nostra/nostra-message-handler';
 import {MOUNT_CLASS_TO} from '@config/debug';
 
@@ -238,6 +240,123 @@ describe('nostra-message-handler', () => {
 
       // Should have invalidated history cache
       expect(mockInvalidateHistoryCache).toHaveBeenCalledWith(PEER_ID);
+    });
+  });
+
+  // Error / logSwallow branches introduced in PR #37. Kept in-file rather
+  // than a sibling test file because vitest 0.34 `isolate: false` shares
+  // the module cache across files, and any sibling that re-declares the
+  // same module-level vi.mock entries produces order-dependent flakes.
+  describe('error paths', () => {
+    const OTHER_PUBKEY = 'eeee'.repeat(16);
+    let debugSpy: any;
+
+    beforeEach(() => {
+      mockSetMessageToStorage.mockResolvedValue(undefined);
+      mockInjectP2PUser.mockResolvedValue(undefined);
+      debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    });
+
+    it('persistUnreadCounts: setItem throw during message handling does not crash', async() => {
+      const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('QuotaExceeded');
+      });
+
+      const result = await handleIncomingMessage(makeData(), OWN_PUBKEY);
+
+      expect(result).not.toBeNull();
+      expect(result!.msg).toBeDefined();
+      setItemSpy.mockRestore();
+    });
+
+    it('injectIntoMirrors: setMessageToStorage rejection is swallowed + logged', async() => {
+      mockSetMessageToStorage.mockRejectedValueOnce(new Error('IDB closed'));
+
+      const msg = {mid: 3000000002, id: 3000000002};
+      const result = await injectIntoMirrors(PEER_ID, msg, SENDER_PUBKEY);
+
+      expect(result.isNewPeer).toBe(true);
+      expect(MOUNT_CLASS_TO.apiManagerProxy.mirrors.messages[`${PEER_ID}_history`][3000000002]).toBe(msg);
+      const calls = debugSpy.mock.calls.map((c: any[]) => c.join(' '));
+      expect(calls.some((s: string) => s.includes('[MessageHandler] non-critical'))).toBe(true);
+    });
+
+    it('injectIntoMirrors: reconcilePeer rejection is swallowed (new peer still injected)', async() => {
+      const peers = await import('@stores/peers');
+      (peers.reconcilePeer as any).mockImplementationOnce(() => {
+        throw new Error('store unavailable');
+      });
+
+      const msg = {mid: 3000000003, id: 3000000003};
+      const result = await injectIntoMirrors(PEER_ID, msg, SENDER_PUBKEY);
+
+      expect(result.isNewPeer).toBe(true);
+      expect(MOUNT_CLASS_TO.apiManagerProxy.mirrors.peers[PEER_ID]).toBeDefined();
+    });
+
+    it('injectIntoMirrors: injectP2PUser rejection is swallowed', async() => {
+      mockInjectP2PUser.mockRejectedValueOnce(new Error('worker gone'));
+
+      const msg = {mid: 3000000004, id: 3000000004};
+      const result = await injectIntoMirrors(PEER_ID, msg, SENDER_PUBKEY);
+
+      expect(result.isNewPeer).toBe(true);
+      expect(MOUNT_CLASS_TO.apiManagerProxy.mirrors.peers[PEER_ID]).toBeDefined();
+    });
+
+    it('injectIntoMirrors: no apiManagerProxy → does not throw, reports isNewPeer=false', async() => {
+      MOUNT_CLASS_TO.apiManagerProxy = undefined;
+
+      const msg = {mid: 3000000005, id: 3000000005};
+      const result = await injectIntoMirrors(PEER_ID, msg, SENDER_PUBKEY);
+
+      expect(result.isNewPeer).toBe(false);
+    });
+
+    it('handleIncomingEdit: setMessageToStorage rejection is swallowed but message_edit still dispatches', async() => {
+      MOUNT_CLASS_TO.apiManagerProxy = {
+        mirrors: {
+          messages: {
+            [`${PEER_ID}_history`]: {
+              42: {mid: 42, peerId: PEER_ID, message: 'old', edit_date: 0}
+            }
+          },
+          peers: {}
+        }
+      };
+      mockSetMessageToStorage.mockRejectedValueOnce(new Error('IDB fail'));
+
+      await handleIncomingEdit({
+        peerId: PEER_ID,
+        mid: 42,
+        senderPubkey: OTHER_PUBKEY,
+        originalEventId: 'chat-100-1',
+        newContent: 'new content',
+        editedAt: 1712400000
+      }, OWN_PUBKEY);
+
+      const stored = MOUNT_CLASS_TO.apiManagerProxy.mirrors.messages[`${PEER_ID}_history`][42];
+      expect(stored.message).toBe('new content');
+      expect(stored.edit_date).toBe(1712400000);
+
+      expect(mockDispatchEvent).toHaveBeenCalledWith(
+        'message_edit',
+        expect.objectContaining({peerId: PEER_ID, mid: 42})
+      );
+    });
+
+    it('handleIncomingEdit: no-op when sender equals ownPubkey (self-edit)', async() => {
+      await handleIncomingEdit({
+        peerId: PEER_ID,
+        mid: 99,
+        senderPubkey: OWN_PUBKEY,
+        originalEventId: 'chat-100-9',
+        newContent: 'skipped',
+        editedAt: 1712500000
+      }, OWN_PUBKEY);
+
+      expect(mockDispatchEvent).not.toHaveBeenCalledWith('message_edit', expect.anything());
+      expect(mockSetMessageToStorage).not.toHaveBeenCalled();
     });
   });
 });

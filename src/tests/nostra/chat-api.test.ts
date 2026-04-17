@@ -212,14 +212,14 @@ class MockOfflineQueue {
         id: m.id,
         to: m.peerId,
         payload: m.payload,
-        timestamp: Date.now()
+        timestamp: Math.floor(Date.now() / 1000)
       }));
     }
     return this.queuedMessages.map(m => ({
       id: m.id,
       to: m.peerId,
       payload: m.payload,
-      timestamp: Date.now()
+      timestamp: Math.floor(Date.now() / 1000)
     }));
   }
 
@@ -558,9 +558,9 @@ describe('ChatAPI', () => {
           to: OWN_ID,
           type: 'text',
           content: 'Hello via relay',
-          timestamp: Date.now()
+          timestamp: Math.floor(Date.now() / 1000)
         }),
-        timestamp: Date.now()
+        timestamp: Math.floor(Date.now() / 1000)
       };
 
       mockPool.simulateMessage(relayMsg);
@@ -582,9 +582,9 @@ describe('ChatAPI', () => {
           to: OWN_ID,
           type: 'text',
           content: 'Relay message',
-          timestamp: Date.now()
+          timestamp: Math.floor(Date.now() / 1000)
         }),
-        timestamp: Date.now()
+        timestamp: Math.floor(Date.now() / 1000)
       };
 
       mockPool.simulateMessage(relayMsg);
@@ -641,9 +641,9 @@ describe('ChatAPI', () => {
           to: OWN_ID,
           type: 'text',
           content: 'Unique message',
-          timestamp: Date.now()
+          timestamp: Math.floor(Date.now() / 1000)
         }),
-        timestamp: Date.now()
+        timestamp: Math.floor(Date.now() / 1000)
       };
 
       // Deliver the message
@@ -666,9 +666,9 @@ describe('ChatAPI', () => {
           to: OWN_ID,
           type: 'text',
           content: 'Duplicated message',
-          timestamp: Date.now()
+          timestamp: Math.floor(Date.now() / 1000)
         }),
-        timestamp: Date.now()
+        timestamp: Math.floor(Date.now() / 1000)
       };
 
       // Deliver the same message twice
@@ -706,9 +706,9 @@ describe('ChatAPI', () => {
           to: OWN_ID,
           type: 'text',
           content: 'Already seen before reload',
-          timestamp: Date.now()
+          timestamp: Math.floor(Date.now() / 1000)
         }),
-        timestamp: Date.now()
+        timestamp: Math.floor(Date.now() / 1000)
       };
 
       mockPool.simulateMessage(relayMsg);
@@ -750,9 +750,9 @@ describe('ChatAPI', () => {
           to: OWN_ID,
           type: 'text',
           content: 'Hello from stranger',
-          timestamp: Date.now()
+          timestamp: Math.floor(Date.now() / 1000)
         }),
-        timestamp: Date.now()
+        timestamp: Math.floor(Date.now() / 1000)
       };
 
       mockPool.simulateMessage(relayMsg);
@@ -781,9 +781,9 @@ describe('ChatAPI', () => {
           to: OWN_ID,
           type: 'text',
           content: 'Hello from known',
-          timestamp: Date.now()
+          timestamp: Math.floor(Date.now() / 1000)
         }),
-        timestamp: Date.now()
+        timestamp: Math.floor(Date.now() / 1000)
       };
 
       mockPool.simulateMessage(relayMsg);
