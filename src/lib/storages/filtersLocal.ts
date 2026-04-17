@@ -41,7 +41,7 @@ export function buildLocalFilter(id: number): MyDialogFilter {
     filter.pFlags.contacts = true;
     filter.pFlags.non_contacts = true;
     filter.pFlags.exclude_archived = true;
-    filter.title = literalTitle('Contacts');
+    filter.title = literalTitle('People');
   } else if(id === FOLDER_ID_GROUPS) {
     filter.pFlags.groups = true;
     filter.pFlags.exclude_archived = true;

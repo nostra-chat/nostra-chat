@@ -42,7 +42,7 @@ describe('buildLocalFilter', () => {
   });
 
   it('uses literal English titles for Persons and Groups', () => {
-    expect(buildLocalFilter(FOLDER_ID_PERSONS).title.text).toBe('Contacts');
+    expect(buildLocalFilter(FOLDER_ID_PERSONS).title.text).toBe('People');
     expect(buildLocalFilter(FOLDER_ID_GROUPS).title.text).toBe('Groups');
   });
 
