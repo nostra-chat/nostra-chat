@@ -192,6 +192,22 @@ export class NostrRelayPool {
   disconnect(): void {
     this.log('[NostrRelayPool] disconnecting all relays');
 
+    // Zero + null the private key bytes FIRST, before any other cleanup.
+    // A later step could suspend (indexedDB, fetch) and leave the key
+    // material alive in memory for an attacker to scrape via debugger /
+    // heap inspection. `Uint8Array.fill(0)` overwrites the underlying
+    // ArrayBuffer in place; assigning null drops the reference so the
+    // next GC reclaims the backing memory.
+    if(this.privateKeyBytes) {
+      this.privateKeyBytes.fill(0);
+      this.privateKeyBytes = null;
+    }
+    // Also drop any pending NIP-65 replay key — same reason.
+    if(this._pendingNip65PrivateKey) {
+      this._pendingNip65PrivateKey.fill(0);
+      this._pendingNip65PrivateKey = null;
+    }
+
     if(this.recoveryInterval) {
       clearInterval(this.recoveryInterval);
       this.recoveryInterval = null;

@@ -13,7 +13,7 @@
 import {Logger, logger} from '@lib/logger';
 import * as secp256k1 from '@noble/secp256k1';
 import {wrapNip17Message, unwrapNip17Message} from './nostr-crypto';
-import {finalizeEvent} from 'nostr-tools/pure';
+import {finalizeEvent, verifyEvent} from 'nostr-tools/pure';
 import {loadEncryptedIdentity, loadBrowserKey, decryptKeys} from './key-storage';
 import {importFromMnemonic} from './nostr-identity';
 import {logSwallow, swallowHandler} from './log-swallow';
@@ -877,6 +877,13 @@ export class NostrRelay {
       return;
     }
 
+    // Verify Schnorr signature on the inbound event before spending crypto
+    // on NIP-44 decryption — drops forgeries from a hostile relay early.
+    if(!verifyEvent(event as any)) {
+      this.log.warn('[NostrRelay] dropping query event with invalid signature, pubkey:', event.pubkey.slice(0, 8) + '...');
+      return;
+    }
+
     try {
       const rumor = unwrapNip17Message(event as any, this.privateKey);
 
@@ -914,6 +921,15 @@ export class NostrRelay {
     // Only process kind 1059 gift-wrap events
     if(event.kind !== NOSTR_KIND_GIFTWRAP) {
       this.log.debug('[NostrRelay] ignoring non-gift-wrap event kind:', event.kind);
+      return;
+    }
+
+    // Verify Schnorr signature on the inbound event before attempting to
+    // decrypt. A hostile relay can otherwise inject forged kind 1059 events
+    // with arbitrary pubkeys; without this check we'd route them into the
+    // unwrap pipeline and potentially surface their payloads to the user.
+    if(!verifyEvent(event as any)) {
+      this.log.warn('[NostrRelay] dropping event with invalid signature, pubkey:', event.pubkey.slice(0, 8) + '...');
       return;
     }
 

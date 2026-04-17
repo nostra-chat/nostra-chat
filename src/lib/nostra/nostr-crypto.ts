@@ -1,7 +1,8 @@
 import * as nip44 from 'nostr-tools/nip44';
-import {generateSecretKey, getPublicKey, finalizeEvent, getEventHash} from 'nostr-tools/pure';
-import {bytesToHex} from 'nostr-tools/utils';
-import {wrapManyEvents, unwrapEvent as nip17UnwrapEvent} from 'nostr-tools/nip17';
+import {generateSecretKey, getPublicKey, finalizeEvent, getEventHash, verifyEvent} from 'nostr-tools/pure';
+// nip17.unwrapEvent and nip17.wrapManyEvents are intentionally not imported:
+// we do a manual verifying unwrap (see `unwrapNip17Message`) and wrap with
+// the lower-level nip59 API to control p-tag routing.
 import {createRumor as createNip59Rumor, createSeal as createNip59Seal, createWrap as createNip59Wrap} from 'nostr-tools/nip59';
 // nostr-tools NostrEvent shape used by nip17/nip59 functions
 export type NTNostrEvent = {kind: number; content: string; pubkey: string; created_at: number; tags: string[][]; id: string; sig: string};
@@ -21,28 +22,65 @@ export interface SignedEvent extends UnsignedEvent {
 
 /**
  * In-memory conversation key cache.
- * Keyed by "{senderPrivHex}:{recipientPubHex}" to ensure uniqueness.
+ *
+ * Two layers to avoid leaking the raw private-key hex into a Map key string
+ * (JS strings are immutable and unzeroable — any cache key containing the
+ * privhex keeps the secret alive for the Map's lifetime):
+ *
+ *   outer: WeakMap<senderPriv Uint8Array, innerMap>
+ *   inner: Map<recipientPubHex, conversationKey>
+ *
+ * The outer WeakMap is keyed by object identity of the sender's secret-key
+ * buffer, so the hex is never materialized. When callers drop their
+ * reference to the buffer (e.g. `privateKeyBytes = null` on logout), the
+ * WeakMap entry becomes eligible for GC automatically.
  */
-const conversationKeyCache = new Map<string, Uint8Array>();
+const conversationKeyCache: WeakMap<Uint8Array, Map<string, Uint8Array>> = new WeakMap();
+
+// Strong-ref counterpart used ONLY for `clearConversationKeyCache()` to walk
+// every inner map. WeakMap has no iteration API, and on logout we want a
+// best-effort wipe of the derived keys regardless of whether the outer
+// Uint8Array is still reachable. We hold Uint8Arrays here so the entries are
+// released when the caller also releases their reference, except during the
+// brief window between logout and GC — which is acceptable.
+const clearRegistry: Set<Map<string, Uint8Array>> = new Set();
 
 /**
  * Clear the conversation key cache (call on logout/lock).
+ * Wipes every cached conversation key for every sender.
  */
 export function clearConversationKeyCache(): void {
-  conversationKeyCache.clear();
+  for(const inner of clearRegistry) {
+    // Zero each derived key in place before dropping the Map — these keys
+    // are 32 bytes of NIP-44 ECDH secret.
+    for(const v of inner.values()) {
+      try { v.fill(0); } catch{ /* not a writable view — ignore */ }
+    }
+    inner.clear();
+  }
+  clearRegistry.clear();
 }
 
 /**
  * Get or compute a NIP-44 conversation key for a sender/recipient pair.
+ * Cached per-sender by object identity, per-recipient by hex pubkey.
  */
 export function getConversationKey(senderPriv: Uint8Array, recipientPubHex: string): Uint8Array {
-  const cacheKey = bytesToHex(senderPriv) + ':' + recipientPubHex;
-  const cached = conversationKeyCache.get(cacheKey);
+  let inner = conversationKeyCache.get(senderPriv);
+  if(!inner) {
+    inner = new Map<string, Uint8Array>();
+    conversationKeyCache.set(senderPriv, inner);
+  }
+  // Ensure this inner map is tracked for wipe-on-logout. It's idempotent to
+  // re-add (Set dedups) and guarantees that a post-`clear()` re-use still
+  // registers the map so the next clear() wipes it too.
+  clearRegistry.add(inner);
+  const cached = inner.get(recipientPubHex);
   if(cached) {
     return cached;
   }
   const convKey = nip44.v2.utils.getConversationKey(senderPriv, recipientPubHex);
-  conversationKeyCache.set(cacheKey, convKey);
+  inner.set(recipientPubHex, convKey);
   return convKey;
 }
 
@@ -104,13 +142,31 @@ export function wrapNip17Message(
 }
 
 /**
+ * Error thrown by `unwrapNip17Message` when a verification step fails.
+ * Callers can distinguish verification drops from transport/parse errors.
+ */
+export class GiftWrapVerificationError extends Error {
+  readonly code: 'wrap_sig' | 'seal_sig' | 'pubkey_binding' | 'rumor_id';
+  constructor(code: 'wrap_sig' | 'seal_sig' | 'pubkey_binding' | 'rumor_id', message: string) {
+    super(message);
+    this.name = 'GiftWrapVerificationError';
+    this.code = code;
+  }
+}
+
+/**
  * Unwrap a kind 1059 gift-wrap event to recover the rumor.
  *
- * Uses nostr-tools/nip17 `unwrapEvent` which handles:
- * - Decrypting gift-wrap to get seal (via NIP-44 with ephemeral key)
- * - Decrypting seal to get rumor (via NIP-44 with sender key)
- * - Anti-impersonation: nostr-tools verifies seal pubkey matches rumor pubkey
- *   through the NIP-44 decrypt chain (Pitfall 8)
+ * Security checks (each failure throws `GiftWrapVerificationError`):
+ *   a. `verifyEvent(wrap)` — wrap Schnorr signature valid.
+ *   b. NIP-44 decrypt wrap with recipient key to get seal (kind 13).
+ *   c. `verifyEvent(seal)` — seal Schnorr signature valid.
+ *   d. NIP-44 decrypt seal with recipient key + seal.pubkey to get rumor.
+ *   e. `rumor.pubkey === seal.pubkey` — prevents a malicious sender from
+ *      sealing a rumor with `pubkey = victim` under their own signing key
+ *      (nostr-tools/nip17 + nip59 do NOT enforce this binding).
+ *   f. `getEventHash(rumor) === rumor.id` — rumor id matches its canonical
+ *      hash (prevents replaying or tampering with the id field).
  *
  * @param event - Kind 1059 gift-wrap event
  * @param recipientSk - Recipient's secret key (Uint8Array)
@@ -120,8 +176,41 @@ export function unwrapNip17Message(
   event: NTNostrEvent,
   recipientSk: Uint8Array
 ): {kind: number; content: string; pubkey: string; created_at: number; tags: string[][]; id: string} {
-  const rumor = nip17UnwrapEvent(event, recipientSk);
-  return rumor;
+  // (a) Verify wrap signature — drops forged events from hostile relays.
+  if(!verifyEvent(event as any)) {
+    throw new GiftWrapVerificationError('wrap_sig', 'gift-wrap signature invalid');
+  }
+
+  // (b) Decrypt wrap → seal
+  const wrapConvKey = getConversationKey(recipientSk, event.pubkey);
+  const sealJson = nip44Decrypt(event.content, wrapConvKey);
+  const seal = JSON.parse(sealJson) as SignedEvent;
+
+  // (c) Verify seal signature
+  if(!verifyEvent(seal as any)) {
+    throw new GiftWrapVerificationError('seal_sig', 'seal signature invalid');
+  }
+
+  // (d) Decrypt seal → rumor (using the seal.pubkey as the DH counterpart)
+  const sealConvKey = getConversationKey(recipientSk, seal.pubkey);
+  const rumorJson = nip44Decrypt(seal.content, sealConvKey);
+  const rumor = JSON.parse(rumorJson) as UnsignedEvent;
+
+  // (e) Bind rumor.pubkey to seal.pubkey — anti-impersonation.
+  if(rumor.pubkey !== seal.pubkey) {
+    throw new GiftWrapVerificationError(
+      'pubkey_binding',
+      `rumor.pubkey (${rumor.pubkey.slice(0, 8)}...) does not match seal.pubkey (${seal.pubkey.slice(0, 8)}...)`
+    );
+  }
+
+  // (f) Verify rumor.id matches its canonical hash (no sig — rumors are unsigned).
+  const expectedId = getEventHash(rumor as any);
+  if(rumor.id !== expectedId) {
+    throw new GiftWrapVerificationError('rumor_id', 'rumor id does not match canonical hash');
+  }
+
+  return rumor as {kind: number; content: string; pubkey: string; created_at: number; tags: string[][]; id: string};
 }
 
 /**

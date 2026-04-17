@@ -146,6 +146,26 @@ export function isDuplicate(history: ChatMessage[], msg: DecryptedMessage, chatI
     history.some(m => m.id === chatId);
 }
 
+/**
+ * Max skew (seconds) between rumor.created_at and wall-clock before we drop
+ * the message. 3 days covers legitimate clock drift / seal randomization
+ * (NIP-17 seals randomize created_at within ~48h) while rejecting attackers
+ * who pin messages to the future to keep them at the top of the chat list.
+ */
+export const MAX_CREATED_AT_SKEW_SECONDS = 3 * 86400;
+
+/**
+ * Returns true if the rumor's created_at is within the accepted window.
+ * Anything farther than `MAX_CREATED_AT_SKEW_SECONDS` from wall clock is
+ * rejected — this blocks "pin-to-top forever" attacks (far-future timestamps)
+ * as well as obvious replay/backdated garbage.
+ */
+export function isCreatedAtInWindow(createdAt: number, nowSeconds?: number): boolean {
+  if(typeof createdAt !== 'number' || !Number.isFinite(createdAt)) return false;
+  const now = nowSeconds ?? Math.floor(Date.now() / 1000);
+  return Math.abs(createdAt - now) <= MAX_CREATED_AT_SKEW_SECONDS;
+}
+
 // ─── Main handler ──────────────────────────────────────────────
 
 /**
@@ -156,6 +176,20 @@ export async function handleRelayMessage(
   msg: DecryptedMessage,
   ctx: ReceiveContext
 ): Promise<ReceiveResult> {
+  // 0. Reject rumors whose `created_at` is too far from wall-clock. A sender
+  //    can otherwise set `created_at = now + 10y` to pin the message to the
+  //    top of the chat list forever, or backdate to bury follow-ups. The
+  //    skew window (3 days) accommodates NIP-17 seal randomization plus
+  //    legitimate clock drift; anything outside is dropped silently.
+  if(!isCreatedAtInWindow(msg.timestamp)) {
+    ctx.log.warn(
+      '[ChatAPI] dropping message with out-of-window created_at:',
+      msg.timestamp,
+      'from:', msg.from?.slice(0, 8) + '...'
+    );
+    return {action: 'skipped', reason: 'created_at_out_of_window'};
+  }
+
   // 1. Check for delete notification
   const deleteNotif = isDeleteNotification(msg.content);
   if(deleteNotif) {

@@ -8,6 +8,7 @@
 
 import {DEFAULT_RELAYS} from './nostr-relay-pool';
 import {logSwallow} from './log-swallow';
+import {verifyEvent} from 'nostr-tools/pure';
 
 /** Extract relay URLs from DEFAULT_RELAYS (which are RelayConfig objects) */
 const DEFAULT_RELAY_URLS = DEFAULT_RELAYS.map((r) => r.url);
@@ -143,6 +144,17 @@ export function queryRelayForProfileWithMeta(relayUrl: string, pubkey: string): 
         if(msg[0] === 'EVENT' && msg[1] === subId && msg[2]) {
           const nostrEvent = msg[2];
           if(nostrEvent.kind === 0 && nostrEvent.content && typeof nostrEvent.created_at === 'number') {
+            // Security: relay may serve a kind 0 event with a forged pubkey or
+            // a pubkey not matching the one we asked for. Verify both the
+            // Schnorr signature and the author binding before trusting it.
+            if(nostrEvent.pubkey !== pubkey) {
+              console.warn(`${LOG_PREFIX} dropping kind 0 from ${relayUrl}: pubkey mismatch`);
+              return;
+            }
+            if(!verifyEvent(nostrEvent)) {
+              console.warn(`${LOG_PREFIX} dropping kind 0 from ${relayUrl}: bad signature`);
+              return;
+            }
             const profile = JSON.parse(nostrEvent.content) as NostrProfile;
             if(!resolved) {
               resolved = true;
@@ -217,6 +229,17 @@ function queryRelayForProfile(relayUrl: string, pubkey: string): Promise<NostrPr
         if(msg[0] === 'EVENT' && msg[1] === subId && msg[2]) {
           const nostrEvent = msg[2];
           if(nostrEvent.kind === 0 && nostrEvent.content) {
+            // Security: guard against a hostile relay returning a kind 0 with
+            // a forged pubkey (impersonating the user we asked about) or an
+            // invalid signature. Both checks required.
+            if(nostrEvent.pubkey !== pubkey) {
+              console.warn(`${LOG_PREFIX} dropping kind 0 from ${relayUrl}: pubkey mismatch`);
+              return;
+            }
+            if(!verifyEvent(nostrEvent)) {
+              console.warn(`${LOG_PREFIX} dropping kind 0 from ${relayUrl}: bad signature`);
+              return;
+            }
             const profile = JSON.parse(nostrEvent.content) as NostrProfile;
             if(!resolved) {
               resolved = true;

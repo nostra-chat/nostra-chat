@@ -10,6 +10,7 @@
 
 import {clearPeerProfileCache} from './peer-profile-cache';
 import {logSwallow} from './log-swallow';
+import {clearConversationKeyCache} from './nostr-crypto';
 
 // All Nostra IndexedDB database names
 const NOSTRA_DB_NAMES = [
@@ -93,6 +94,25 @@ async function clearNostraData(opts: {keepSeed: boolean}): Promise<string[]> {
   const lsKeys = opts.keepSeed ?
     NOSTRA_LS_KEYS.filter((k) => k !== SEED_LS_KEY) :
     NOSTRA_LS_KEYS;
+
+  // 0. Tear down the live ChatAPI / relay pool so the key bytes get zeroed
+  //    before we delete the IndexedDB that backs the identity. Disconnecting
+  //    inside the cleanup path is what triggers `privateKeyBytes.fill(0)` in
+  //    NostrRelayPool.disconnect(). Swallow everything — cleanup must not
+  //    fail on a missing/initialized pool.
+  try {
+    const chatAPI = (globalThis as any).__nostraChatAPI;
+    if(chatAPI && typeof chatAPI.disconnect === 'function') {
+      chatAPI.disconnect();
+    }
+  } catch(e) { logSwallow('Cleanup.chatAPIDisconnect', e); }
+
+  // Drop every cached conversation key (NIP-44 ECDH secret). The cache is
+  // keyed on sha256(senderPriv), so the raw hex was already never retained,
+  // but the *derived* keys still live in memory until we clear them here.
+  try {
+    clearConversationKeyCache();
+  } catch(e) { logSwallow('Cleanup.clearConvKeyCache', e); }
 
   // 1. Close open DB connections held by singletons (none of these touch Nostra.chat)
   const closes: Promise<void>[] = [];
