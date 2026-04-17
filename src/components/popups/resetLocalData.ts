@@ -1,6 +1,10 @@
 import rootScope from '@lib/rootScope';
-import confirmationPopup from '@components/confirmationPopup';
 import {toast} from '@components/toast';
+
+// `confirmationPopup` is imported lazily inside `showResetLocalDataPopup`:
+// its transitive graph (PopupElement → PopupPeer) creates a circular-init
+// chain that would TDZ-throw when this file is pulled in at boot (for
+// `maybeShowResetToast` below).
 
 const RESET_FLAG_KEY = 'nostra-just-reset';
 
@@ -17,7 +21,8 @@ function createOverlay(text: string): HTMLDivElement {
   return overlay;
 }
 
-export default function showResetLocalDataPopup() {
+export default async function showResetLocalDataPopup() {
+  const {default: confirmationPopup} = await import('@components/confirmationPopup');
   confirmationPopup({
     title: 'Reset Local Data',
     descriptionRaw: 'This will delete all messages, contacts, relays, and settings. Your seed will be kept — if you set a passphrase, you\'ll be asked for it on restart. Continue?',

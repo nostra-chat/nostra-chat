@@ -400,7 +400,9 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
 
   // Update integrity bootstrap — runs before IDB / worker init so a compromise
   // alert can take over the page before any sensitive data is loaded.
-  if('serviceWorker' in navigator) {
+  // Dev builds skip this: Vite HMR rewrites the SW each session, the manifest
+  // URLs point to production origins, and there's no "release" to verify.
+  if(import.meta.env.PROD && 'serviceWorker' in navigator) {
     try {
       await updateBootstrap();
     } catch(err) {
