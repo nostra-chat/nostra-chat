@@ -52,6 +52,15 @@ export function buildLocalFilter(id: number): MyDialogFilter {
 }
 
 /**
+ * Titles that were previously shipped as defaults for a given folder id and
+ * must still be recognized as defaults during migration. Keep this list
+ * small — only strings that were the ACTUAL default at some prior release.
+ */
+const LEGACY_DEFAULT_TITLES: Record<number, readonly string[]> = {
+  [FOLDER_ID_PERSONS]: ['Contacts']
+};
+
+/**
  * Returns true for titles produced by buildLocalFilter (unchanged default
  * label) or legacy persisted langpack sentinels. Used by sync snapshot code
  * to avoid recording default titles as user renames.
@@ -60,5 +69,7 @@ export function isDefaultLocalTitle(id: number, text: string): boolean {
   if(!text) return true;
   if(text.startsWith('LANGPACK:')) return true; // legacy migration
   const fresh = buildLocalFilter(id).title?.text ?? '';
-  return text === fresh;
+  if(text === fresh) return true;
+  if(LEGACY_DEFAULT_TITLES[id]?.includes(text)) return true;
+  return false;
 }
