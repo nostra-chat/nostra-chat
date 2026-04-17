@@ -1,6 +1,12 @@
 // Pure helpers for prepending/replacing the leading emoji of a folder title.
 
-const EMOJI_RE = /^(\p{Extended_Pictographic}\uFE0F?|\p{Regional_Indicator}{2})/u;
+// Matches a leading emoji "cluster":
+//  - a pictographic base (optionally with a variation selector),
+//    followed by zero or more ZWJ-joined pictographics (family, profession, etc.)
+//  - OR a flag sequence (two regional indicators)
+// Keycap sequences (e.g. 1️⃣) are intentionally out of scope — their base
+// character is an ASCII digit, not an Extended_Pictographic.
+const EMOJI_RE = /^(?:\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*|\p{Regional_Indicator}{2})/u;
 
 export function extractLeadingEmoji(title: string): string | null {
   if(!title) return null;

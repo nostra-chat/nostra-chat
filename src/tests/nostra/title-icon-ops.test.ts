@@ -22,6 +22,14 @@ describe('extractLeadingEmoji', () => {
   it('returns null when emoji is not at start', () => {
     expect(extractLeadingEmoji('Work 🎯')).toBe(null);
   });
+
+  it('matches a ZWJ-joined emoji cluster', () => {
+    expect(extractLeadingEmoji('👨‍👩‍👧 Family')).toBe('👨‍👩‍👧');
+  });
+
+  it('matches a flag sequence', () => {
+    expect(extractLeadingEmoji('🇯🇵 Japan')).toBe('🇯🇵');
+  });
 });
 
 describe('setLeadingEmoji', () => {
@@ -52,5 +60,10 @@ describe('setLeadingEmoji', () => {
     // emoji alone is length 2, max is 2 → no space, no tail
     const out = setLeadingEmoji('Work', '🎯', 2);
     expect(out).toBe('🎯');
+  });
+
+  it('replaces a ZWJ-joined leading emoji without leaving orphan joiners', () => {
+    // Before the regex widening, the result was '🎯 ‍👩‍👧 Family' (orphan ZWJ + codepoints).
+    expect(setLeadingEmoji('👨‍👩‍👧 Fam', '🎯', 20)).toBe('🎯 Fam');
   });
 });
