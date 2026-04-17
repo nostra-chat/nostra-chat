@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.2](https://github.com/nostra-chat/nostra-chat/compare/v0.7.1...v0.7.2) (2026-04-17)
+
+
+### Bug Fixes
+
+* **build:** resolve SW via index.html reference, lint .tsx, fix popup indent ([a3e2e56](https://github.com/nostra-chat/nostra-chat/commit/a3e2e56202a657cec35fed52fdfdf2344f46c8d7))
+* **update:** capture bundle SW URL in Step 0 + catch unexpected waiting SW ([06bbbe5](https://github.com/nostra-chat/nostra-chat/commit/06bbbe5497aea861763874d5d6d69bb306335297))
+
 ## [0.7.1](https://github.com/nostra-chat/nostra-chat/compare/v0.7.0...v0.7.1) (2026-04-16)
 
 
