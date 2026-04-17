@@ -19,3 +19,14 @@
   border: none; border-radius: 8px; font-size: 16px; cursor: pointer;
   &:focus { outline: 2px solid #fbbf24; outline-offset: 2px; }
 }
+.recovery {
+  margin-top: 32px; padding-top: 24px; border-top: 1px solid #450a0a;
+  text-align: left; font-size: 13px; color: #fca5a5;
+}
+.recoveryNote { margin-bottom: 12px; line-height: 1.5; }
+.resetButton {
+  padding: 8px 16px; background: transparent; color: #fca5a5;
+  border: 1px solid #7f1d1d; border-radius: 6px; font-size: 13px; cursor: pointer;
+  &:hover { background: #450a0a; }
+  &:focus { outline: 2px solid #fbbf24; outline-offset: 2px; }
+}

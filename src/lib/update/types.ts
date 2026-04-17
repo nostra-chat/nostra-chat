@@ -39,6 +39,7 @@ export enum BootGate {
 export type CompromiseReason =
   | {type: 'sw-url-changed'; expected: string; got: string}
   | {type: 'sw-body-changed-at-same-url'; url?: string; waitingUrl?: string}
+  | {type: 'unexpected-waiting-sw'; waitingUrl?: string}
   | {type: 'manifest-schema-too-new'; receivedSchemaVersion: number};
 
 export type FailureReason =

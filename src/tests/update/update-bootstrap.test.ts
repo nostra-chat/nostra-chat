@@ -1,5 +1,13 @@
 import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
+
+// Vitest can't resolve Vite's `?worker&url` suffix used inside service-worker-url.ts.
+// Stub the module so the bootstrap sees a stable URL we can assert against.
+// vi.mock is hoisted above imports, so the URL must be inline (no outer variable reference).
+vi.mock('@lib/update/service-worker-url', () => ({ServiceWorkerURL: 'http://localhost/sw-TEST.js'}));
+
 import {updateBootstrap, __resetForTest} from '@lib/update/update-bootstrap';
+
+const BUNDLE_SW_URL = 'http://localhost/sw-TEST.js';
 
 function mockSWRegistration(opts: {
   activeScriptURL: string;
@@ -29,11 +37,13 @@ describe('updateBootstrap — Step 0 first install', () => {
   });
   afterEach(() => { vi.restoreAllMocks(); });
 
-  it('saves baseline to localStorage on first boot', async() => {
-    mockSWRegistration({activeScriptURL: 'https://app.example.com/sw-abc.js'});
+  it('saves bundle-declared SW URL as baseline, not reg.active.scriptURL', async() => {
+    // Simulates a pre-Phase-A → Phase-A upgrade: old SW still active, new SW waiting.
+    // Step 0 must capture the URL the RUNNING bundle declares, otherwise the next
+    // boot (after waiting auto-activates) would false-positive Step 1a.
+    mockSWRegistration({activeScriptURL: 'https://app.example.com/sw-OLD.js'});
     await updateBootstrap({skipNetworkChecks: true});
-    expect(localStorage.getItem('nostra.update.installedSwUrl')).toBe('https://app.example.com/sw-abc.js');
-    // installedVersion is BUILD_VERSION which is injected at build; in test env it becomes the literal string or falls back
+    expect(localStorage.getItem('nostra.update.installedSwUrl')).toBe(BUNDLE_SW_URL);
     expect(localStorage.getItem('nostra.update.installedVersion')).toBeTruthy();
     expect(localStorage.getItem('nostra.update.lastAcceptedVersion')).toBeTruthy();
   });
@@ -61,6 +71,34 @@ describe('updateBootstrap — Step 1a URL consistency', () => {
 
   it('passes when scriptURL matches', async() => {
     mockSWRegistration({activeScriptURL: 'https://app.example.com/sw-abc.js'});
+    await expect(updateBootstrap({skipNetworkChecks: true})).resolves.not.toThrow();
+  });
+});
+
+describe('updateBootstrap — Step 1a.5 unexpected waiting SW', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    __resetForTest();
+    localStorage.setItem('nostra.update.installedVersion', 'test-version');
+    localStorage.setItem('nostra.update.installedSwUrl', 'https://app.example.com/sw-abc.js');
+    localStorage.setItem('nostra.update.lastAcceptedVersion', 'test-version');
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('throws when a waiting SW exists without pendingFinalization', async() => {
+    mockSWRegistration({
+      activeScriptURL: 'https://app.example.com/sw-abc.js',
+      waiting: {scriptURL: 'https://app.example.com/sw-EVIL.js'}
+    });
+    await expect(updateBootstrap({skipNetworkChecks: true})).rejects.toThrow(/unexpected-waiting-sw/);
+  });
+
+  it('allows a waiting SW when pendingFinalization is set (legitimate update in progress)', async() => {
+    localStorage.setItem('nostra.update.pendingFinalization', '1');
+    mockSWRegistration({
+      activeScriptURL: 'https://app.example.com/sw-abc.js',
+      waiting: {scriptURL: 'https://app.example.com/sw-new.js'}
+    });
     await expect(updateBootstrap({skipNetworkChecks: true})).resolves.not.toThrow();
   });
 });

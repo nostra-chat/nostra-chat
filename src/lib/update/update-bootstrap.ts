@@ -1,5 +1,14 @@
 import {BootGate, CompromiseAlertError} from '@lib/update/types';
 import {BUILD_VERSION} from '@lib/update/build-version';
+import {ServiceWorkerURL} from '@lib/update/service-worker-url';
+
+function resolveBundleSwUrl(): string {
+  try {
+    return new URL(ServiceWorkerURL as unknown as string, location.origin).href;
+  } catch{
+    return ServiceWorkerURL as unknown as string;
+  }
+}
 
 const LS = {
   installedVersion: 'nostra.update.installedVersion',
@@ -85,10 +94,14 @@ export async function updateBootstrap(opts: BootstrapOptions = {}): Promise<void
 
   const installedVersion = localStorage.getItem(LS.installedVersion);
 
-  // Step 0: first install
+  // Step 0: first install. Store the URL the *currently running bundle* declares,
+  // not `reg.active.scriptURL` — on a pre-Phase-A upgrade the old SW is still
+  // active while the new (Phase-A) SW sits in `waiting`. Capturing the active
+  // URL here would false-positive Step 1a on the next boot once the waiting SW
+  // auto-activates after tab close.
   if(!installedVersion) {
     localStorage.setItem(LS.installedVersion, BUILD_VERSION);
-    localStorage.setItem(LS.installedSwUrl, reg.active!.scriptURL);
+    localStorage.setItem(LS.installedSwUrl, resolveBundleSwUrl());
     localStorage.setItem(LS.lastAcceptedVersion, BUILD_VERSION);
     _bootGate = BootGate.AllVerified;
     return;
@@ -98,6 +111,18 @@ export async function updateBootstrap(opts: BootstrapOptions = {}): Promise<void
   const expectedUrl = localStorage.getItem(LS.installedSwUrl)!;
   if(reg.active!.scriptURL !== expectedUrl) {
     throw new CompromiseAlertError({type: 'sw-url-changed', expected: expectedUrl, got: reg.active!.scriptURL});
+  }
+
+  // Step 1a.5: no unexpected waiting SW. A waiting worker outside a legitimate
+  // update flow means something (bundle or CDN) queued a SW swap without user
+  // consent — treat it as compromise. `apiManagerProxy` only registers the
+  // already-installed SW URL in steady state, so no waiting SW should exist.
+  const pendingFinalizationActive = localStorage.getItem(LS.pendingFinalization) === '1';
+  if(reg.waiting && !pendingFinalizationActive) {
+    throw new CompromiseAlertError({
+      type: 'unexpected-waiting-sw',
+      waitingUrl: reg.waiting.scriptURL
+    });
   }
 
   _bootGate = BootGate.LocalChecksOnly;
