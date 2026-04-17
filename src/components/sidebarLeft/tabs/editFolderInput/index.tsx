@@ -22,7 +22,7 @@ type Controls = {
 // (editCheckForChange, onRawInput) see the change.
 function writeTitleToInputField(input: InputFieldEmoji | undefined, next: string) {
   if(!input?.input) return;
-  const wrapped = wrapEmojiText(next, false, []);
+  const wrapped = wrapEmojiText(next);
   input.input.replaceChildren();
   input.input.append(wrapped);
   input.input.dispatchEvent(new Event('input', {bubbles: true}));
