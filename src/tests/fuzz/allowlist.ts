@@ -43,7 +43,14 @@ export const CONSOLE_ALLOWLIST: readonly RegExp[] = [
   // warnings from browser APIs come without the timing prefix and the
   // uppercased MODULE-TAG shape, and real errors fire as console.error /
   // pageerror which we keep flagging.
-  /^\[warning\] %s \[\d+\.\d+\] \[[A-Z][A-Z0-9-]+\]/
+  /^\[warning\] %s \[\d+\.\d+\] \[[A-Z][A-Z0-9-]+\]/,
+
+  // SolidJS dev-only developer warning for signals created outside a
+  // reactive root. Emitted only by the dev build (`pnpm start`) — production
+  // builds have these warnings stripped. For the fuzzer's --backend=local
+  // mode (dev-server only) this is unavoidable noise; the production path is
+  // checked separately in --backend=real runs (Phase 3).
+  /computations created outside a `createRoot` or `render`/
 ];
 
 /**
