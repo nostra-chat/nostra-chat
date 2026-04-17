@@ -20,22 +20,25 @@ export interface HarnessOptions {
   consoleBufferMax?: number;
 }
 
+const log = (m: string) => console.log(`[harness] ${m}`);
+
 export async function bootHarness(opts: HarnessOptions = {}): Promise<{
   browser: Browser;
   relay: LocalRelay;
   ctx: FuzzContext;
   teardown: () => Promise<void>;
 }> {
+  const t0 = Date.now();
+  log('boot: LocalRelay + 2 contexts + onboarding');
   const relay = new LocalRelay();
   await relay.start();
-
   const browser = await chromium.launch(launchOptions);
 
   const userA = await createUser(browser, 'userA', 'Alice-Fuzz', relay.url, opts);
   const userB = await createUser(browser, 'userB', 'Bob-Fuzz', relay.url, opts);
 
-  // Exchange pubkeys + inject contacts bidirectionally via API (skip DOM add-contact UI).
   await linkContacts(userA, userB);
+  log(`boot done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 
   const ctx: FuzzContext = {
     users: {userA, userB},
@@ -106,6 +109,7 @@ async function createUser(
     await page.getByRole('button', {name: 'Get Started'}).click();
   }
   await page.waitForTimeout(8000);
+  log(`${id} onboarded (${npub.slice(0, 14)}…)`);
 
   const reloadTimes: number[] = [Date.now()];
   page.on('load', () => reloadTimes.push(Date.now()));
@@ -123,12 +127,8 @@ async function createUser(
 }
 
 async function linkContacts(a: UserHandle, b: UserHandle): Promise<void> {
-  // Inject B's identity into A's contact list and vice versa, bypassing the
-  // add-contact DOM flow.
-  const aSeesB = await injectContact(a, b);
-  const bSeesA = await injectContact(b, a);
-  a.remotePeerId = aSeesB;
-  b.remotePeerId = bSeesA;
+  a.remotePeerId = await injectContact(a, b);
+  b.remotePeerId = await injectContact(b, a);
 }
 
 async function injectContact(self: UserHandle, other: UserHandle): Promise<number> {

@@ -48,17 +48,17 @@ async function main() {
     lastFailure = null;
     lastContext = null;
 
-    let counterexample: Action[] | null = null;
+    // Sample a deterministic action sequence from the seed. No shrinking: a
+    // failing sequence is reported as-is. Phase 3 may add a dedicated --shrink
+    // mode that re-runs with fast-check's Property API to minimise a trace.
+    const actions = fc.sample(
+      fc.array(actionArb, {minLength: 1, maxLength: opts.maxCommands}),
+      {seed: iterSeed, numRuns: 1}
+    )[0] as Action[];
+
     try{
-      await fc.assert(
-        fc.asyncProperty(
-          fc.array(actionArb, {minLength: 1, maxLength: opts.maxCommands}),
-          runSequence
-        ),
-        {seed: iterSeed, numRuns: 1, endOnFailure: false, verbose: false}
-      );
+      await runSequence(actions);
     } catch(err: any) {
-      counterexample = err?.counterexample?.[0] as Action[] | null;
       if(!lastFailure) {
         console.error('[fuzz] iteration errored without invariant failure:', err?.message || err);
         continue;
@@ -67,8 +67,7 @@ async function main() {
 
     if(lastFailure) {
       findings++;
-      const minimalTrace = counterexample || [];
-      const {signature, isNew} = await recordFinding(lastFailure, minimalTrace, iterSeed, lastContext || undefined);
+      const {signature, isNew} = await recordFinding(lastFailure, actions, iterSeed, lastContext || undefined);
       console.log(`[fuzz] FIND-${signature} (${lastFailure.invariantId}) ${isNew ? 'NEW' : 'dup'}`);
     }
   }
@@ -86,14 +85,23 @@ async function runSequence(actions: Action[]): Promise<void> {
     for(let i = 0; i < actions.length; i++) {
       ctx.actionIndex = i;
       const spec = findAction(actions[i].name);
+      console.log(`[runseq] action ${i + 1}/${actions.length}: ${actions[i].name}(${JSON.stringify(actions[i].args).slice(0, 80)})`);
       const executed = await spec.drive(ctx, actions[i]);
       actions[i] = executed;
+      if(executed.skipped) console.log(`[runseq] action ${i + 1}: skipped`);
 
       const postFail = await runPostconditions(ctx, executed);
-      if(postFail) {lastFailure = postFail; lastContext = ctx; throw new Error(postFail.message);}
+      if(postFail) {
+        console.log(`[runseq] POST FAIL ${postFail.invariantId}: ${postFail.message.slice(0, 200)}`);
+        lastFailure = postFail; lastContext = ctx; throw new Error(postFail.message);
+      }
 
       const cheap = await runTier('cheap', ctx, executed);
-      if(cheap) {lastFailure = cheap; lastContext = ctx; throw new Error(cheap.message);}
+      if(cheap) {
+        console.log(`[runseq] INV FAIL ${cheap.invariantId}: ${cheap.message.slice(0, 200)}`);
+        lastFailure = cheap; lastContext = ctx; throw new Error(cheap.message);
+      }
+      console.log(`[runseq] action ${i + 1}: OK`);
     }
   } finally {
     // Teardown only AFTER failure details are captured — keep ctx alive for

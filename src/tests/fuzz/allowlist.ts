@@ -29,7 +29,21 @@ export const CONSOLE_ALLOWLIST: readonly RegExp[] = [
   /\[NostrRelay\] connected to/,
 
   // Playwright emits console.log of Playwright events when headed
-  /pw:/
+  /pw:/,
+
+  // Chromium headless: Push API unavailable because notification permission is
+  // denied by default in headless mode. Benign in fuzz context; the real app
+  // path handles permission-denied gracefully.
+  /\[PUSH-API\] the user has blocked notifications/,
+
+  // Nostra's internal logger prints informational messages at console.warn
+  // level with the shape "%s [<elapsed>] [<MODULE-TAG>] …". Treating ALL
+  // warnings as errors was too aggressive — modules like [MP-MTPROTO],
+  // [ChatAPI], [NostraSync] routinely log state transitions via warn. Real
+  // warnings from browser APIs come without the timing prefix and the
+  // uppercased MODULE-TAG shape, and real errors fire as console.error /
+  // pageerror which we keep flagging.
+  /^\[warning\] %s \[\d+\.\d+\] \[[A-Z][A-Z0-9-]+\]/
 ];
 
 /**
