@@ -6,7 +6,8 @@
   "scripts": {
     "prepare": "husky",
     "preinstall": "npx only-allow pnpm",
-    "preversion": "pnpm lint && npx tsc --noEmit",
+    "preversion": "node src/scripts/sync-release-manifest.mjs --check && pnpm lint && npx tsc --noEmit",
+    "version": "node src/scripts/sync-release-manifest.mjs && git add .release-please-manifest.json",
     "postversion": "git push --follow-tags",
     "start": "vite --force",
     "start-in-docker": "vite --force --host",
