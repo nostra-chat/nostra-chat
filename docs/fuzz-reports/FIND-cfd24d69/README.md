@@ -1,15 +1,8 @@
 # FIND-cfd24d69 — duplicate data-mid on cross-direction send
 
-**Status:** open — `INV-no-dup-mid` muted in fuzzer (commented in
-`src/tests/fuzz/invariants/index.ts`) until the underlying render bug is
-fixed.
-
-**Broader than initially thought.** Second 2h run (post-mute of
-replyToRandomBubble) reproduced the identical signature with a trace that
-contained NO reply action — just plain `sendText` alternating between
-userA and userB. So the bug triggers on ANY outgoing send that follows an
-incoming receive, not only replies. The muted invariant will re-enable when
-the render / mid-assignment bug in the send pipeline is fixed.
+**Status:** fixed — see commits for dup-mid guard and invariant un-mute.
+Regression guard: `src/tests/nostra/bubbles-dup-mid.test.ts` + `INV-no-dup-mid`.
+Diagnosis details: `docs/fuzz-reports/FIND-cfd24d69/DIAGNOSIS.md`.
 
 ## Invariant
 
