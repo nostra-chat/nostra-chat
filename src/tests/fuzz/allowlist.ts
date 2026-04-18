@@ -49,12 +49,13 @@ export const CONSOLE_ALLOWLIST: readonly RegExp[] = [
   // fire as console.error / pageerror which we keep flagging.
   /^\[warning\] .*\[\d+(?:\.\d+)?\] \[[A-Za-z][A-Za-z0-9-]+\]/,
 
-  // SolidJS dev-only developer warning for signals created outside a
-  // reactive root. Emitted only by the dev build (`pnpm start`) — production
-  // builds have these warnings stripped. For the fuzzer's --backend=local
-  // mode (dev-server only) this is unavoidable noise; the production path is
-  // checked separately in --backend=real runs (Phase 3).
-  /computations created outside a `createRoot` or `render`/,
+  // SolidJS dev-only developer warnings for resources created outside a
+  // reactive root ("computations", "cleanups", "effects", etc). Emitted only
+  // by the dev build (`pnpm start`) — production builds have these warnings
+  // stripped. For the fuzzer's --backend=local mode (dev-server only) this
+  // is unavoidable noise; the production path is checked separately in
+  // --backend=real runs (Phase 3).
+  /\w+ created outside a `createRoot` or `render`/,
 
   // tweb's PEER_CHANGED_ERROR is thrown by design to cancel in-flight
   // promises when the user switches chats (see bubbles.ts:281,
