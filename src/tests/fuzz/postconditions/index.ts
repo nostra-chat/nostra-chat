@@ -14,10 +14,7 @@ export const POSTCONDITIONS: Record<string, Postcondition[]> = {
   replyToRandomBubble: [POST_sendText_bubble_appears],
   editRandomOwnBubble: [POST_edit_preserves_mid, POST_edit_content_updated],
   deleteRandomOwnBubble: [POST_delete_local_bubble_gone],
-  // POST_react_emoji_appears → FIND-1526f892 (reactions UI never populates in
-  // Nostra mode; reaction gets sent but no visual confirm). Muted until
-  // Phase 2 plumbs reactions through the receive side / display bridge.
-  reactToRandomBubble: [/* POST_react_emoji_appears */]
+  reactToRandomBubble: [POST_react_emoji_appears]
 };
 
 export async function runPostconditions(
