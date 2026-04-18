@@ -42,16 +42,26 @@ describe('buildLocalFilter', () => {
   });
 
   it('uses literal English titles for Persons and Groups', () => {
-    expect(buildLocalFilter(FOLDER_ID_PERSONS).title.text).toBe('Contacts');
+    expect(buildLocalFilter(FOLDER_ID_PERSONS).title.text).toBe('People');
     expect(buildLocalFilter(FOLDER_ID_GROUPS).title.text).toBe('Groups');
   });
 
   it('isDefaultLocalTitle recognizes fresh seeds, empty, and legacy LANGPACK', () => {
-    expect(isDefaultLocalTitle(FOLDER_ID_PERSONS, 'Contacts')).toBe(true);
+    expect(isDefaultLocalTitle(FOLDER_ID_PERSONS, 'People')).toBe(true);
     expect(isDefaultLocalTitle(FOLDER_ID_GROUPS, 'Groups')).toBe(true);
     expect(isDefaultLocalTitle(FOLDER_ID_PERSONS, '')).toBe(true);
     expect(isDefaultLocalTitle(FOLDER_ID_PERSONS, 'LANGPACK:FilterContacts')).toBe(true);
     expect(isDefaultLocalTitle(FOLDER_ID_PERSONS, 'Amici')).toBe(false);
+  });
+
+  it('isDefaultLocalTitle recognizes legacy "Contacts" title for FOLDER_ID_PERSONS as default', () => {
+    // Legacy users shipped with 'Contacts' as the persons-folder title; we want the
+    // migration path to overwrite that with the new default on next boot.
+    expect(isDefaultLocalTitle(FOLDER_ID_PERSONS, 'Contacts')).toBe(true);
+    // Other folders do not treat 'Contacts' as a default:
+    expect(isDefaultLocalTitle(FOLDER_ID_GROUPS, 'Contacts')).toBe(false);
+    // Other arbitrary legacy strings are not whitelisted:
+    expect(isDefaultLocalTitle(FOLDER_ID_PERSONS, 'Chats')).toBe(false);
   });
 });
 

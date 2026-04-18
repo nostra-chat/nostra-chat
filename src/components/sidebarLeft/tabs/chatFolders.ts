@@ -19,13 +19,12 @@ import {attachClickEvent} from '@helpers/dom/clickEvent';
 import positionElementByIndex from '@helpers/dom/positionElementByIndex';
 import RLottiePlayer from '@lib/rlottie/rlottiePlayer';
 import wrapEmojiText from '@lib/richTextProcessor/wrapEmojiText';
-import {FOLDER_ID_ALL, FOLDER_ID_ARCHIVE, REAL_FOLDERS} from '@appManagers/constants';
+import {FOLDER_ID_ALL, FOLDER_ID_ARCHIVE} from '@appManagers/constants';
 import replaceContent from '@helpers/dom/replaceContent';
 import SettingSection from '@components/settingSection';
 import Sortable from '@helpers/dom/sortable';
 import whichChild from '@helpers/dom/whichChild';
 import indexOfAndSplice from '@helpers/array/indexOfAndSplice';
-import showLimitPopup from '@components/popups/limit';
 import {joinDeepPath} from '@helpers/object/setDeepProperty';
 import RadioField from '@components/radioField';
 import appImManager from '@lib/appImManager';
@@ -240,12 +239,8 @@ export default class AppChatFoldersTab extends SliderSuperTab {
       this.viewSection.container
     );
 
-    attachClickEvent(this.createFolderBtn, async() => {
-      if(!(await this.canCreateFolder())) {
-        showLimitPopup('folders');
-      } else {
-        this.slider.createTab(AppEditFolderTab).open();
-      }
+    attachClickEvent(this.createFolderBtn, () => {
+      this.slider.createTab(AppEditFolderTab).open();
     }, {listenerSetter: this.listenerSetter});
 
     const onFiltersContainerUpdate = () => {
@@ -371,16 +366,6 @@ export default class AppChatFoldersTab extends SliderSuperTab {
     filterRendered.container.classList.toggle('hide', !rootScope.premium);
   }
 
-  private async canCreateFolder() {
-    const [limit, filters] = await Promise.all([
-      this.managers.apiManager.getLimit('folders'),
-      this.managers.filtersStorage.getDialogFilters()
-    ]);
-
-    const filtersLength = filters.filter((filter) => !REAL_FOLDERS.has(filter.id)).length;
-    return filtersLength < limit;
-  }
-
   private getSuggestedFilters() {
     return this.managers.filtersStorage.getSuggestedDialogsFilters().then(async(suggestedFilters) => {
       this.suggestedSection.container.classList.toggle('hide', !suggestedFilters.length);
@@ -393,11 +378,6 @@ export default class AppChatFoldersTab extends SliderSuperTab {
         const button = row.buttonRight;
         attachClickEvent(button, async(e) => {
           cancelEvent(e);
-
-          if(!(await this.canCreateFolder())) {
-            showLimitPopup('folders');
-            return;
-          }
 
           button.setAttribute('disabled', 'true');
 

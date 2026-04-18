@@ -135,8 +135,8 @@ async function run() {
     // Verify Persons/Groups carry the literal English titles
     const personsA = foldersA.find((f: any) => f.id === 2);
     const groupsA = foldersA.find((f: any) => f.id === 3);
-    if(personsA?.title !== 'Contacts') {
-      throw new Error(`A: Persons expected title "Contacts" — got "${personsA?.title}"`);
+    if(personsA?.title !== 'People') {
+      throw new Error(`A: Persons expected title "People" — got "${personsA?.title}"`);
     }
     if(groupsA?.title !== 'Groups') {
       throw new Error(`A: Groups expected title "Groups" — got "${groupsA?.title}"`);
