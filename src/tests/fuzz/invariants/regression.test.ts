@@ -87,3 +87,29 @@ describe('INV-edit-author-check', () => {
     expect(r.message).toMatch(/author/i);
   });
 });
+
+import {virtualPeerIdStable} from './regression';
+
+describe('INV-virtual-peer-id-stable', () => {
+  it('is a no-op when action is not reloadPage', async() => {
+    const action: any = {name: 'sendText'};
+    const c: any = {users: {userA: {}, userB: {}}, snapshots: new Map(), actionIndex: 0, relay: null};
+    const r = await virtualPeerIdStable.check(c, action);
+    expect(r.ok).toBe(true);
+  });
+
+  it('fails when npub→peerId map changes across reload', async() => {
+    const action: any = {name: 'reloadPage', args: {user: 'userA'}};
+    const snapshots = new Map([['preReloadPeerMap-userA', {'npub1abc': 42}]]);
+    const c: any = {
+      users: {
+        userA: {id: 'userA', page: {evaluate: vi.fn(async() => ({'npub1abc': 99}))}} as any,
+        userB: {id: 'userB'}
+      },
+      snapshots, actionIndex: 0, relay: null
+    };
+    const r = await virtualPeerIdStable.check(c, action);
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/peer.*changed/i);
+  });
+});

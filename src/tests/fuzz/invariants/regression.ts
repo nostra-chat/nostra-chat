@@ -123,3 +123,33 @@ export const editAuthorCheck: Invariant = {
     return {ok: true};
   }
 };
+
+export const virtualPeerIdStable: Invariant = {
+  id: 'INV-virtual-peer-id-stable',
+  tier: 'regression',
+  async check(ctx: FuzzContext, action?: any): Promise<InvariantResult> {
+    if(!action || action.name !== 'reloadPage') return {ok: true};
+    const userId = action.args.user;
+    const snapshotKey = `preReloadPeerMap-${userId}`;
+    const before = ctx.snapshots.get(snapshotKey) as Record<string, number> | undefined;
+    if(!before) return {ok: true};
+    const u: any = ctx.users[userId];
+    const after: Record<string, number> = await u.page.evaluate(async() => {
+      const proxy = (window as any).apiManagerProxy;
+      const peers = proxy?.mirrors?.peers || {};
+      const map: Record<string, number> = {};
+      for(const [peerId, p] of Object.entries<any>(peers)) {
+        if(p?.p2pPubkey) map[p.p2pPubkey] = Number(peerId);
+      }
+      return map;
+    });
+    for(const [pubkey, beforeId] of Object.entries(before)) {
+      const afterId = after[pubkey];
+      if(afterId === undefined) continue;
+      if(afterId !== beforeId) {
+        return {ok: false, message: `peer id changed across reload: pubkey ${pubkey.slice(0, 12)}… ${beforeId} → ${afterId}`, evidence: {pubkey, beforeId, afterId}};
+      }
+    }
+    return {ok: true};
+  }
+};
