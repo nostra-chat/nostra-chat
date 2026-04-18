@@ -11,6 +11,8 @@ import {AppImManager, APP_TABS, ChatSetPeerOptions} from '@lib/appImManager';
 import EventListenerBase from '@helpers/eventListenerBase';
 import {logger, LogTypes} from '@lib/logger';
 import rootScope from '@lib/rootScope';
+import {isP2PPeer} from '@lib/nostra/nostra-bridge';
+import {nostraReactionsLocal} from '@lib/nostra/nostra-reactions-local';
 import appSidebarRight from '@components/sidebarRight';
 import ChatBubbles, {FullMid, splitFullMid} from '@components/chat/bubbles';
 import ChatContextMenu from '@components/chat/contextMenu';
@@ -1555,6 +1557,18 @@ export default class Chat extends EventListenerBase<{
       count: isPaidReaction ? 0 : count,
       onlyReturn: isPaidReaction
     });
+
+    // FIND-1526f892 sender-side display (Phase 2a): the MTProto flow above
+    // never reaches the .bubble .reactions DOM for Nostra P2P peers. Route
+    // the reaction into the local store so reactions.ts picks it up via
+    // the nostra_reaction_added event. Receive-side (peer sees it) in 2b.
+    if(!isPaidReaction && options.reaction._ === 'reactionEmoji' && isP2PPeer(Number(options.message.peerId))) {
+      nostraReactionsLocal.addReaction(
+        Number(options.message.peerId),
+        options.message.mid,
+        options.reaction.emoticon
+      );
+    }
 
     if(isPaidReaction) {
       const {message} = options;

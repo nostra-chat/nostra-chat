@@ -65,6 +65,27 @@ rootScope.addEventListener('saved_tags', ({savedPeerId, tags}) => {
   });
 });
 
+// FIND-1526f892 sender-side display (Phase 2a): MTProto reactions flow never
+// fires the DOM update for Nostra P2P peers. A local store dispatches
+// nostra_reaction_added; we append the emoji to the bubble's .nostra-reactions
+// container idempotently. Receive-side (other user's view) is Phase 2b.
+rootScope.addEventListener('nostra_reaction_added', ({mid, emoji}) => {
+  const bubble = document.querySelector<HTMLElement>(`.bubbles-inner .bubble[data-mid="${mid}"]`);
+  if(!bubble) return;
+  let container = bubble.querySelector<HTMLElement>('.nostra-reactions');
+  if(!container) {
+    container = document.createElement('div');
+    container.className = 'reactions nostra-reactions';
+    bubble.appendChild(container);
+  }
+  const existing = Array.from(container.querySelectorAll<HTMLElement>('.reaction-emoji')).map((el) => el.textContent);
+  if(existing.includes(emoji)) return;
+  const span = document.createElement('span');
+  span.className = 'reaction-emoji';
+  span.textContent = emoji;
+  container.appendChild(span);
+});
+
 export default class ReactionsElement extends HTMLElement {
   private context: ReactionsContext;
   private key: string;
