@@ -257,15 +257,18 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 
 ### Bug Fuzzer (stateful property-based)
 
-`pnpm fuzz` runs a long-running fuzzer that generates random action sequences across 2 Playwright contexts + LocalRelay and verifies cheap-tier invariants after every action. Findings are appended (deduplicated by signature) to `docs/FUZZ-FINDINGS.md`; minimal replay traces live in `docs/fuzz-reports/FIND-<sig>/trace.json`.
+`pnpm fuzz` runs a long-running fuzzer that generates random action sequences across 2 Playwright contexts + LocalRelay and verifies tiered invariants (cheap + medium + regression) after every action. Findings are appended (deduplicated by signature) to `docs/FUZZ-FINDINGS.md`; minimal replay traces live in `docs/fuzz-reports/FIND-<sig>/trace.json`.
 
 - `pnpm fuzz --duration=2h` — overnight run
 - `pnpm fuzz --replay=FIND-<sig>` — deterministic replay of a finding
+- `pnpm fuzz --replay-baseline` — 30s regression check against `docs/fuzz-baseline/baseline-seed42.json` (Phase 2a)
 - `pnpm fuzz --headed --slowmo=200` — watch the fuzzer in a real browser
-- Spec: `docs/superpowers/specs/2026-04-17-bug-fuzzer-design.md`
-- Plan: `docs/superpowers/plans/2026-04-17-bug-fuzzer-phase-1.md`
+- Spec Phase 1: `docs/superpowers/specs/2026-04-17-bug-fuzzer-design.md`
+- Spec Phase 2a: `docs/superpowers/specs/2026-04-18-bug-fuzzer-phase-2a-design.md`
 
-Adding an invariant = create a file in `src/tests/fuzz/invariants/`, register in `invariants/index.ts`. Adding an action = create a spec in `src/tests/fuzz/actions/`, register in `actions/index.ts`. Allowlist additions to `src/tests/fuzz/allowlist.ts` must cite why the noise is benign.
+**Adding a fuzz artifact** — `src/tests/fuzz/invariants/<tier>.ts` (one file per tier: `console.ts`, `bubbles.ts`, `delivery.ts`, `avatar.ts` = cheap; `state.ts`, `queue.ts` = medium; `regression.ts` = regression). Register in `invariants/index.ts`. Add a Vitest in the same directory. Same additive pattern for `postconditions/<category>.ts`.
+
+**Phase 2a closed** three P2P blockers (`FIND-cfd24d69` dup-mid, `FIND-676d365a` delete, `FIND-1526f892` react sender-side). Receive-side reactions still deferred to Phase 2b. A committed regression baseline at `docs/fuzz-baseline/baseline-seed42.json` protects future PRs — always run `pnpm fuzz --replay-baseline` before shipping a PR that touches send/receive/render.
 
 ### Bubble Rendering
 - Kind 0 profile must be PUBLISHED during onboarding (not just saved locally) for other users to fetch it.
