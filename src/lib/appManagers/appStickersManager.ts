@@ -149,7 +149,13 @@ export class AppStickersManager extends AppManager {
         emoticon: '👋⭐️',
         includeServerStickers: true
       }).then((docs) => {
-        if(!docs.length) throw 'NO_STICKERS';
+        if(!docs.length) {
+          // In Nostra mode the sticker backend is stubbed empty — an empty
+          // list is expected, not an error. Silently return so the
+          // opening-chat UI falls back to no greeting sticker.
+          this.greetingStickers = [];
+          return;
+        }
         this.greetingStickers = docs.slice() as Document.document[];
         this.greetingStickers.sort((a, b) => Math.random() - Math.random());
       });
@@ -157,12 +163,14 @@ export class AppStickersManager extends AppManager {
 
     return this.getGreetingStickersPromise.then(() => {
       let doc: Document.document;
-      if(!justPreload) {
+      if(!justPreload && this.greetingStickers.length) {
         doc = this.greetingStickers.shift();
         this.greetingStickers.push(doc);
       }
 
-      this.apiFileManager.downloadMedia({media: this.greetingStickers[0]}); // preload next sticker
+      if(this.greetingStickers.length) {
+        this.apiFileManager.downloadMedia({media: this.greetingStickers[0]}); // preload next sticker
+      }
 
       return doc;
     });
