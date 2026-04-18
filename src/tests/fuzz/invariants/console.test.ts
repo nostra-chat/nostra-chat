@@ -35,6 +35,15 @@ describe('INV-console-clean', () => {
     expect(r.ok).toBe(true);
   });
 
+  it('passes internal-logger warnings including ANSI-prefixed variants', async () => {
+    const r = await consoleClean.check(ctx([
+      '[warning] %s [0.044] [IDB-tweb-common] performing idb upgrade from 0 to 8',
+      '[warning] %s [36m%s [0.001] [MP-CRYPTO] attaching send port',
+      '[warning] %s [0.036] [MP-MTPROTO] attaching send port'
+    ]));
+    expect(r.ok).toBe(true);
+  });
+
   it('fails on pageerror entry', async () => {
     const r = await consoleClean.check(ctx(['[pageerror] ReferenceError: x is not defined\n    at …']));
     expect(r.ok).toBe(false);

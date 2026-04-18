@@ -37,14 +37,17 @@ export const CONSOLE_ALLOWLIST: readonly RegExp[] = [
   /\[PUSH-API\] the user has blocked notifications/,
 
   // Nostra's internal logger prints informational messages at console.warn
-  // level with the shape "%s [<elapsed>] [<MODULE-TAG>] …". Treating ALL
-  // warnings as errors was too aggressive — modules like [MP-MTPROTO],
-  // [ChatAPI], [NostraSync], [IDB-tweb-common] routinely log state transitions
-  // via warn. Real warnings from browser APIs come without the timing prefix
-  // and module-tag shape, and real errors fire as console.error / pageerror
-  // which we keep flagging. Tag allows mixed-case because some modules use
-  // kebab-case with lowercase segments (e.g. `IDB-tweb-common`).
-  /^\[warning\] %s \[\d+\.\d+\] \[[A-Za-z][A-Za-z0-9-]+\]/,
+  // level with the shape:
+  //   [warning] <any color/format-placeholders> [<elapsed>] [<MODULE-TAG>] …
+  // Treating ALL warnings as errors was too aggressive — modules like
+  // [MP-MTPROTO], [MP-CRYPTO], [ChatAPI], [NostraSync], [IDB-tweb-common]
+  // routinely log state transitions via warn. Playwright surfaces the raw
+  // warn format including printf placeholders (`%s`, `%c`) and ANSI colour
+  // tokens (`\x1b[36m` → `[36m`), so we cannot match the prefix literally —
+  // we anchor on the distinctive `[<N>] [<TAG>] …` shape further in. Real
+  // warnings from browser APIs lack this structural pair, and real errors
+  // fire as console.error / pageerror which we keep flagging.
+  /^\[warning\] .*\[\d+(?:\.\d+)?\] \[[A-Za-z][A-Za-z0-9-]+\]/,
 
   // SolidJS dev-only developer warning for signals created outside a
   // reactive root. Emitted only by the dev build (`pnpm start`) — production
