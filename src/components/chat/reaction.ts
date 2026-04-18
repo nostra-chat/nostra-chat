@@ -412,6 +412,12 @@ export default class ReactionElement extends HTMLElement {
   }
 
   private renderDoc(doc: Document.document) {
+    // In Nostra mode the sticker/reaction catalog is stub-empty, so doc can
+    // arrive undefined from the availableReaction.center_icon ??
+    // static_icon fallback chain. wrapSticker dereferences doc.sticker
+    // unconditionally — skip when no doc is available, the reaction count
+    // still paints as plain emoji without the animated sticker layer.
+    if(!doc) return;
     const size = REACTIONS_SIZE[this.type];
     const wrapPromise = this.wrapStickerPromise = wrapSticker({
       div: this.stickerContainer,
@@ -801,6 +807,12 @@ export default class ReactionElement extends HTMLElement {
         availableReaction,
         genericEffect
       ]) => {
+        // Nostra mode: the reactions catalog is stub-empty, so availableReaction
+        // is undefined. If there's also no sticker doc and no genericEffect
+        // fallback, the whole around-animation render would crash in
+        // wrapSticker with `doc: undefined`. Skip entirely — the reaction
+        // count still renders as plain emoji.
+        if(!availableReaction && !sticker && !genericEffect) return;
         return onAvailableReaction(availableReaction ? {
           availableReaction,
           onlyAround: !!sticker
