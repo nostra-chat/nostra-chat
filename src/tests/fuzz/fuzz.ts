@@ -3,7 +3,7 @@ import * as fc from 'fast-check';
 import {parseCli, HELP_TEXT} from './cli';
 import {bootHarness, type HarnessOptions} from './harness';
 import {actionArb, findAction} from './actions';
-import {runTier} from './invariants';
+import {runTier, runEndOfSequence, runEndOfRun} from './invariants';
 import {runPostconditions} from './postconditions';
 import {recordFinding} from './reporter';
 import {replayFinding, replayFile} from './replay';
@@ -84,6 +84,16 @@ async function main() {
     }
   }
 
+  // End-of-run regression tier — one last sweep over relay/IDB state.
+  if(lastContext) {
+    const regr = await runEndOfRun(lastContext);
+    if(regr) {
+      findings++;
+      await recordFinding(regr, [], opts.seed, lastContext);
+      console.log(`[fuzz] END-OF-RUN REGR FIND: ${regr.invariantId}`);
+    }
+  }
+
   console.log(`[fuzz] done. iterations=${iterations} findings=${findings}`);
 }
 
@@ -127,7 +137,22 @@ async function runSequence(actions: Action[], harnessOpts: HarnessOptions): Prom
         lastFailure = cheap; lastContext = ctx; lastTeardown = teardown; lastFailedActionIndex = i;
         throw new Error(cheap.message);
       }
+
+      const med = await runTier('medium', ctx, executed);
+      if(med) {
+        console.log(`[runseq] MED INV FAIL ${med.invariantId}: ${med.message.slice(0, 200)}`);
+        lastFailure = med; lastContext = ctx; lastTeardown = teardown; lastFailedActionIndex = i;
+        throw new Error(med.message);
+      }
       console.log(`[runseq] action ${i + 1}: OK`);
+    }
+
+    // End-of-sequence regression tier
+    const regr = await runEndOfSequence(ctx, actions[actions.length - 1]);
+    if(regr) {
+      console.log(`[runseq] END-OF-SEQ REGR FAIL ${regr.invariantId}: ${regr.message.slice(0, 200)}`);
+      lastFailure = regr; lastContext = ctx; lastTeardown = teardown; lastFailedActionIndex = actions.length - 1;
+      throw new Error(regr.message);
     }
   } finally {
     // Teardown here ONLY when no failure was captured against this context.
