@@ -43,7 +43,11 @@ export const mirrorsIdbCoherent: Invariant = {
       const u: UserHandle = ctx.users[id];
       const snap = await u.page.evaluate(COLLECT_MIRRORS_VS_IDB);
       const idbSet = new Set(snap.idbMids);
-      const missing = snap.mirrorMids.filter((m) => !idbSet.has(m));
+      // Exclude in-flight temp mids (fractional) — they live briefly in the
+      // mirror before the VMT renames them to the real timestamp-derived mid.
+      // Absent from IDB by design during send. Real P2P mids are integers
+      // >= 2^50 (see generateTempMessageId integer fallback for FIND-cfd24d69).
+      const missing = snap.mirrorMids.filter((m) => Number.isInteger(m) && !idbSet.has(m));
       if(missing.length > 0) {
         return {ok: false, message: `mirror mids not in idb on ${id}: ${missing.slice(0, 5).join(',')}`, evidence: {user: id, missing}};
       }
