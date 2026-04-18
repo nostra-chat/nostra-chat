@@ -1,8 +1,13 @@
+import 'fake-indexeddb/auto';
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 
 // We import via dynamic import after mocks are set up so vi.doMock takes
 // effect — see CLAUDE.md "vi.mock() cannot override already-cached modules"
 // guidance.
+//
+// Module-level init of appMessagesManager pulls AppStorage -> IDBStorage,
+// so we import `fake-indexeddb/auto` to silence background unhandled
+// rejections that would otherwise show up as "2 errors" in the test report.
 
 describe('deleteMessages — P2P mid short-circuit', () => {
   let appMessagesManager: any;
@@ -27,16 +32,34 @@ describe('deleteMessages — P2P mid short-circuit', () => {
     }));
 
     vi.doMock('@config/debug', () => ({
+      default: {MOUNT_CLASS_TO: {}, DEBUG: false},
       MOUNT_CLASS_TO: {},
       DEBUG: false
     }));
 
     const mod = await import('@appManagers/appMessagesManager');
     appMessagesManager = mod.default ?? (mod as any).appMessagesManager ?? new (mod as any).AppMessagesManager();
-    // Stub apiManager so invokeApi returns a canned affectedMessages payload
+    // Stub injected managers directly on the instance. AppManager uses
+    // `Object.assign(this, managers)` at setup; vi.doMock of the module
+    // doesn't reach instance fields like `this.appPeersManager`.
     appMessagesManager.apiManager = {
       invokeApi: vi.fn(async() => ({_: 'messages.affectedMessages', pts: 1, pts_count: 0})),
       getConfig: vi.fn(async() => ({forwarded_count_max: 100}))
+    };
+    appMessagesManager.apiUpdatesManager = {
+      processLocalUpdate: (update: any) => processLocalUpdateCalls.push(update)
+    };
+    appMessagesManager.appPeersManager = {
+      isChannel: () => false,
+      isMonoforum: () => false
+    };
+    appMessagesManager.appMessagesIdsManager = {
+      splitMessageIdsByChannels: (mids: number[]) => [[undefined, {mids}]],
+      // For the non-P2P test with peerId 42: returning the same mid makes the
+      // server-id filter in deleteMessagesInner treat the mid as round-trip-safe,
+      // so it is forwarded to invokeApi and the mocked affectedMessages drives
+      // processLocalUpdate.
+      generateMessageId: (messageId: number) => messageId
     };
   });
 
