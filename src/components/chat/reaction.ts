@@ -332,6 +332,11 @@ export default class ReactionElement extends HTMLElement {
     if(reaction._ === 'reactionEmoji') {
       const availableReaction = apiManagerProxy.getReaction(reaction.emoticon);
       return callbackify(availableReaction, (availableReaction) => {
+        // In Nostra mode the reactions catalog is empty (stub response), so
+        // getReaction returns undefined. Skip the visual customization —
+        // the reaction count still renders as plain emoji via fallback path.
+        if(!availableReaction) return;
+
         if(!availableReaction.center_icon) {
           this.stickerContainer.classList.add('is-static');
         } else {
