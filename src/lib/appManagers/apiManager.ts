@@ -623,6 +623,9 @@ export class ApiManager extends ApiManagerMethods {
     'messages.getAllStickers': {_: 'messages.allStickers', hash: 0, sets: []},
     'messages.getEmojiKeywordsDifference': {_: 'emojiKeywordsDifference', lang_code: 'en', from_version: 0, version: 1, keywords: []},
     'messages.getAvailableReactions': {_: 'messages.availableReactions', hash: 0, reactions: []},
+    // Found by fuzzer (FIND-5c45981a): chat-open triggers getMessageReactionsList,
+    // fallback `{pFlags:{}}` shape made processResult crash on `.users.forEach`.
+    'messages.getMessageReactionsList': {_: 'messages.messageReactionsList', count: 0, reactions: [], chats: [], users: [], next_offset: ''},
     'messages.getEmojiKeywords': {_: 'emojiKeywordsDifference', lang_code: 'en', from_version: 0, version: 1, keywords: []},
     'messages.getEmojiStickers': {_: 'messages.allStickers', hash: 0, sets: []},
     'messages.getTopReactions': {_: 'messages.reactions', hash: 0, reactions: []},
