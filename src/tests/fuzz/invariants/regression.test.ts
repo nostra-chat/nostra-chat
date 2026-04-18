@@ -39,3 +39,51 @@ describe('INV-idb-seed-encrypted', () => {
     expect(r.message).toMatch(/plaintext/i);
   });
 });
+
+import {editPreservesMidTimestamp, editAuthorCheck} from './regression';
+
+describe('INV-edit-preserves-mid-timestamp', () => {
+  it('passes when mid + timestamp identical post-edit', async() => {
+    const action: any = {name: 'editRandomOwnBubble', args: {user: 'userA'}, meta: {editedMid: '100', beforeSnapshot: {mid: '100', timestamp: '5000', content: 'old'}}};
+    const c: any = {
+      users: {userA: {id: 'userA', page: {evaluate: vi.fn(async() => ({mid: '100', timestamp: '5000', content: 'new'}))}} as any, userB: {} as any},
+      snapshots: new Map(), actionIndex: 0, relay: null
+    };
+    const r = await editPreservesMidTimestamp.check(c, action);
+    expect(r.ok).toBe(true);
+  });
+
+  it('fails when mid changes post-edit', async() => {
+    const action: any = {name: 'editRandomOwnBubble', args: {user: 'userA'}, meta: {editedMid: '100', beforeSnapshot: {mid: '100', timestamp: '5000', content: 'old'}}};
+    const c: any = {
+      users: {userA: {id: 'userA', page: {evaluate: vi.fn(async() => ({mid: '999', timestamp: '5000', content: 'new'}))}} as any, userB: {} as any},
+      snapshots: new Map(), actionIndex: 0, relay: null
+    };
+    const r = await editPreservesMidTimestamp.check(c, action);
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/mid/i);
+  });
+});
+
+describe('INV-edit-author-check', () => {
+  it('passes when every edit row has author match', async() => {
+    const rows = [{mid: 1, senderPubkey: 'ABC', editAuthorPubkey: 'ABC', editedAt: 100}];
+    const c: any = {
+      users: {userA: {id: 'userA', page: {evaluate: vi.fn(async() => rows)}} as any, userB: {id: 'userB', page: {evaluate: vi.fn(async() => [])}} as any},
+      snapshots: new Map(), actionIndex: 0, relay: null
+    };
+    const r = await editAuthorCheck.check(c);
+    expect(r.ok).toBe(true);
+  });
+
+  it('fails when an edit row has mismatched author', async() => {
+    const rows = [{mid: 1, senderPubkey: 'ABC', editAuthorPubkey: 'XYZ', editedAt: 100}];
+    const c: any = {
+      users: {userA: {id: 'userA', page: {evaluate: vi.fn(async() => rows)}} as any, userB: {id: 'userB', page: {evaluate: vi.fn(async() => [])}} as any},
+      snapshots: new Map(), actionIndex: 0, relay: null
+    };
+    const r = await editAuthorCheck.check(c);
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/author/i);
+  });
+});

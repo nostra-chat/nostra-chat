@@ -62,3 +62,64 @@ export const idbSeedEncrypted: Invariant = {
     return {ok: true};
   }
 };
+
+export const editPreservesMidTimestamp: Invariant = {
+  id: 'INV-edit-preserves-mid-timestamp',
+  tier: 'regression',
+  async check(ctx: FuzzContext, action?: any): Promise<InvariantResult> {
+    if(!action || action.name !== 'editRandomOwnBubble' || action.skipped) return {ok: true};
+    const before = action.meta?.beforeSnapshot;
+    const editedMid = action.meta?.editedMid;
+    if(!before || !editedMid) return {ok: true};
+    const user = ctx.users[action.args.user as 'userA' | 'userB'];
+    const after = await user.page.evaluate((m: string) => {
+      const b = document.querySelector(`.bubbles-inner .bubble[data-mid="${m}"]`);
+      if(!b) return null;
+      return {mid: (b as HTMLElement).dataset.mid, timestamp: (b as HTMLElement).dataset.timestamp};
+    }, String(editedMid));
+    if(!after) return {ok: false, message: `edited bubble mid=${editedMid} not found post-edit`, evidence: {before}};
+    if(after.mid !== before.mid) {
+      return {ok: false, message: `edit changed mid: ${before.mid} → ${after.mid}`, evidence: {before, after}};
+    }
+    if(after.timestamp !== before.timestamp) {
+      return {ok: false, message: `edit changed timestamp: ${before.timestamp} → ${after.timestamp}`, evidence: {before, after}};
+    }
+    return {ok: true};
+  }
+};
+
+const COLLECT_EDIT_ROWS = async() => {
+  try {
+    const req = indexedDB.open('nostra-messages');
+    const db: IDBDatabase = await new Promise((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    const tx = db.transaction('messages', 'readonly');
+    const store = tx.objectStore('messages');
+    const all: any[] = await new Promise((resolve, reject) => {
+      const r = store.getAll();
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    });
+    db.close();
+    return all.filter((row: any) => row.editedAt != null);
+  } catch { return []; }
+};
+
+export const editAuthorCheck: Invariant = {
+  id: 'INV-edit-author-check',
+  tier: 'regression',
+  async check(ctx: FuzzContext): Promise<InvariantResult> {
+    for(const id of ['userA', 'userB'] as const) {
+      const u: any = ctx.users[id];
+      const rows = await u.page.evaluate(COLLECT_EDIT_ROWS);
+      for(const row of rows) {
+        if(row.editAuthorPubkey && row.senderPubkey && row.editAuthorPubkey !== row.senderPubkey) {
+          return {ok: false, message: `edit author mismatch on mid=${row.mid} (${id}): edit by ${row.editAuthorPubkey} vs original sender ${row.senderPubkey}`, evidence: {user: id, row}};
+        }
+      }
+    }
+    return {ok: true};
+  }
+};
