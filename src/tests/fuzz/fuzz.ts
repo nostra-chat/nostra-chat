@@ -95,6 +95,16 @@ async function main() {
  */
 async function runSequence(actions: Action[], harnessOpts: HarnessOptions): Promise<void> {
   const {ctx, teardown} = await bootHarness(harnessOpts);
+  // Clear each user's console buffer AFTER the boot + onboarding + linkContacts
+  // sequence so INV-console-clean only flags messages produced by fuzz actions.
+  // Startup noise (WASM preload hints, MP-CRYPTO init, IDB schema upgrade,
+  // SolidJS dev warnings about initial reactive roots) is not a regression we
+  // want the fuzzer chasing — each boot phase has its own warnings and the
+  // fuzzer's job is to find bugs in the ACTION phase, not at startup. Actions
+  // that appear reload/login-like (reloadPage, logout, resetLocalData — Phase
+  // 3) will need to clear again or extend their own warmup window.
+  ctx.users.userA.consoleLog.length = 0;
+  ctx.users.userB.consoleLog.length = 0;
   try{
     for(let i = 0; i < actions.length; i++) {
       ctx.actionIndex = i;
