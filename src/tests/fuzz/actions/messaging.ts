@@ -59,7 +59,12 @@ async function pickRandomBubbleMid(
     const selector = own
       ? '.bubbles-inner .bubble[data-mid].is-out, .bubbles-inner .bubble[data-mid].is-own'
       : '.bubbles-inner .bubble[data-mid]';
-    const bubbles = Array.from(document.querySelectorAll(selector));
+    // Exclude bubbles still in the send pipeline — their data-mid is a
+    // temp (e.g. 0.0001), and acting on them races the message_sent rename.
+    // Users would not interact with a spinning bubble either.
+    const bubbles = Array.from(document.querySelectorAll(selector))
+      .filter((b) => !(b as HTMLElement).classList.contains('is-sending') &&
+                     !(b as HTMLElement).classList.contains('is-outgoing'));
     if(bubbles.length === 0) return null;
     const b = bubbles[Math.floor(Math.random() * bubbles.length)] as HTMLElement;
     return b.dataset.mid || null;
