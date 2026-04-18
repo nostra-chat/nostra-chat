@@ -54,7 +54,15 @@ export const CONSOLE_ALLOWLIST: readonly RegExp[] = [
   // builds have these warnings stripped. For the fuzzer's --backend=local
   // mode (dev-server only) this is unavoidable noise; the production path is
   // checked separately in --backend=real runs (Phase 3).
-  /computations created outside a `createRoot` or `render`/
+  /computations created outside a `createRoot` or `render`/,
+
+  // tweb's PEER_CHANGED_ERROR is thrown by design to cancel in-flight
+  // promises when the user switches chats (see bubbles.ts:281,
+  // `const PEER_CHANGED_ERROR = new Error('peer changed')`). Most callers
+  // convert it via `middlewarePromise` or a silent `.catch(noop)`, but
+  // Playwright still surfaces it as `[pageerror] peer changed` in a few
+  // unhandled-rejection paths. It's cancellation signal, not a regression.
+  /^\[pageerror\] peer changed$/
 ];
 
 /**
