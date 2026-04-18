@@ -124,6 +124,18 @@ export const editRandomOwnBubble: ActionSpec = {
     const mid = await pickRandomBubbleMid(ctx, from, true);
     if(!mid) {action.skipped = true; return action;}
 
+    const beforeSnapshot = await sender.page.evaluate((targetMid: string) => {
+      const b = document.querySelector(`.bubbles-inner .bubble[data-mid="${targetMid}"]`);
+      if(!b) return null;
+      const clone = b.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll('.time, .time-inner, .reactions, .bubble-pin').forEach((e) => e.remove());
+      return {
+        mid: (b as HTMLElement).dataset.mid,
+        timestamp: (b as HTMLElement).dataset.timestamp,
+        content: (clone.textContent || '').trim()
+      };
+    }, mid);
+
     const started = await sender.page.evaluate((targetMid: string) => {
       const chat = (window as any).appImManager?.chat;
       if(!chat?.input?.initMessageEditing) return false;
@@ -141,7 +153,7 @@ export const editRandomOwnBubble: ActionSpec = {
     await sender.page.keyboard.type(action.args.newText);
     await sender.page.locator('.chat-input button.btn-send').first().click().catch(() => {});
 
-    action.meta = {editedMid: mid, newText: action.args.newText, editedAt: Date.now()};
+    action.meta = {editedMid: mid, newText: action.args.newText, editedAt: Date.now(), beforeSnapshot};
     return action;
   }
 };
