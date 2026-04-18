@@ -70,7 +70,12 @@ const COLLECT_DELIVERY_STATE = async() => {
   const states: Record<string, string> = tracker?.getAllStates
     ? tracker.getAllStates()
     : (tracker?.states ? Object.fromEntries(tracker.states) : {});
-  const trackerMids = Object.keys(states).map(Number);
+  // Tracker keys can be numeric mids OR compound app-ids like "chat-XXX-N"
+  // (per CLAUDE.md). Only the numeric ones should be checked for
+  // DOM/IDB coherence — compound ids are internal routing state.
+  const trackerMids = Object.keys(states)
+    .map(Number)
+    .filter((n) => !Number.isNaN(n));
   const domMids = Array.from(document.querySelectorAll('.bubbles-inner .bubble[data-mid]'))
     .map((b) => Number((b as HTMLElement).dataset.mid)).filter((n) => !Number.isNaN(n));
   const idbMids: number[] = [];
