@@ -37,8 +37,8 @@ describe('deleteMessages — P2P mid short-circuit', () => {
       DEBUG: false
     }));
 
-    const mod = await import('@appManagers/appMessagesManager');
-    appMessagesManager = mod.default ?? (mod as any).appMessagesManager ?? new (mod as any).AppMessagesManager();
+    const mod: any = await import('@appManagers/appMessagesManager');
+    appMessagesManager = mod.default ?? mod.appMessagesManager ?? new mod.AppMessagesManager();
     // Stub injected managers directly on the instance. AppManager uses
     // `Object.assign(this, managers)` at setup; vi.doMock of the module
     // doesn't reach instance fields like `this.appPeersManager`.
