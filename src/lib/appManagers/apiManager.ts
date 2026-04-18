@@ -623,9 +623,13 @@ export class ApiManager extends ApiManagerMethods {
     'messages.getAllStickers': {_: 'messages.allStickers', hash: 0, sets: []},
     'messages.getEmojiKeywordsDifference': {_: 'emojiKeywordsDifference', lang_code: 'en', from_version: 0, version: 1, keywords: []},
     'messages.getAvailableReactions': {_: 'messages.availableReactions', hash: 0, reactions: []},
-    // Found by fuzzer (FIND-5c45981a): chat-open triggers getMessageReactionsList,
-    // fallback `{pFlags:{}}` shape made processResult crash on `.users.forEach`.
+    // Found by fuzzer (FIND-5c45981a): chat-open fires getMessageReactionsList +
+    // getAvailableEffects + getPeerSettings, all of which crashed downstream
+    // processResult calls on the `{pFlags:{}}` fallback. Ship properly-shaped
+    // static responses so the chat-open path is noiseless in Nostra mode.
     'messages.getMessageReactionsList': {_: 'messages.messageReactionsList', count: 0, reactions: [], chats: [], users: [], next_offset: ''},
+    'messages.getAvailableEffects': {_: 'messages.availableEffects', hash: 0, effects: [], documents: []},
+    'messages.getPeerSettings': {_: 'messages.peerSettings', settings: {_: 'peerSettings', pFlags: {}}, chats: [], users: []},
     'messages.getEmojiKeywords': {_: 'emojiKeywordsDifference', lang_code: 'en', from_version: 0, version: 1, keywords: []},
     'messages.getEmojiStickers': {_: 'messages.allStickers', hash: 0, sets: []},
     'messages.getTopReactions': {_: 'messages.reactions', hash: 0, reactions: []},
@@ -819,6 +823,7 @@ export class ApiManager extends ApiManagerMethods {
   ]);
 
   private static _invariantsChecked = false;
+  private static _loggedFallback: Set<string> | undefined;
 
   private nostraIntercept(method: string, params: any): any {
     // Validate static intercept config once at first call (see
@@ -847,7 +852,16 @@ export class ApiManager extends ApiManagerMethods {
     // Action methods → true
     if(ApiManager.NOSTRA_ACTION_PREFIXES.some((p) => method.includes(p))) return true;
 
-    // Default fallback
+    // Default fallback — log once per method so fuzzer/E2E can see which
+    // un-mapped method fell through (commonly the root cause of processResult
+    // crashes that expect arrays on the response).
+    if(!ApiManager._loggedFallback) ApiManager._loggedFallback = new Set();
+    if(!ApiManager._loggedFallback.has(method)) {
+      ApiManager._loggedFallback.add(method);
+      // Use console.log not .warn — INV-console-clean treats warn as error, and
+      // this is diagnostic info for the fuzzer, not a regression.
+      console.log('[NostraVMT] fallback {pFlags:{}} for un-mapped method:', method);
+    }
     return {pFlags: {}};
   }
 
