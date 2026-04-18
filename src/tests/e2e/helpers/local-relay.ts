@@ -170,4 +170,42 @@ export class LocalRelay {
       return false;
     }
   }
+
+  /**
+   * Fetch every event strfry has seen during the run. Uses a throwaway
+   * WebSocket client + strfry's default indexed-query. Only for fuzz
+   * regression checks — not for production code paths.
+   */
+  async getAllEvents(): Promise<Array<{kind: number; id: string; pubkey: string; created_at: number}>> {
+    const {default: WebSocket} = await import('ws');
+    const sock = new WebSocket(this.url);
+    const events: any[] = [];
+    return new Promise((resolve, reject) => {
+      const subId = 'fuzz-all-' + Math.random().toString(36).slice(2, 8);
+      const timeout = setTimeout(() => {
+        try{ sock.close(); } catch{}
+        reject(new Error('LocalRelay.getAllEvents timeout'));
+      }, 5000);
+      sock.on('open', () => {
+        // Empty filter matches all events up to strfry's query cap.
+        sock.send(JSON.stringify(['REQ', subId, {}]));
+      });
+      sock.on('message', (data: any) => {
+        try {
+          const msg = JSON.parse(String(data));
+          if(Array.isArray(msg) && msg[0] === 'EVENT' && msg[1] === subId) {
+            events.push(msg[2]);
+          } else if(Array.isArray(msg) && msg[0] === 'EOSE' && msg[1] === subId) {
+            clearTimeout(timeout);
+            try{ sock.close(); } catch{}
+            resolve(events);
+          }
+        } catch{ /* ignore malformed */ }
+      });
+      sock.on('error', (err: any) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
+  }
 }
