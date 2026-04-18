@@ -14,7 +14,16 @@ export class AppMessagesIdsManager {
   // private channelCurLocal = 0;
 
   public generateTempMessageId(messageId: number, channelId: ChatId) {
-    return +(this.generateMessageId(messageId, channelId) + 0.0001).toFixed(4);
+    const base = this.generateMessageId(messageId, channelId);
+    // FIND-cfd24d69: for base >= 2^50, `+ 0.0001` falls below Number precision
+    // (EPSILON * 1.78e15 ≈ 0.4) and collapses — the tempMid equals the input,
+    // colliding with an existing real mid. Nostra P2P virtual mids are
+    // `timestamp * 1e6 + hash%1e6` ≈ 1.78e15, always above this threshold.
+    // Fall back to integer +1 so the tempMid stays > topMessage and unique.
+    if(base >= 2 ** 50) {
+      return base + 1;
+    }
+    return +(base + 0.0001).toFixed(4);
   }
 
   public generateMessageId(messageId: number, channelId?: ChatId) {
