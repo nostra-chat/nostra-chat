@@ -45,6 +45,16 @@ describe('signature', () => {
     const b = computeSignature({invariantId: 'INV-x', message: 'bubble not chronological'});
     expect(a).not.toBe(b);
   });
+
+  it('collapses emoji and temp-mid variants of the same bug', () => {
+    const fire = computeSignature({invariantId: 'INV-x', message: 'reaction 🔥 not visible on mid=1776497965366456'});
+    const thumbs = computeSignature({invariantId: 'INV-x', message: 'reaction 👍 not visible on mid=1776497611062493'});
+    const think = computeSignature({invariantId: 'INV-x', message: 'reaction 🤔 not visible on mid=0.0001'});
+    const tempFire = computeSignature({invariantId: 'INV-x', message: 'reaction 🔥 not visible on mid=0.0002'});
+    expect(fire).toBe(thumbs);
+    expect(fire).toBe(think);
+    expect(fire).toBe(tempFire);
+  });
 });
 
 describe('markdown round-trip', () => {

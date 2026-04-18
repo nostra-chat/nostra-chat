@@ -19,12 +19,19 @@ const ARTIFACTS_ROOT = 'docs/fuzz-reports';
  * a noise pattern is observed to produce divergent signatures in practice.
  */
 function normaliseForSignature(message: string): string {
+  // Order matters: mid= and npub1 first so their digits/chars are collapsed
+  // before the broader HEX sweep. HEX last so it doesn't swallow already-
+  // labeled tokens.
   return message
     .replace(/\[\d+(?:\.\d+)?\]/g, '[T]')            // "[0.044]", "[12]" → "[T]"
+    .replace(/\bmid=[\d.]+/g, 'mid=N')               // mid=1712345678 or mid=0.0002 → mid=N
     .replace(/\bnpub1[0-9a-z]{10,}/g, 'npub1X')     // full npub → "npub1X"
-    .replace(/\b[0-9a-f]{16,}\b/gi, 'HEX')           // 16+ hex char run (eventId, mid)
-    .replace(/\bmid=\d+/g, 'mid=N')                  // mid=1712345678 → mid=N
-    .replace(/\b\d+\.\d+s\b/g, 'Ns');                 // "67.2s" → "Ns"
+    .replace(/\b\d+\.\d+s\b/g, 'Ns')                 // "67.2s" → "Ns"
+    .replace(/\b[0-9a-f]{16,}\b/gi, 'HEX')           // 16+ hex char run (eventId, rumor id)
+    // Collapse any non-ASCII char (emojis, CJK, etc.) to a single marker so
+    // e.g. `reaction 🔥` and `reaction 👍` dedup to the same bug when the
+    // rest of the message is identical.
+    .replace(/[^\x00-\x7F]+/g, 'U');
 }
 
 export function computeSignature(input: {invariantId: string; message: string; stackTopFrame?: string}): string {
