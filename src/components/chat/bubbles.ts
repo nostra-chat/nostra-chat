@@ -9431,20 +9431,25 @@ export default class ChatBubbles {
         }
 
         const loadPromises: Promise<any>[] = [];
-        await wrapSticker({
-          doc,
-          // doc: appDocsManager.getDoc("5431607541660389336"), // cubigator mockup
-          div: stickerDiv,
-          middleware,
-          lazyLoadQueue: this.lazyLoadQueue,
-          group: this.chat.animationGroup,
-          // play: !!message.pending || !multipleRender,
-          play: true,
-          loop: true,
-          withThumb: true,
-          loadPromises,
-          liteModeKey: 'stickers_chat'
-        });
+        // doc can be undefined when the sticker backend has no greeting
+        // sticker (e.g. Nostra mode — backend is stubbed empty by design).
+        // wrapSticker dereferences doc.sticker unconditionally, so guard.
+        if(doc) {
+          await wrapSticker({
+            doc,
+            // doc: appDocsManager.getDoc("5431607541660389336"), // cubigator mockup
+            div: stickerDiv,
+            middleware,
+            lazyLoadQueue: this.lazyLoadQueue,
+            group: this.chat.animationGroup,
+            // play: !!message.pending || !multipleRender,
+            play: true,
+            loop: true,
+            withThumb: true,
+            loadPromises,
+            liteModeKey: 'stickers_chat'
+          });
+        }
 
         attachClickEvent(stickerDiv, (e) => {
           cancelEvent(e);
