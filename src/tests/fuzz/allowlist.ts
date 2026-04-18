@@ -62,7 +62,7 @@ export const CONSOLE_ALLOWLIST: readonly RegExp[] = [
   // convert it via `middlewarePromise` or a silent `.catch(noop)`, but
   // Playwright still surfaces it as `[pageerror] peer changed` in a few
   // unhandled-rejection paths. It's cancellation signal, not a regression.
-  /^\[pageerror\] peer changed$/
+  /^\[pageerror\] peer changed(?:\n|$)/
 ];
 
 /**
