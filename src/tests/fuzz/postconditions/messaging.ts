@@ -6,7 +6,12 @@ export const POST_sendText_bubble_appears: Postcondition = {
   async check(ctx, action: Action): Promise<InvariantResult> {
     if(action.skipped) return {ok: true};
     const sender = ctx.users[action.args.from as 'userA' | 'userB'];
-    const text: string = action.args.text;
+    // tweb trims leading/trailing whitespace on send (expected behaviour),
+    // so the stored message and rendered bubble show the trimmed text. Match
+    // on the trimmed value, and skip entirely when the trimmed text is empty
+    // (tweb drops no-op sends).
+    const text: string = String(action.args.text).trim();
+    if(!text) return {ok: true};
     const deadline = Date.now() + 2500;
     while(Date.now() < deadline) {
       const found = await sender.page.evaluate((needle: string) => {
