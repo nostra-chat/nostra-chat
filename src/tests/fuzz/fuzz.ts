@@ -6,7 +6,7 @@ import {actionArb, findAction} from './actions';
 import {runTier, runEndOfSequence, runEndOfRun} from './invariants';
 import {runPostconditions} from './postconditions';
 import {recordFinding} from './reporter';
-import {replayFinding, replayFile} from './replay';
+import {replayFinding, replayFile, replayBaseline} from './replay';
 import type {Action, FuzzContext, FailureDetails} from './types';
 
 /**
@@ -39,10 +39,17 @@ async function main() {
     return;
   }
 
+  if(opts.replayBaseline) {
+    const trace = await replayBaseline();
+    await runReplay(trace, harnessOpts);
+    return;
+  }
+
   console.log(`[fuzz] seed=${opts.seed} duration=${opts.durationMs}ms maxCommands=${opts.maxCommands}`);
   const deadline = Date.now() + opts.durationMs;
   let iterations = 0;
   let findings = 0;
+  let lastCleanActions: Action[] = [];
 
   while(Date.now() < deadline) {
     iterations++;
@@ -81,6 +88,8 @@ async function main() {
       console.log(`[fuzz] FIND-${signature} (${lastFailure.invariantId}) ${isNew ? 'NEW' : 'dup'}`);
       // Artifact capture done — now release the context we kept alive for it.
       if(lastTeardown) await lastTeardown().catch(() => {});
+    } else {
+      lastCleanActions = actions;
     }
   }
 
@@ -92,6 +101,24 @@ async function main() {
       await recordFinding(regr, [], opts.seed, lastContext);
       console.log(`[fuzz] END-OF-RUN REGR FIND: ${regr.invariantId}`);
     }
+  }
+
+  if(opts.emitBaseline && findings === 0 && lastCleanActions.length) {
+    const {writeFileSync, mkdirSync, existsSync} = await import('fs');
+    const baseline = {
+      seed: opts.seed,
+      backend: 'local',
+      maxCommands: opts.maxCommands,
+      commands: lastCleanActions,
+      emittedAt: new Date().toISOString(),
+      fuzzerVersion: 'phase2a'
+    };
+    if(!existsSync('docs/fuzz-baseline')) mkdirSync('docs/fuzz-baseline', {recursive: true});
+    const path = `docs/fuzz-baseline/baseline-seed${opts.seed}.json`;
+    writeFileSync(path, JSON.stringify(baseline, null, 2));
+    console.log(`[fuzz] baseline emitted → ${path} (${lastCleanActions.length} actions)`);
+  } else if(opts.emitBaseline) {
+    console.warn(`[fuzz] --emit-baseline skipped: findings=${findings} cleanActions=${lastCleanActions.length}`);
   }
 
   console.log(`[fuzz] done. iterations=${iterations} findings=${findings}`);
