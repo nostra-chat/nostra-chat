@@ -98,7 +98,10 @@ export const sentBubbleVisibleAfterSend: Invariant = {
   tier: 'cheap',
   async check(ctx: FuzzContext, action?: Action): Promise<InvariantResult> {
     if(!action || action.name !== 'sendText' || action.skipped) return {ok: true};
-    const text: string = action.args.text;
+    // tweb trims leading/trailing whitespace on send, and drops empty sends —
+    // match on the trimmed value, skip when the trimmed text is empty.
+    const text: string = String(action.args.text).trim();
+    if(!text) return {ok: true};
     const fromId: 'userA' | 'userB' = action.args.from;
     const user = ctx.users[fromId];
     const found = await user.page.evaluate((needle: string) => {
