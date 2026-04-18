@@ -69,7 +69,7 @@ describe('INV-edit-author-check', () => {
   it('passes when every edit row has author match', async() => {
     const rows = [{mid: 1, senderPubkey: 'ABC', editAuthorPubkey: 'ABC', editedAt: 100}];
     const c: any = {
-      users: {userA: {id: 'userA', page: {evaluate: vi.fn(async() => rows)}} as any, userB: {id: 'userB', page: {evaluate: vi.fn(async() => [])}} as any},
+      users: {userA: {id: 'userA', page: {evaluate: vi.fn(async() => rows)}} as any, userB: {id: 'userB', page: {evaluate: vi.fn(async(): Promise<any[]> => [])}} as any},
       snapshots: new Map(), actionIndex: 0, relay: null
     };
     const r = await editAuthorCheck.check(c);
@@ -79,7 +79,7 @@ describe('INV-edit-author-check', () => {
   it('fails when an edit row has mismatched author', async() => {
     const rows = [{mid: 1, senderPubkey: 'ABC', editAuthorPubkey: 'XYZ', editedAt: 100}];
     const c: any = {
-      users: {userA: {id: 'userA', page: {evaluate: vi.fn(async() => rows)}} as any, userB: {id: 'userB', page: {evaluate: vi.fn(async() => [])}} as any},
+      users: {userA: {id: 'userA', page: {evaluate: vi.fn(async() => rows)}} as any, userB: {id: 'userB', page: {evaluate: vi.fn(async(): Promise<any[]> => [])}} as any},
       snapshots: new Map(), actionIndex: 0, relay: null
     };
     const r = await editAuthorCheck.check(c);
