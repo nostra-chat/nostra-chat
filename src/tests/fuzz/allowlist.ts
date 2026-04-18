@@ -39,11 +39,12 @@ export const CONSOLE_ALLOWLIST: readonly RegExp[] = [
   // Nostra's internal logger prints informational messages at console.warn
   // level with the shape "%s [<elapsed>] [<MODULE-TAG>] …". Treating ALL
   // warnings as errors was too aggressive — modules like [MP-MTPROTO],
-  // [ChatAPI], [NostraSync] routinely log state transitions via warn. Real
-  // warnings from browser APIs come without the timing prefix and the
-  // uppercased MODULE-TAG shape, and real errors fire as console.error /
-  // pageerror which we keep flagging.
-  /^\[warning\] %s \[\d+\.\d+\] \[[A-Z][A-Z0-9-]+\]/,
+  // [ChatAPI], [NostraSync], [IDB-tweb-common] routinely log state transitions
+  // via warn. Real warnings from browser APIs come without the timing prefix
+  // and module-tag shape, and real errors fire as console.error / pageerror
+  // which we keep flagging. Tag allows mixed-case because some modules use
+  // kebab-case with lowercase segments (e.g. `IDB-tweb-common`).
+  /^\[warning\] %s \[\d+\.\d+\] \[[A-Za-z][A-Za-z0-9-]+\]/,
 
   // SolidJS dev-only developer warning for signals created outside a
   // reactive root. Emitted only by the dev build (`pnpm start`) — production

@@ -8,6 +8,25 @@ import type {ReportEntry, FailureDetails, Action, FuzzContext} from './types';
 const FINDINGS_PATH = 'docs/FUZZ-FINDINGS.md';
 const ARTIFACTS_ROOT = 'docs/fuzz-reports';
 
+/**
+ * Normalise a failure message before hashing so the same logical bug collapses
+ * to the same signature across runs. Strips known volatile tokens:
+ *   - timing prefixes "[0.044]" / "[12.7]" from Nostra's logger
+ *   - numeric suffixes like " in 67.2s" or ": 5 attempts"
+ *   - hex ids matching common shapes (npub1…, event ids, mids)
+ * This is deliberately conservative — over-normalising different bugs into the
+ * same signature is worse than splitting one bug across two. Extend only when
+ * a noise pattern is observed to produce divergent signatures in practice.
+ */
+function normaliseForSignature(message: string): string {
+  return message
+    .replace(/\[\d+(?:\.\d+)?\]/g, '[T]')            // "[0.044]", "[12]" → "[T]"
+    .replace(/\bnpub1[0-9a-z]{10,}/g, 'npub1X')     // full npub → "npub1X"
+    .replace(/\b[0-9a-f]{16,}\b/gi, 'HEX')           // 16+ hex char run (eventId, mid)
+    .replace(/\bmid=\d+/g, 'mid=N')                  // mid=1712345678 → mid=N
+    .replace(/\b\d+\.\d+s\b/g, 'Ns');                 // "67.2s" → "Ns"
+}
+
 export function computeSignature(input: {invariantId: string; message: string; stackTopFrame?: string}): string {
   // stackTopFrame is accepted for forward compatibility with Phase 3 (where
   // stack capture becomes cross-worker) but is NOT included in the Phase 1
@@ -17,7 +36,7 @@ export function computeSignature(input: {invariantId: string; message: string; s
   const h = createHash('sha256');
   h.update(input.invariantId);
   h.update('\0');
-  h.update(input.message.slice(0, 200));
+  h.update(normaliseForSignature(input.message).slice(0, 200));
   return h.digest('hex').slice(0, 8);
 }
 
