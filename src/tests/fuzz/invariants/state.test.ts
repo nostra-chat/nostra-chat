@@ -1,5 +1,5 @@
 import {describe, it, expect, vi} from 'vitest';
-import {mirrorsIdbCoherent, peersComplete} from './state';
+import {mirrorsIdbCoherent, peersComplete, storedMessageIdentityComplete} from './state';
 import type {FuzzContext, UserHandle} from '../types';
 
 function userWith(evalResult: any): UserHandle {
@@ -47,5 +47,43 @@ describe('INV-peers-complete', () => {
     const r = await peersComplete.check(ctx({peers: [{peerId: 42, first_name: 'deadbeef01'}]}));
     expect(r.ok).toBe(false);
     expect(r.message).toMatch(/hex/i);
+  });
+});
+
+describe('INV-stored-message-identity-complete', () => {
+  it('passes when every row has mid+twebPeerId+timestamp', async() => {
+    const rows = [
+      {eventId: 'ev1', mid: 100, twebPeerId: 7, timestamp: 1000},
+      {eventId: 'ev2', mid: 101, twebPeerId: 7, timestamp: 1001}
+    ];
+    const r = await storedMessageIdentityComplete.check(ctx({rows}));
+    expect(r.ok).toBe(true);
+  });
+
+  it('fails when a row is missing mid', async() => {
+    const rows: Array<{eventId: string; mid: number | null; twebPeerId: number | null; timestamp: number | null}> = [
+      {eventId: 'ev1', mid: 100, twebPeerId: 7, timestamp: 1000},
+      {eventId: 'evbad', mid: null, twebPeerId: 7, timestamp: 1001}
+    ];
+    const r = await storedMessageIdentityComplete.check(ctx({rows}));
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/missing mid/);
+  });
+
+  it('fails when a row is missing twebPeerId', async() => {
+    const rows: Array<{eventId: string; mid: number | null; twebPeerId: number | null; timestamp: number | null}> = [
+      {eventId: 'evbad', mid: 100, twebPeerId: null, timestamp: 1000}
+    ];
+    const r = await storedMessageIdentityComplete.check(ctx({rows}));
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/missing.*twebPeerId/);
+  });
+
+  it('skips synthetic contact-init rows (marker-only, never rendered)', async() => {
+    const rows: Array<{eventId: string; mid: number | null | undefined; twebPeerId: number | null | undefined; timestamp: number | null}> = [
+      {eventId: 'contact-init-aabbccdd', mid: undefined, twebPeerId: undefined, timestamp: 1000}
+    ];
+    const r = await storedMessageIdentityComplete.check(ctx({rows}));
+    expect(r.ok).toBe(true);
   });
 });
