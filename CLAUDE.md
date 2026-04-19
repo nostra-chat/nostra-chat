@@ -277,6 +277,8 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 
 **Phase 2a closed** three P2P blockers (`FIND-cfd24d69` dup-mid, `FIND-676d365a` delete, `FIND-1526f892` react sender-side). Receive-side reactions still deferred to Phase 2b. A committed regression baseline at `docs/fuzz-baseline/baseline-seed42.json` protects future PRs — always run `pnpm fuzz --replay-baseline` before shipping a PR that touches send/receive/render.
 
+**Phase 2b.1 closed** the NIP-25 reactions RX bilateral path plus 5 open FINDs from Phase 2a overnight (2 tweb `reaction.ts` crashes on `center_icon`/`sticker`, 1 Solid `createRoot` leak, 2 trailing-space stale). New modules: `src/lib/nostra/nostra-reactions-{store,publish,receive}.ts`. Relay subscription extended to `{kinds: [1059, 7, 5]}`. Baseline bumped to `baseline-seed42-v2b1.json` — replay in 30s via `pnpm fuzz --replay-baseline`. Spec: `docs/superpowers/specs/2026-04-19-bug-fuzzer-phase-2b-design.md` §5.
+
 ### Bubble Rendering
 - Kind 0 profile must be PUBLISHED during onboarding (not just saved locally) for other users to fetch it.
 - P2P messages are populated in mirrors automatically via the bridge pipeline (Worker calls getHistory → saveMessages → mirror).
