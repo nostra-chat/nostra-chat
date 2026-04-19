@@ -366,7 +366,14 @@ export class NostraMTProtoServer {
           const latest = latestMsgs[0];
           const peerId = await this.mapper.mapPubkey(peerPubkey);
 
-          const mid = latest.mid ?? await this.mapper.mapEventId(latest.eventId, latest.timestamp);
+          // Identity-triple contract: `latest.mid` is set at creation and
+          // never recomputed. If it's missing, an upstream write path is
+          // broken — surface loudly rather than silently spawn a ghost mid.
+          if(latest.mid == null) {
+            console.error(LOG_PREFIX, 'getDialogs: stored message missing mid — upstream write path is broken', {eventId: latest.eventId, timestamp: latest.timestamp});
+            throw new Error('StoredMessage.mid is required (getDialogs 1:1 branch)');
+          }
+          const mid = latest.mid;
 
           // Read display name from peer mapping (nickname saved at add-contact time)
           const mapping = await getMapping(peerPubkey);
@@ -430,7 +437,11 @@ export class NostraMTProtoServer {
           let topDate = group.createdAt;
 
           if(latest) {
-            mid = latest.mid ?? await this.mapper.mapEventId(latest.eventId, latest.timestamp);
+            if(latest.mid == null) {
+              console.error(LOG_PREFIX, 'getDialogs: stored group message missing mid — upstream write path is broken', {eventId: latest.eventId, timestamp: latest.timestamp});
+              throw new Error('StoredMessage.mid is required (getDialogs group branch)');
+            }
+            mid = latest.mid;
             topDate = latest.timestamp;
 
             const isOutgoing = latest.isOutgoing ?? (latest.senderPubkey === this.ownPubkey);
@@ -517,7 +528,11 @@ export class NostraMTProtoServer {
         // Skip synthetic contact-init entries (empty content, used only for dialog creation)
         if(stored.eventId.startsWith('contact-init-') && !stored.content) continue;
 
-        const mid = stored.mid ?? await this.mapper.mapEventId(stored.eventId, stored.timestamp);
+        if(stored.mid == null) {
+          console.error(LOG_PREFIX, 'getHistory: stored message missing mid — upstream write path is broken', {eventId: stored.eventId, timestamp: stored.timestamp});
+          throw new Error('StoredMessage.mid is required (getHistory)');
+        }
+        const mid = stored.mid;
         const isOutgoing = stored.isOutgoing ?? (stored.senderPubkey === this.ownPubkey);
         const fromPeerId = isOutgoing ? undefined : absPeerId;
 
@@ -583,7 +598,11 @@ export class NostraMTProtoServer {
               pubkeyB;
 
             const peerId = await this.mapper.mapPubkey(peerPubkey);
-            const mid = stored.mid ?? await this.mapper.mapEventId(stored.eventId, stored.timestamp);
+            if(stored.mid == null) {
+              console.error(LOG_PREFIX, 'searchMessages: stored message missing mid — upstream write path is broken', {eventId: stored.eventId, timestamp: stored.timestamp});
+              throw new Error('StoredMessage.mid is required (searchMessages)');
+            }
+            const mid = stored.mid;
             const isOutgoing = stored.isOutgoing ?? (stored.senderPubkey === this.ownPubkey);
             const fromPeerId = isOutgoing ? undefined : peerId;
 
