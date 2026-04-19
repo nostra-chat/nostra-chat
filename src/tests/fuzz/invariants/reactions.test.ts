@@ -10,7 +10,7 @@ function mkCtx(rowsByUser: Record<'userA' | 'userB', any[]>): any {
   });
   return {
     users: {userA: mk(rowsByUser.userA), userB: mk(rowsByUser.userB)},
-    relay: {getAllEvents: vi.fn(async () => [])}
+    relay: {getAllEvents: vi.fn(async (): Promise<any[]> => [])}
   };
 }
 
