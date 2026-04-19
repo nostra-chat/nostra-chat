@@ -205,15 +205,42 @@ function extractPeerId(peer: any): number | null {
 
 // ─── Server ──────────────────────────────────────────────────────────
 
+export interface NostraMTProtoServerDeps {
+  /**
+   * Resolve a target message's relay event id + sender pubkey from a
+   * peerId + mid pair. Used by `messages.sendReaction` to build the
+   * `e`/`p` tags on a kind-7 reaction. Optional DI seam for tests; the
+   * default implementation reads from the message-store.
+   */
+  getMessageByPeerMid?: (peerId: number, mid: number) => Promise<{relayEventId: string; senderPubkey: string} | null> | {relayEventId: string; senderPubkey: string} | null;
+}
+
 export class NostraMTProtoServer {
   private mapper: NostraPeerMapper;
   private ownPubkey: string | null;
   private chatAPI: any | null;
+  private deps: NostraMTProtoServerDeps;
 
-  constructor() {
+  constructor(deps: NostraMTProtoServerDeps = {}) {
     this.mapper = new NostraPeerMapper();
     this.ownPubkey = null;
     this.chatAPI = null;
+    this.deps = deps;
+  }
+
+  private async getMessageByPeerMid(peerId: number, mid: number): Promise<{relayEventId: string; senderPubkey: string} | null> {
+    if(this.deps.getMessageByPeerMid) {
+      const r = await this.deps.getMessageByPeerMid(peerId, mid);
+      return r || null;
+    }
+    try {
+      const row = await getMessageStore().getByMid(mid);
+      if(!row) return null;
+      return {relayEventId: row.eventId, senderPubkey: row.senderPubkey};
+    } catch(e) {
+      console.warn(LOG_PREFIX, 'getMessageByPeerMid: store lookup failed', e);
+      return null;
+    }
   }
 
   setOwnPubkey(pubkey: string): void {
@@ -280,6 +307,9 @@ export class NostraMTProtoServer {
 
       case 'messages.editMessage':
         return this.editMessage(params);
+
+      case 'messages.sendReaction':
+        return this.sendReaction(params);
 
       case 'messages.sendMedia':
         return this.sendMedia(params);
@@ -847,6 +877,53 @@ export class NostraMTProtoServer {
       console.warn(LOG_PREFIX, 'editMessage: failed', err);
       return emptyUpdates;
     }
+  }
+
+  /**
+   * messages.sendReaction — route to kind-7 via nostraReactionsPublish.
+   *
+   * Extracts `peerId`, `mid`, and `emoji` from the tweb-shaped params,
+   * resolves the target message's relay event id + sender pubkey via
+   * `getMessageByPeerMid`, then invokes `nostraReactionsPublish.publish`.
+   * Always returns an empty tweb `updates` envelope — the UI reads the
+   * reactions store, not the MTProto response.
+   */
+  private async sendReaction(params: any): Promise<any> {
+    const emptyUpdates: any = {
+      _: 'updates',
+      updates: [],
+      users: [],
+      chats: [],
+      date: Math.floor(Date.now() / 1000),
+      seq: 0
+    };
+
+    const peerId = Number(params?.message?.peerId);
+    const mid = Number(params?.message?.mid);
+    const emoji = params?.reaction?.emoticon || '';
+
+    if(!Number.isFinite(peerId) || !Number.isFinite(mid)) return emptyUpdates;
+
+    const resolved = await this.getMessageByPeerMid(peerId, mid);
+    if(!resolved?.relayEventId) {
+      console.warn(LOG_PREFIX, 'sendReaction: target message not found', {peerId, mid});
+      return emptyUpdates;
+    }
+
+    try {
+      const {nostraReactionsPublish} = await import('./nostra-reactions-publish');
+      await nostraReactionsPublish.publish({
+        targetEventId: resolved.relayEventId,
+        targetMid: mid,
+        targetPeerId: peerId,
+        targetAuthor: resolved.senderPubkey,
+        emoji
+      });
+    } catch(e) {
+      console.warn(LOG_PREFIX, 'sendReaction: publish failed', e);
+    }
+
+    return emptyUpdates;
   }
 
   /**
