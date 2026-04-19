@@ -81,6 +81,10 @@ describe('nostra-reactions-publish', () => {
     expect(call.kind).toBe(5);
     const eTag = call.tags.find((t: any[]) => t[0] === 'e');
     expect(eTag[1]).toBe('fakeid-0');
+    // Self-echo requires the kind-5 delete to pass our `#p: [ownPubkey]`
+    // subscription filter, so it must tag our own pubkey.
+    const pTag5 = call.tags.find((t: any[]) => t[0] === 'p');
+    expect(pTag5[1]).toBe('ownpk');
   });
 
   it('unpublish() removes the row from the store', async () => {

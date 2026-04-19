@@ -120,7 +120,20 @@ export class NostrRelayPool {
     this._onReceiptCb = cb;
   }
 
+  /**
+   * Register a callback for plaintext non-giftwrap events (kind-7 reactions,
+   * kind-5 deletes). The pool dedupes by `event.id` just like gift-wrap
+   * messages, so callers receive each event at most once across all relays.
+   */
+  setOnRawEvent(cb: (event: NostrEvent) => void): void {
+    this._onRawEventCb = cb;
+    for(const entry of this.relayEntries) {
+      entry.instance.onRawEvent((ev) => this.handleIncomingRawEvent(ev));
+    }
+  }
+
   private _onReceiptCb?: (receipt: {eventId: string; type: 'delivery' | 'read'; from: string}) => void;
+  private _onRawEventCb?: (event: NostrEvent) => void;
 
   /**
    * Get the private key bytes (for delivery tracker gift-wrap signing).
@@ -624,6 +637,12 @@ export class NostrRelayPool {
       instance.onReceipt(this._onReceiptCb);
     }
 
+    // Wire raw-event handler (kind-7 reactions, kind-5 deletes) if
+    // a consumer is registered. Dedup happens inside handleIncomingRawEvent.
+    if(this._onRawEventCb) {
+      instance.onRawEvent((ev) => this.handleIncomingRawEvent(ev));
+    }
+
     // Notify pool on relay state change so ConnectionStatusComponent updates
     instance.onStateChange = () => {
       this.notifyStateChange();
@@ -662,6 +681,25 @@ export class NostrRelayPool {
 
     // Deliver
     this.onMessageCb(msg);
+  }
+
+  private handleIncomingRawEvent(event: NostrEvent): void {
+    if(!event.id) return;
+    // Reuse the same LRU as gift-wrap dedup; event ids are globally unique.
+    if(this.seenIds.has(event.id)) return;
+    this.seenIds.add(event.id);
+    this.seenOrder.push(event.id);
+    while(this.seenOrder.length > DEDUP_CACHE_MAX) {
+      const evicted = this.seenOrder.shift()!;
+      this.seenIds.delete(evicted);
+    }
+    if(this._onRawEventCb) {
+      try {
+        this._onRawEventCb(event);
+      } catch(err) {
+        this.log.error('[NostrRelayPool] raw event handler threw:', err);
+      }
+    }
   }
 
   private async connectAll(): Promise<void> {

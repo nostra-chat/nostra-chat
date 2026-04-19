@@ -25,6 +25,7 @@ import {wrapNip17Message} from './nostr-crypto';
 import {isControlEvent, getGroupIdFromRumor} from './group-control-messages';
 import rootScope from '@lib/rootScope';
 import {handleRelayMessage as handleRelayMessageImpl, IncomingEdit} from './chat-api-receive';
+import {nostraReactionsReceive} from './nostra-reactions-receive';
 
 /**
  * Message types supported in chat
@@ -303,6 +304,34 @@ export class ChatAPI {
     }
 
     this.relayPool.subscribeMessages();
+
+    // Wire kind-7 / kind-5 routing for NIP-25 reactions. The relay pool
+    // dedupes by event.id; the receive module handles author verification,
+    // out-of-order buffering, and store persistence + dispatch.
+    this.relayPool.setOnRawEvent((event) => {
+      if(event.kind === 7) {
+        nostraReactionsReceive.onKind7(event as any).catch((err) => {
+          this.log.warn('[ChatAPI] reactions onKind7 failed:', err);
+        });
+        return;
+      }
+      if(event.kind === 5) {
+        nostraReactionsReceive.onKind5(event as any).catch((err) => {
+          this.log.warn('[ChatAPI] reactions onKind5 failed:', err);
+        });
+        return;
+      }
+    });
+    nostraReactionsReceive.setOwnPubkey(this.ownId);
+    nostraReactionsReceive.setMessageResolver(async(eventId) => {
+      const {getMessageStore} = await import('./message-store');
+      const store = getMessageStore();
+      const row = await store.getByEventId(eventId);
+      if(!row) return undefined;
+      if(row.mid === undefined || row.twebPeerId === undefined) return undefined;
+      return {mid: row.mid, peerId: row.twebPeerId};
+    });
+
     this.backfillConversations().catch((e) => this.log('[ChatAPI] backfill failed:', e?.message));
     this.log('[ChatAPI] global relay subscription active');
   }

@@ -64,10 +64,13 @@ class NostraReactionsPublish {
     const rows = await nostraReactionsStore.getAll();
     const row = rows.find((r) => r.reactionEventId === reactionEventId);
     if(!row) return;
+    // `p` tag with own pubkey makes the kind-5 delete pass our own
+    // `#p: [ownPubkey]` subscription filter (so we see self-echo). NIP-09
+    // allows additional tags beyond the target `e`.
     const unsigned = {
       kind: 5,
       created_at: Math.floor(Date.now() / 1000),
-      tags: [['e', reactionEventId]],
+      tags: [['e', reactionEventId], ['p', chatAPI.ownId]],
       content: ''
     };
     await chatAPI.publishEvent(unsigned);
