@@ -26,6 +26,7 @@ import {isControlEvent, getGroupIdFromRumor} from './group-control-messages';
 import rootScope from '@lib/rootScope';
 import {handleRelayMessage as handleRelayMessageImpl, IncomingEdit} from './chat-api-receive';
 import {nostraReactionsReceive} from './nostra-reactions-receive';
+import {setChatAPI as setReactionsChatAPI} from './nostra-reactions-publish';
 
 /**
  * Message types supported in chat
@@ -323,6 +324,7 @@ export class ChatAPI {
       }
     });
     nostraReactionsReceive.setOwnPubkey(this.ownId);
+    setReactionsChatAPI(this as any);
     nostraReactionsReceive.setMessageResolver(async(eventId) => {
       const {getMessageStore} = await import('./message-store');
       const store = getMessageStore();
