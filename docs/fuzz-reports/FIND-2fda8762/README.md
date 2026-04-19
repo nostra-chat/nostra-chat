@@ -1,8 +1,29 @@
 # FIND-2fda8762 — INV-console-clean (reaction.ts center_icon TypeError)
 
-**Status**: reproduced (inconclusive on replay — requires guard fix in 2b.1)
+**Status**: fixed-in-2b1 (commit 8dd51c24)
 **Phase 2a-closing commit (if applicable)**: n/a — deferred to Phase 2b.1
-**Phase 2b.1 decision**: fix-in-2b1-commit-<sha> (Task 11: "Fix tweb reaction.ts guard crashes")
+**Phase 2b.1 decision**: fixed in commit 8dd51c24 (Task 11: "Fix tweb reaction.ts guard crashes")
+
+## Fix summary (Phase 2b.1)
+
+`src/components/chat/reaction.ts` — guarded three `availableReaction`
+/ `sticker` access sites inside `ReactionElement.fireAroundAnimation` →
+`onAvailableReaction`:
+
+1. `isGenericMasked` now checks `sticker && sticker.sticker !== Lottie`
+2. `stickerDoc = sticker || availableReaction?.center_icon`, wrapSticker
+   call is skipped when `stickerDoc` is undefined
+3. `genericDoc = isGenericMasked ? aroundParams.doc : (sticker || aroundParams.doc)`,
+   wrapStickerAnimation (generic) call is skipped when `genericDoc` is
+   undefined
+4. Top-of-function early return when neither `assetName`, around-doc,
+   nor sticker is resolvable
+
+Regression test: `src/tests/nostra/reaction-guard.test.ts` (6 tests —
+all pass). Verified with `npx tsc --noEmit` (clean) and
+`pnpm test:nostra:quick` (393/393 pass). Fuzz replay deferred (the
+known environmental webtor preload warning blocks replays
+deterministically — fix verified at the unit-guard level instead).
 
 ## Original assertion
 

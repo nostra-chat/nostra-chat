@@ -1,8 +1,30 @@
 # FIND-7fd7bc72 — INV-console-clean (wrapSticker sticker TypeError)
 
-**Status**: reproduced (inconclusive on replay — requires guard fix in 2b.1)
+**Status**: fixed-in-2b1 (commit 8dd51c24)
 **Phase 2a-closing commit (if applicable)**: n/a — deferred to Phase 2b.1
-**Phase 2b.1 decision**: fix-in-2b1-commit-<sha> (Task 11: "Fix tweb reaction.ts guard crashes")
+**Phase 2b.1 decision**: fixed in commit 8dd51c24 (Task 11: "Fix tweb reaction.ts guard crashes")
+
+## Fix summary (Phase 2b.1)
+
+`src/components/chat/reaction.ts` — same commit as FIND-2fda8762.
+The call chain `reaction.ts:576 → reaction.ts:419 (onAvailableReaction)
+→ wrapStickerAnimation → wrapSticker → sticker.ts:72` is closed by:
+
+- `isGenericMasked` guarded with `sticker && sticker.sticker !== Lottie`
+  (fixes the direct `.sticker` deref)
+- `genericDoc = isGenericMasked ? aroundParams.doc : (sticker || aroundParams.doc)`,
+  wrapStickerAnimation is now skipped when `genericDoc` is undefined
+  (wrapStickerAnimation forwards `doc` verbatim into wrapSticker)
+- Top-of-function early return for the fully-empty input case
+
+Regression test: `src/tests/nostra/reaction-guard.test.ts` asserts the
+`.sticker` path does not crash when `sticker` is undefined with
+`genericEffect` present (test case
+"does NOT deref `.sticker` on undefined sticker when genericEffect is
+present"). Verified with `npx tsc --noEmit` (clean) and
+`pnpm test:nostra:quick` (393/393 pass). Fuzz replay deferred (known
+environmental webtor preload warning blocks replays — fix verified at
+the unit-guard level instead).
 
 ## Original assertion
 
