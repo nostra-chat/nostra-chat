@@ -265,3 +265,43 @@ export const removeReaction: ActionSpec = {
     return action;
   }
 };
+
+export const reactMultipleEmoji: ActionSpec = {
+  name: 'reactMultipleEmoji',
+  weight: 3,
+  generateArgs: () => fc.record({
+    user: fc.constantFrom('userA', 'userB'),
+    emojis: fc.uniqueArray(fc.constantFrom('❤️', '👍', '😂', '🔥', '🤔'), {minLength: 2, maxLength: 3})
+  }),
+  async drive(ctx: FuzzContext, action: Action) {
+    const from: 'userA' | 'userB' = action.args.user;
+    const sender = ctx.users[from];
+    await sender.page.evaluate((peerId: number) => {
+      (window as any).appImManager?.setPeer?.({peerId});
+    }, sender.remotePeerId);
+    await sender.page.waitForTimeout(200);
+
+    const mid = await pickRandomBubbleMid(ctx, from, false);
+    if(!mid) {action.skipped = true; return action;}
+
+    const emojis: string[] = action.args.emojis;
+    for(const emoji of emojis) {
+      const ok = await sender.page.evaluate(async ({targetMid, em}: any) => {
+        const rs = (window as any).rootScope;
+        const peerId = (window as any).appImManager?.chat?.peerId;
+        try {
+          await rs.managers.appReactionsManager.sendReaction({
+            message: {peerId, mid: Number(targetMid)},
+            reaction: {_: 'reactionEmoji', emoticon: em}
+          });
+          return true;
+        } catch { return false; }
+      }, {targetMid: mid, em: emoji});
+      if(!ok) {action.skipped = true; return action;}
+      await sender.page.waitForTimeout(300); // let each publish settle
+    }
+
+    action.meta = {targetMid: mid, emojis};
+    return action;
+  }
+};
