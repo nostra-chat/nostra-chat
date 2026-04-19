@@ -211,6 +211,7 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 | `ChatAPI.connect(peerPubkey)` MUST be a lightweight `activePeer` switch, NOT `disconnect()` + reconnect | `disconnect()` tears down the relay pool and kills the self-echo subscription |
 | `inputMessagesFilterPinned` intercepted in BOTH `searchMessages` AND `getHistory`, return empty | `ChatPinnedMessage` routes via either depending on context |
 | VMT `sendMessage` must return `nostraMid` + `nostraEventId` | Worker's P2P shortcut renames temp mid `0.0001` → real timestamp mid; without this, outgoing bubbles sort wrong |
+| `generateTempMessageId` MUST use `base + 1` (integer) for `base >= 2^50`, NOT `base + 0.0001` | Float precision collapses for P2P virtual mids ≈1.78e15 → tempMid == topMessage → `message_sent` overwrites incoming bubble's `data-mid` → dup-mid (FIND-cfd24d69) |
 | `beforeMessageSending` MUST skip `history_append` dispatch for P2P peers (`peerId >= 1e15`) | Main-thread `injectOutgoingBubble` is sole render path; dual dispatch → duplicate DOM |
 | Main-thread VMT code MUST use `rs.dispatchEventSingle(...)`, never `rs.dispatchEvent(...)` | The latter forwards via `MTProtoMessagePort` and throws unhandled rejections in vitest |
 | `messages.editMessage` MUST be in `NOSTRA_BRIDGE_METHODS` | Otherwise `.edit` action prefix short-circuits it |
@@ -265,6 +266,12 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 - `pnpm fuzz --headed --slowmo=200` — watch the fuzzer in a real browser
 - Spec Phase 1: `docs/superpowers/specs/2026-04-17-bug-fuzzer-design.md`
 - Spec Phase 2a: `docs/superpowers/specs/2026-04-18-bug-fuzzer-phase-2a-design.md`
+
+**Fuzz operational notes:**
+- Each fuzz iter ≈ 66s harness boot + 30-60s actions — minimum useful budget is 3min.
+- Hook Worker-side managers (not main-thread wrappers like `chat.sendReaction`); fuzz actions and programmatic callers reach managers via `rs.managers.X` proxy and bypass UI entry points.
+- Stop a hung fuzz: `pkill -9 -f "tsx.*fuzz"; pkill -9 -f chromium` (regular `pkill -f` may miss the inner tsx node child).
+- New tests in `src/tests/fuzz/` are auto-discovered; new tests in `src/tests/nostra/` must be appended to the explicit file list in `package.json` `test:nostra:quick`.
 
 **Adding a fuzz artifact** — `src/tests/fuzz/invariants/<tier>.ts` (one file per tier: `console.ts`, `bubbles.ts`, `delivery.ts`, `avatar.ts` = cheap; `state.ts`, `queue.ts` = medium; `regression.ts` = regression). Register in `invariants/index.ts`. Add a Vitest in the same directory. Same additive pattern for `postconditions/<category>.ts`.
 
