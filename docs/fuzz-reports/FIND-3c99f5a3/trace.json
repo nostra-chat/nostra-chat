@@ -1,0 +1,58 @@
+{
+  "seed": 43,
+  "backend": "local",
+  "commands": [
+    {
+      "name": "editRandomOwnBubble",
+      "args": {
+        "user": "userB",
+        "newText": ".5"
+      },
+      "skipped": true
+    },
+    {
+      "name": "reactMultipleEmoji",
+      "args": {
+        "user": "userB",
+        "emojis": [
+          "😂",
+          "👍"
+        ]
+      },
+      "skipped": true
+    },
+    {
+      "name": "waitForPropagation",
+      "args": {
+        "ms": 1899
+      }
+    },
+    {
+      "name": "replyToRandomBubble",
+      "args": {
+        "from": "userA",
+        "text": "Y%)wnY"
+      },
+      "skipped": true
+    },
+    {
+      "name": "openRandomChat",
+      "args": {
+        "user": "userB"
+      }
+    },
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userA",
+        "text": "🔥🔥🔥"
+      },
+      "meta": {
+        "sentAt": 1776598004786,
+        "fromId": "userA",
+        "toId": "userB",
+        "text": "🔥🔥🔥"
+      }
+    }
+  ]
+}

@@ -39,7 +39,10 @@ export const sendText: ActionSpec = {
     await input.focus();
     await sender.page.keyboard.press('Control+A');
     await sender.page.keyboard.press('Backspace');
-    await sender.page.keyboard.type(action.args.text);
+    // insertText preserves surrogate pairs (emoji). keyboard.type iterates
+    // UTF-16 code units, which presses each half of a surrogate pair as its
+    // own key — garbage/empty on contenteditable. See FIND-3c99f5a3.
+    await sender.page.keyboard.insertText(action.args.text);
 
     const sendBtn = sender.page.locator('.chat-input button.btn-send').first();
     await sendBtn.click().catch(() => {});
@@ -101,7 +104,8 @@ export const replyToRandomBubble: ActionSpec = {
     await input.focus();
     await sender.page.keyboard.press('Control+A');
     await sender.page.keyboard.press('Backspace');
-    await sender.page.keyboard.type(action.args.text);
+    // insertText preserves surrogate pairs — see FIND-3c99f5a3 notes on sendText.
+    await sender.page.keyboard.insertText(action.args.text);
     await sender.page.locator('.chat-input button.btn-send').first().click().catch(() => {});
 
     action.meta = {sentAt: Date.now(), replyToMid: mid, text: action.args.text, fromId: from};
@@ -150,7 +154,8 @@ export const editRandomOwnBubble: ActionSpec = {
     await input.focus();
     await sender.page.keyboard.press('Control+A');
     await sender.page.keyboard.press('Backspace');
-    await sender.page.keyboard.type(action.args.newText);
+    // insertText preserves surrogate pairs — see FIND-3c99f5a3 notes on sendText.
+    await sender.page.keyboard.insertText(action.args.newText);
     await sender.page.locator('.chat-input button.btn-send').first().click().catch(() => {});
 
     action.meta = {editedMid: mid, newText: action.args.newText, editedAt: Date.now(), beforeSnapshot};
