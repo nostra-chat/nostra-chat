@@ -18,7 +18,7 @@ export interface PublishArgs {
 }
 
 interface ChatAPILike {
-  publishEvent(unsigned: {kind: number; created_at: number; tags: any[]; content: string}): Promise<any>;
+  publishEvent(unsigned: {kind: number; created_at: number; tags: string[][]; content: string}): Promise<{id: string; pubkey: string; sig: string; kind: number; created_at: number; tags: string[][]; content: string}>;
   ownId: string;
 }
 
@@ -52,7 +52,7 @@ class NostraReactionsPublish {
       reactionEventId,
       createdAt: unsigned.created_at
     });
-    rootScope.dispatchEventSingle('messages_reactions' as any, {
+    rootScope.dispatchEventSingle('nostra_reactions_changed', {
       peerId: args.targetPeerId,
       mid: args.targetMid
     });
@@ -72,7 +72,7 @@ class NostraReactionsPublish {
     };
     await chatAPI.publishEvent(unsigned);
     await nostraReactionsStore.removeByReactionEventId(reactionEventId);
-    rootScope.dispatchEventSingle('messages_reactions' as any, {
+    rootScope.dispatchEventSingle('nostra_reactions_changed', {
       peerId: row.targetPeerId,
       mid: row.targetMid
     });

@@ -283,6 +283,7 @@ export type BroadcastEvents = {
   'nostra_contact_accepted': {pubkey: string; peerId: number},
   'nostra_new_message': {peerId: number; mid: number; senderPubkey: string; message: {content: string}; timestamp: number},
   'nostra_reaction_added': {peerId: number; mid: number; emoji: string},
+  'nostra_reactions_changed': {peerId: PeerId | number; mid: number},
   'nostra_message_edit': {peerId: number; mid: number; senderPubkey: string; originalEventId: string; newContent: string; editedAt: number},
   'nostra_file_upload_progress': {peerId: number; mid: number; percent: number},
   'nostra_file_upload_failed': {peerId: number; mid: number; error: string},

@@ -318,9 +318,9 @@ export class ChatAPI {
   async publishEvent(unsigned: {
     kind: number;
     created_at: number;
-    tags: any[];
+    tags: string[][];
     content: string;
-  }): Promise<void> {
+  }): Promise<{id: string; pubkey: string; kind: number; created_at: number; tags: string[][]; content: string; sig: string}> {
     const sk = this.relayPool.getPrivateKey?.();
     if(!sk) {
       throw new Error('[ChatAPI] cannot publish event: relay pool has no private key');
@@ -337,6 +337,7 @@ export class ChatAPI {
       content: unsigned.content
     }, sk);
     await this.relayPool.publishRawEvent(signed as any);
+    return signed as any;
   }
 
   /**
