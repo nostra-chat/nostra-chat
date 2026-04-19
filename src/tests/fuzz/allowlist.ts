@@ -63,7 +63,16 @@ export const CONSOLE_ALLOWLIST: readonly RegExp[] = [
   // convert it via `middlewarePromise` or a silent `.catch(noop)`, but
   // Playwright still surfaces it as `[pageerror] peer changed` in a few
   // unhandled-rejection paths. It's cancellation signal, not a regression.
-  /^\[pageerror\] peer changed(?:\n|$)/
+  /^\[pageerror\] peer changed(?:\n|$)/,
+
+  // Chromium resource-preload diagnostic: when Vite dev server preloads
+  // webtor's WASM module via <link rel="preload"> but the user's action
+  // path doesn't hit webtor (most fuzz iterations don't touch torrent
+  // streaming), Chromium emits a "preloaded but not used" warning. It is
+  // a diagnostic about resource hints, not a runtime bug. Phase 2a runs
+  // targeted port 8090 where the preload was absent; Phase 2b.1 on 8080
+  // surfaces it and it consistently aborts fuzz replay at action 1.
+  /preloaded using link preload but not used within a few seconds/
 ];
 
 /**
