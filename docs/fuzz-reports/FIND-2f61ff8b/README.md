@@ -1,8 +1,8 @@
 # FIND-2f61ff8b — INV-console-clean (Solid createRoot cleanup warning)
 
-**Status**: fixed-in-2a (allowlisted)
-**Phase 2a-closing commit (if applicable)**: allowlist entry — `src/tests/fuzz/allowlist.ts` already contains `/\w+ created outside a `createRoot` or `render`/` (see comment block explaining dev-build-only noise; the production `--backend=real` path is unaffected).
-**Phase 2b.1 decision**: close-as-stale
+**Status**: closed-via-allowlist-verified-in-2b1
+**Phase 2a-closing commit**: allowlist entry — `src/tests/fuzz/allowlist.ts:58` contains `/\w+ created outside a `createRoot` or `render`/` (see comment block at lines 52-57 explaining dev-build-only noise; production `--backend=real` path is unaffected).
+**Phase 2b.1 decision**: verified-closed via allowlist + code inspection (replay blocked by environmental webtor preload warning — known issue from Task 1 triage)
 
 ## Original assertion
 
@@ -13,16 +13,28 @@ developer warning emitted when a reactive primitive is instantiated
 outside a reactive owner. Production builds strip this; dev builds
 cannot.
 
-## Replay outcome (post-2a main)
+## Phase 2b.1 re-verification (2026-04-19, tip 5db6121c)
 
-Ran `FUZZ_APP_URL=http://localhost:8080 pnpm fuzz --replay=FIND-2f61ff8b`
-on 2026-04-19 against branch `fuzz-phase-2b1` (tip 32e869f0).
+Replay step skipped in Phase 2b.1 — same environmental webtor wasm
+preload warning as Task 1 continues to abort traces at action 1 before
+the originally-failing action fires. Re-verification via code inspection:
 
-The original failing message ("cleanups created outside a `createRoot`")
-did NOT surface as a failure — the allowlist regex in
-`src/tests/fuzz/allowlist.ts:58` matches it and filters it out. The
-replay did trip `INV-console-clean` on a different, unrelated message
-(webtor wasm preload timing) that aborted the trace at action 1. For
-the original signature this FIND is stale; closing as stale for
-Phase 2b.1. (The unrelated webtor warning is its own environmental
-noise, tracked separately if it persists.)
+1. `src/tests/fuzz/allowlist.ts:58` still contains the regex
+   `/\w+ created outside a `createRoot` or `render`/` — the comment
+   block at lines 52-57 documents why (dev-build-only SolidJS
+   developer warning, stripped by production builds).
+2. `isAllowlisted()` is invoked by `INV-console-clean` before a message
+   promotes to failure — so the original `reactToRandomBubble`
+   signature would be filtered even if it re-surfaces under the
+   rewritten reactions path.
+3. The Phase 2b.1 reactions refactor (Tasks 2-12) replaced the
+   `nostra-reactions-local.ts` ad-hoc render path with the
+   store/publish/receive trio driven by the `messages_reactions`
+   rootScope event (see `121b1395` "render Nostra reactions from store
+   on nostra_reactions_changed event"). The new render site lives
+   inside the bubble render tree, so it inherits the owner from the
+   enclosing `render()` root — the specific triggering site for the
+   original warning no longer exists.
+
+Both the allowlist safety-net AND the refactor-removal of the
+triggering site cover this FIND. Closing as verified for Phase 2b.1.

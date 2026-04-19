@@ -1,8 +1,8 @@
 # FIND-9df3527d — POST-sendText-bubble-appears ("y " trailing-space)
 
-**Status**: fixed-in-2a
-**Phase 2a-closing commit (if applicable)**: `633aed78` (fix(fuzz): INV-sent-bubble-visible-after-send uses trimmed text)
-**Phase 2b.1 decision**: close-as-stale
+**Status**: closed-stale-verified-in-2b1
+**Phase 2a-closing commit**: `633aed78` (fix(fuzz): INV-sent-bubble-visible-after-send uses trimmed text)
+**Phase 2b.1 decision**: verified-closed via code inspection (replay blocked by environmental webtor preload warning — known issue from Task 1 triage)
 
 ## Original assertion
 
@@ -11,16 +11,22 @@ edge case. Post-commit 633aed78 the postcondition's bubble text query was
 updated to trim before matching, which is the same trim the invariant
 already applied.
 
-## Replay outcome (post-2a main)
+## Phase 2b.1 re-verification (2026-04-19, tip 5db6121c)
 
-Ran `FUZZ_APP_URL=http://localhost:8080 pnpm fuzz --replay=FIND-9df3527d`
-on 2026-04-19 against branch `fuzz-phase-2b1` (tip 32e869f0).
+Replay step skipped in Phase 2b.1 — the same environmental webtor wasm
+preload warning that blocked Task 1 replays continues to abort traces at
+action 1 before the originally-failing action fires. Re-verification was
+performed via code inspection instead:
 
-The original failing invariants (`POST-sendText-bubble-appears`,
-`INV-sent-bubble-visible-after-send`) did NOT fire. The replay tripped on
-an unrelated environmental console warning (webtor wasm preload timing —
-a Chromium-emitted diagnostic, not an app bug) which aborted the trace at
-action 1 before the original post-conditions could be checked against
-the "y " send. The absence of the original invariant failure, combined
-with the trim-aware postcondition from `633aed78`, is consistent with
-the bug being fixed. Closing as stale for Phase 2b.1.
+1. `src/tests/fuzz/postconditions/sendText.ts` — `POST-sendText-bubble-appears`
+   performs `text.trim()` before querying the bubble, matching the trim
+   tweb applies on render. This is the fix shipped in `633aed78`.
+2. `src/tests/fuzz/invariants/bubbles.ts` — `INV-sent-bubble-visible-after-send`
+   applies the same trim (sibling fix in the same commit, cross-referenced
+   by FIND-f7b0117c).
+3. The Phase 2b.1 reactions refactor (Tasks 2-12) did NOT touch the
+   text-send path (`sendText` action, `POST-sendText-bubble-appears`
+   postcondition, or `INV-sent-bubble-visible-after-send` invariant), so
+   the `633aed78` fix remains in force.
+
+No new code change required. Closing as stale-verified for Phase 2b.1.
