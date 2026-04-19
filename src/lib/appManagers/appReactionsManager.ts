@@ -774,6 +774,23 @@ export class AppReactionsManager extends AppManager {
       return;
     }
 
+    // FIND-1526f892 sender-side display (Phase 2a): the MTProto flow below
+    // never reaches the bubble DOM for Nostra P2P peers (messages.sendReaction
+    // falls through to {pFlags:{}}). Dispatch nostra_reaction_added here so
+    // the main-thread subscriber in reactions.ts appends the emoji to the
+    // bubble immediately. Runs for any caller of sendReaction — UI button or
+    // programmatic. Receive-side (peer sees it) lands in Phase 2b.
+    if(Number(peerId) >= 1e15) {
+      const chosenEmoji = chosenReactions.map((rc) => (rc.reaction as any)?.emoticon).filter(Boolean)[0];
+      if(chosenEmoji) {
+        this.rootScope.dispatchEvent('nostra_reaction_added', {
+          peerId: Number(peerId),
+          mid,
+          emoji: chosenEmoji
+        });
+      }
+    }
+
     const promiseKey = [peerId, mid].join('-');
     const promise = this.apiManager.invokeApi('messages.sendReaction', {
       peer: this.appPeersManager.getInputPeerById(peerId),

@@ -29,6 +29,8 @@ export interface CliOptions {
   replayFile?: string;
   smokeOnly: boolean;
   help: boolean;
+  emitBaseline: boolean;
+  replayBaseline: boolean;
 }
 
 const DEFAULTS: CliOptions = {
@@ -41,7 +43,9 @@ const DEFAULTS: CliOptions = {
   slowMo: 0,
   pairs: 1,
   smokeOnly: false,
-  help: false
+  help: false,
+  emitBaseline: false,
+  replayBaseline: false
 };
 
 export function parseCli(argv: string[]): CliOptions {
@@ -57,6 +61,8 @@ export function parseCli(argv: string[]): CliOptions {
     else if(arg.startsWith('--backend=')) opts.backend = arg.slice(10) as 'local' | 'real';
     else if(arg.startsWith('--pairs=')) opts.pairs = Number(arg.slice(8));
     else if(arg.startsWith('--slowmo=')) opts.slowMo = Number(arg.slice(9));
+    else if(arg === '--emit-baseline') opts.emitBaseline = true;
+    else if(arg === '--replay-baseline') opts.replayBaseline = true;
     else if(arg.startsWith('--replay=')) opts.replay = arg.slice(9);
     else if(arg.startsWith('--replay-file=')) opts.replayFile = arg.slice(14);
     else throw new Error(`Unknown flag: ${arg}`);
@@ -91,6 +97,8 @@ pnpm fuzz [options]
   --pairs=<n>            Parallel pairs (Phase 3). Default 1.
   --replay=<FIND-id>     Deterministic replay of a finding.
   --replay-file=<path>   Replay from a trace.json.
+  --emit-baseline        After a clean run, write docs/fuzz-baseline/baseline-seed<seed>.json.
+  --replay-baseline      Replay docs/fuzz-baseline/baseline-seed42.json (30s regression check).
   --smoke-only           UI contract smoke only (Phase 3).
   --help, -h             Print this help.
 

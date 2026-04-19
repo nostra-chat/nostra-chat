@@ -67,6 +67,7 @@ import isLegacyMessageId from '@appManagers/utils/messageId/isLegacyMessageId';
 import {joinDeepPath} from '@helpers/object/setDeepProperty';
 // P2P send bridge removed from Worker — runs only in main thread
 // import {isVirtualPeer, sendTextViaChatAPI, sendMediaViaChatAPI} from '../nostra/nostra-send-bridge';
+import {isP2PPeer} from '@lib/nostra/nostra-bridge';
 import insertInDescendSortedArray from '@helpers/array/insertInDescendSortedArray';
 import {LOCAL_ENTITIES} from '@lib/richTextProcessor';
 import {isDialog, isSavedDialog, isForumTopic, isMonoforumDialog} from '@appManagers/utils/dialogs/isDialog';
@@ -6246,6 +6247,24 @@ export class AppMessagesManager extends AppManager {
   }
 
   public deleteMessages(peerId: PeerId, mids: number[], revoke?: boolean) {
+    // Nostra P2P short-circuit: tweb's generateMessageId/getServerMessageId
+    // round-trip filters out P2P mids (>= 1e15) because MESSAGE_ID_OFFSET
+    // modular arithmetic does not reconstruct them. Route P2P deletes
+    // straight to the VMT bridge and dispatch a correctly-sized local update
+    // so bubbles remove on the sender's DOM. See
+    // docs/fuzz-reports/FIND-676d365a/README.md.
+    if(isP2PPeer(peerId as any)) {
+      return this.apiManager.invokeApi('messages.deleteMessages', {revoke, id: mids})
+      .then((affectedMessages) => {
+        this.apiUpdatesManager.processLocalUpdate({
+          _: 'updateDeleteMessages',
+          messages: mids,
+          pts: affectedMessages.pts,
+          pts_count: mids.length
+        });
+      });
+    }
+
     const channelId = this.appPeersManager.isChannel(peerId) ? peerId.toChatId() : undefined;
     const splitted = this.appMessagesIdsManager.splitMessageIdsByChannels(mids, channelId);
     const promises = splitted.map(([channelId, {mids}]) => {

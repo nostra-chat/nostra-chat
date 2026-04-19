@@ -487,3 +487,15 @@ export class NostraBridge {
     };
   }
 }
+
+/**
+ * True when the given peerId is a Nostra P2P peer (derived from a Nostr
+ * pubkey), false when it's a regular tweb peerId. P2P peerIds fall inside
+ * [VIRTUAL_PEER_BASE, VIRTUAL_PEER_BASE + VIRTUAL_PEER_RANGE) per the
+ * SHA-256 mapping in mapPubkeyToPeerId above. The threshold check is exact
+ * because VIRTUAL_PEER_BASE is a well-defined constant >= 1e15.
+ */
+export function isP2PPeer(peerId: number): boolean {
+  if(!Number.isFinite(peerId)) return false;
+  return peerId >= 1e15;
+}

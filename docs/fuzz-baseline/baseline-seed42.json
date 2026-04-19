@@ -1,0 +1,43 @@
+{
+  "seed": 42,
+  "backend": "local",
+  "maxCommands": 30,
+  "commands": [
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userB",
+        "text": ")z~#"
+      }
+    },
+    {
+      "name": "replyToRandomBubble",
+      "args": {
+        "from": "userA",
+        "text": "f.M/"
+      }
+    },
+    {
+      "name": "deleteRandomOwnBubble",
+      "args": {
+        "user": "userA"
+      }
+    },
+    {
+      "name": "replyToRandomBubble",
+      "args": {
+        "from": "userB",
+        "text": "2P'"
+      }
+    },
+    {
+      "name": "scrollHistoryUp",
+      "args": {
+        "user": "userA"
+      }
+    }
+  ],
+  "emittedAt": "2026-04-19T00:20:00Z",
+  "fuzzerVersion": "phase2a",
+  "notes": "Captured from a clean iteration (seed=44 equivalent) during Phase 2a fuzz verification. Exercises the cross-direction send + reply path (FIND-cfd24d69 regression guard) + delete own bubble (FIND-676d365a regression guard) + scroll. All steps passed under the post-fix invariant suite. Replay via `pnpm fuzz --replay-baseline`."
+}

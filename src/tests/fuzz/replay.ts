@@ -21,3 +21,11 @@ export async function replayFile(path: string): Promise<Action[]> {
   if(!Array.isArray(commands)) throw new Error(`Trace file does not contain a commands array: ${path}`);
   return commands;
 }
+
+export async function replayBaseline(): Promise<Action[]> {
+  const path = 'docs/fuzz-baseline/baseline-seed42.json';
+  if(!existsSync(path)) {
+    throw new Error(`No baseline at ${path}. Run with --emit-baseline first.`);
+  }
+  return replayFile(path);
+}

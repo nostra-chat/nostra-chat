@@ -59,7 +59,12 @@ async function pickRandomBubbleMid(
     const selector = own
       ? '.bubbles-inner .bubble[data-mid].is-out, .bubbles-inner .bubble[data-mid].is-own'
       : '.bubbles-inner .bubble[data-mid]';
-    const bubbles = Array.from(document.querySelectorAll(selector));
+    // Exclude bubbles still in the send pipeline — their data-mid is a
+    // temp (e.g. 0.0001), and acting on them races the message_sent rename.
+    // Users would not interact with a spinning bubble either.
+    const bubbles = Array.from(document.querySelectorAll(selector))
+      .filter((b) => !(b as HTMLElement).classList.contains('is-sending') &&
+                     !(b as HTMLElement).classList.contains('is-outgoing'));
     if(bubbles.length === 0) return null;
     const b = bubbles[Math.floor(Math.random() * bubbles.length)] as HTMLElement;
     return b.dataset.mid || null;
@@ -119,6 +124,18 @@ export const editRandomOwnBubble: ActionSpec = {
     const mid = await pickRandomBubbleMid(ctx, from, true);
     if(!mid) {action.skipped = true; return action;}
 
+    const beforeSnapshot = await sender.page.evaluate((targetMid: string) => {
+      const b = document.querySelector(`.bubbles-inner .bubble[data-mid="${targetMid}"]`);
+      if(!b) return null;
+      const clone = b.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll('.time, .time-inner, .reactions, .bubble-pin').forEach((e) => e.remove());
+      return {
+        mid: (b as HTMLElement).dataset.mid,
+        timestamp: (b as HTMLElement).dataset.timestamp,
+        content: (clone.textContent || '').trim()
+      };
+    }, mid);
+
     const started = await sender.page.evaluate((targetMid: string) => {
       const chat = (window as any).appImManager?.chat;
       if(!chat?.input?.initMessageEditing) return false;
@@ -136,7 +153,7 @@ export const editRandomOwnBubble: ActionSpec = {
     await sender.page.keyboard.type(action.args.newText);
     await sender.page.locator('.chat-input button.btn-send').first().click().catch(() => {});
 
-    action.meta = {editedMid: mid, newText: action.args.newText, editedAt: Date.now()};
+    action.meta = {editedMid: mid, newText: action.args.newText, editedAt: Date.now(), beforeSnapshot};
     return action;
   }
 };
