@@ -1,6 +1,7 @@
 # FIND-e49755c1 — Mirror/IDB coherence drift (sent + received messages)
 
-Status: **FIXED** in Phase 2b.1.
+Status: **FIXED** in Phase 2b.1 — closed by three fix waves. The third wave
+landed the architectural invariant that prevents regressions.
 
 ## Symptom
 
@@ -15,145 +16,128 @@ The mirror (`apiManagerProxy.mirrors.messages.<peerId>_history`) contained
 integer mids that had no corresponding row in the `nostra-messages` IndexedDB
 — or rows existed but their `mid` field was `null`.
 
-## Root cause
+## Root cause (architectural)
 
-Fix landed in **two waves**. The first wave added `{twebPeerId}` to ChatAPI's
-partial save to eliminate the merge race; the second wave (this patch) closed
-a residual drift that reintroduced the invariant failure in fuzz replays.
+A message's identity is the triple `{eventId, mid, timestampSec}` (plus
+`twebPeerId` for dialog routing). These fields must be generated **ONCE** at
+message creation and travel **IMMUTABLE** through every layer. The codebase
+repeatedly violated this rule:
 
-### Wave 1 (commit 4aa59b8f) — partial row carried twebPeerId
+- `StoredMessage.mid` and `twebPeerId` were OPTIONAL, so rows could be
+  persisted without them.
+- Five read paths (`virtual-mtproto-server.ts:369, 433, 520, 586` and
+  `nostra-delivery-ui.ts:57`) fell back to `row.mid ?? await
+  mapEventId(row.eventId, row.timestamp)` when a row was partial. If the
+  partial row's `timestamp` differed (by even one second) from the
+  authoritative writer's `now`, the fallback hashed to a DIFFERENT mid
+  and the mirror gained a ghost mid with no IDB counterpart.
+- Two write paths (chat-api-receive self-echo, chat-api.ts partial send)
+  could land a row without mid, feeding the ghost-mid fallback.
 
-**Both sides of the send/receive pipeline had two-phase saves** to the same
-`nostra-messages` row, keyed by `eventId`. The message-store's `saveMessage()`
-upsert merges fields in a second call, but the **first** write was
-"partial" — missing `mid`, `twebPeerId`, `isOutgoing`.
+The previous fix waves (commits `4aa59b8f` add `twebPeerId` opts chain,
+`f046c2b3` pin `timestampSec`) addressed the observed symptoms case-by-case
+but did NOT enforce the invariant architecturally. This third wave does.
 
-A second ChatAPI path (`updateMessageStatus`, fire-and-forget) races with
-these saves. While the field-preserving merge at
-`src/lib/nostra/message-store.ts:137-143` is theoretically correct in
-isolation, the invariant check can observe a transient window after the
-mirror has been updated (from `injectOutgoingBubble` / `nostra-message-handler
-→ injectIntoMirrors`) but before the authoritative `mid`-carrying save has
-committed.
+### User's architectural principle
 
-### Wave 2 (this patch) — pin the seconds-precision timestamp
+> "Il timestamp di creazione deve essere unico, e generato al momento della
+> creazione del messaggio e non ricalcolato in futuro, è come il contenuto del
+> messaggio accompagna l'oggetto del messaggio con tutte le sue proprietà."
+>
+> (The creation timestamp must be unique, generated at message creation time,
+> and NEVER recalculated later. Like message content, it accompanies the
+> message object as an immutable property.)
 
-Fuzz replay still reproduced the failure: the mirror held two mids that had
-no IDB row. After tracing, the authoritative cause was a **timestamp drift
-between the two writers**, not a missing field.
+## Fix (Phase 2b.1 wave 3 — architectural)
 
-`mapEventIdToMid(eventId, timestamp)` is deterministic per `(eventId,
-timestamp)` pair — the mid encodes the timestamp in the high bits. Two
-independent call sites:
+### Rule 1: Identity triple is required
 
-1. `ChatAPI.sendMessage()` captured `Date.now()` INSIDE the send — AFTER VMT
-   had already computed its own `now = Math.floor(Date.now()/1000)` outside.
-2. `NostraMTProtoServer.sendMessage()` used its precomputed `now` for the
-   authoritative save and the mirror injection.
+`StoredMessage.mid` and `twebPeerId` are now required fields. A narrow
+`PartialStoredMessage` type remains only for in-place updates (spread existing
+row + mutate deliveryState). All first-time writers must supply the full
+triple.
 
-If the relay publish crossed a second boundary, ChatAPI's internal timestamp
-landed one second LATER than VMT's `now`. Both rows still upserted the same
-`eventId`, and the merge logic correctly preserved `mid` — so the IDB row
-ended up with VMT's `mid` and VMT's earlier `timestamp`.
+### Rule 2: No fallback recomputes in read paths
 
-But `nostra-delivery-ui.refreshDialogPreview()` (triggered synchronously
-from `nostra_delivery_update` → `markSent`) was racing the authoritative
-save. It read the latest IDB row back with `store.getMessages(convId, 1)`,
-and when `latest.mid` was still undefined it fell back to
-`await mapper.mapEventId(latest.eventId, latest.timestamp)`. Because the
-partial row's timestamp was ChatAPI's internal seconds (one second later
-than VMT's `now`), this computed a **different mid** — which the preview
-handler then wrote into `apiManagerProxy.mirrors.messages[<peer>_history]`.
+The 5 `row.mid ?? await mapEventId(...)` fallbacks are replaced with throw
+(read paths) or early-return (UI refresh). If `row.mid` is null at read time,
+that's now loud — an upstream write-path bug, not a silent ghost-mid source.
 
-The result: the mirror held VMT's mid (from `injectOutgoingBubble`) AND
-refreshDialogPreview's mid (from the stale-timestamp fallback). The IDB
-only held a row for VMT's mid. The second mirror mid was a ghost — exactly
-the `missing in idb` signature the invariant reports.
+### Rule 3: Single authoritative timestampSec
 
-`getDialogs()` and `getHistory()` in VMT share the same `?? mapEventId(...)`
-fallback pattern at `virtual-mtproto-server.ts:369, 433, 520, 586` and
-would exhibit the same ghost-mid behavior if they observed the partial row.
+`VMT.sendMessage` captures `now = Math.floor(Date.now()/1000)` ONCE and passes
+it to `chatAPI.sendText` as `timestampSec`. ChatAPI pins its internal timestamp
+to this value so the partial row's timestamp matches VMT's authoritative
+timestamp — no inter-writer drift.
 
-### Sender path (before)
+### Rule 4: Mid is computed at creation, stored, never re-derived
 
-1. `ChatAPI.sendMessage()` (`src/lib/nostra/chat-api.ts:517`) saved
-   `{eventId, deliveryState: 'sending'}` — **no** `mid`/`twebPeerId`/`isOutgoing`.
-2. `NostraMTProtoServer.sendMessage()` (`src/lib/nostra/virtual-mtproto-server.ts:749`)
-   called `chatAPI.sendText()`, then `mapEventId()`, then saved the
-   authoritative row with `{..., mid, twebPeerId, isOutgoing: true}`.
-3. `injectOutgoingBubble()` put the mid into `apiManagerProxy.mirrors.messages`.
+`ChatAPI.sendMessage` now computes the mid via `NostraBridge.mapEventIdToMid`
+BEFORE its first save, using the authoritative `timestampSec`. The row is
+born authoritative — no more partial row that downstream readers would
+fall back on.
 
-If the invariant ran between step 1 and step 2, or if
-`updateMessageStatus` raced and re-saved a stale partial row, the
-invariant saw an `mid` in the mirror but not in IDB.
+`updateMessageStatus` is explicit about preserving identity: it reads the
+full row, spreads it, mutates only `deliveryState`, saves back.
 
-### Receiver path (before)
+### Rule 5: Receive paths compute identity once or skip
 
-1. `chat-api-receive.ts:374` saved `{eventId, deliveryState: 'delivered'}`
-   via fire-and-forget — **no** `mid`/`twebPeerId`/`isOutgoing`.
-2. `ctx.onMessage()` kicked off `NostraSync.onIncomingMessage`, which
-   awaited a full save with `{..., mid, twebPeerId, isOutgoing: false}`.
-3. `nostra-message-handler.injectIntoMirrors()` placed the mid in mirrors.
+`chat-api-receive.ts` main incoming save path and `handleSelfEcho` both
+compute mid+twebPeerId via the bridge before saving. If the bridge fails,
+they skip the save entirely rather than land a partial row that would feed
+ghost mids.
 
-Same shape as sender — the partial row could be observed before NostraSync's
-full save landed.
+## Files changed (Phase 2b.1 wave 3)
 
-## Fix
+- `src/lib/nostra/message-store.ts` — `mid`/`twebPeerId` required;
+  `PartialStoredMessage` introduced; doc updated.
+- `src/lib/nostra/chat-api.ts` — `sendMessage` computes mid locally via
+  bridge; `updateMessageStatus` explicitly preserves identity.
+- `src/lib/nostra/chat-api-receive.ts` — main save path and self-echo both
+  skip on bridge-resolve failure; no more partial rows.
+- `src/lib/nostra/virtual-mtproto-server.ts` — 4 `?? mapEventId(...)`
+  fallbacks replaced with throw-on-null (getDialogs 1:1, getDialogs groups,
+  getHistory, searchMessages).
+- `src/lib/nostra/nostra-delivery-ui.ts` — refreshDialogPreview bails out
+  on partial row instead of recomputing from stale timestamp.
+- `src/lib/nostra/nostra-send-file.ts` — `realMid` renamed to `timestampSec`
+  with documenting comment; no behaviour change.
 
-### Wave 1 — make every write carry mid/twebPeerId/isOutgoing
+## Regression tests
 
-**Both writes on both sides already carry `mid` + `twebPeerId` +
-`isOutgoing`** so the invariant never sees a partial row, regardless of
-commit order.
-
-- `src/lib/nostra/chat-api.ts`: `sendText(content)` →
-  `sendText(content, opts?: {mid?, twebPeerId?})`, same for `sendFileMessage`.
-  `opts.twebPeerId` → `row.twebPeerId`, `row.isOutgoing = true`.
-- `src/lib/nostra/virtual-mtproto-server.ts`: VMT `sendMessage` passes
-  `{twebPeerId}` through `chatAPI.sendText(text, ...)`.
-- `src/lib/nostra/chat-api-receive.ts`: the fire-and-forget receive save now
-  computes `mid` + `twebPeerId` via `NostraBridge.getInstance()` before the
-  partial save.
-
-### Wave 2 — pin the seconds-precision timestamp across the race
-
-Add a `timestampSec` opt to `sendText`/`sendFileMessage`. When the caller
-provides it, `ChatAPI.sendMessage` uses `opts.timestampSec * 1000` as its
-internal `timestamp` instead of a fresh `Date.now()`. This keeps the
-partial row's `timestamp` field EXACTLY equal to the `now` VMT used when
-computing its `mid` via `mapEventId(eventId, now)`.
-
-Consequence: any subsequent `latest.mid ?? mapEventId(latest.eventId,
-latest.timestamp)` fallback (in `refreshDialogPreview`, `getDialogs`,
-`getHistory`, `searchMessages`) observes the SAME `(eventId, timestamp)`
-pair VMT used and therefore computes the IDENTICAL mid. The mirror can
-no longer gain a ghost mid with no IDB counterpart.
-
-Files changed in wave 2:
-
-- `src/lib/nostra/chat-api.ts` — `sendText` / `sendFileMessage` / internal
-  `sendMessage` accept `opts.timestampSec`; when present, `timestamp` is
-  pinned to `timestampSec * 1000`.
-- `src/lib/nostra/virtual-mtproto-server.ts` — VMT.sendMessage passes
-  `timestampSec: now` alongside `twebPeerId` to `chatAPI.sendText`.
-- `src/lib/nostra/nostra-send-file.ts` — `realMid` (seconds) is captured
-  BEFORE `chatAPI.sendFileMessage`, and the same value is passed as
-  `mid`, `twebPeerId` target is piped through, and `timestampSec: realMid`
-  pins the partial row's timestamp to the same second the authoritative
-  save will use.
-- `src/tests/nostra/mirror-idb-coherent.test.ts` — assert VMT passes
-  `timestampSec` as a number.
+- `src/tests/nostra/message-identity-triple.test.ts` — 5 unit tests covering
+  the type contract, upsert identity preservation, and the update pattern.
+- `src/tests/fuzz/invariants/state.ts` — `INV-stored-message-identity-complete`
+  (medium tier): scans `nostra-messages` on both fuzz users after every
+  medium-tier check; fails fast when any row is missing `mid`, `twebPeerId`,
+  or `timestamp`.
+- `src/tests/fuzz/invariants/state.test.ts` — 4 vitests for the new invariant.
+- `src/tests/nostra/mirror-idb-coherent.test.ts` — kept and expanded.
+- `test:nostra:quick` curated list now includes the two new suites.
 
 ## Verification
 
-- `pnpm test:nostra:quick` — 393/393 pass (after both waves).
-- `npx vitest run src/tests/nostra/mirror-idb-coherent.test.ts` — 3/3 pass.
+- `pnpm test:nostra:quick` — 401/401 pass (before: 393/393, after: 401/401).
+- `npx vitest run src/tests/fuzz/` — 50/50 pass.
 - `npx tsc --noEmit` — clean.
-- Full replay of trace.json (offline via unit test) exercises both paths;
-  every save produces a row with `mid` present and a consistent timestamp.
+- `pnpm lint` — clean.
+- `pnpm fuzz --seed=48 --duration=3m --max-commands=40` — 3 iterations,
+  **0 findings**. The original seed that reproduced FIND-e49755c1 no longer
+  trips any invariant.
+- `pnpm fuzz --replay=FIND-e49755c1` — hits an unrelated environmental
+  failure (SW registration in Playwright dev-server) at action 1, before
+  reaching the original `waitForPropagation` step. The `INV-mirrors-idb-coherent`
+  signature itself does NOT fire.
+
+## Audit summary
+
+See `audit-identity-triple.md` for the diagnostic audit that drove this
+wave: 5 read-path fallback violations fixed, 2 write-path violations fixed,
+4 creation points confirmed sound.
 
 ## Related
 
 - `docs/fuzz-reports/FIND-cfd24d69/` — dup-mid blocker (Phase 2a).
 - `docs/fuzz-reports/FIND-676d365a/` — delete-side race (Phase 2a).
-- Invariant: `src/tests/fuzz/invariants/state.ts:38` (mirrorsIdbCoherent).
+- Invariants: `src/tests/fuzz/invariants/state.ts` — `mirrorsIdbCoherent`
+  (symptom), `storedMessageIdentityComplete` (cause guard).
