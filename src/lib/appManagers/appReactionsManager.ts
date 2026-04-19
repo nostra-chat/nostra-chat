@@ -4,7 +4,7 @@
  * https://github.com/morethanwords/tweb/blob/master/LICENSE
  */
 
-import {MessagesReactions, type AvailableReaction, type Message, type MessagePeerReaction, type MessagesAvailableReactions, type Reaction, type ReactionCount, type Update, type Updates, ChatReactions, Peer, Document, MessagesSavedReactionTags, SavedReactionTag, AvailableEffect, MessagesAvailableEffects, MessageReactions, PaidReactionPrivacy} from '@layer';
+import {MessagesReactions, type AvailableReaction, type Message, type MessagePeerReaction, type MessagesAvailableReactions, type Reaction, type ReactionCount, type Update, type Updates, ChatReactions, Peer, Document, MessagesSavedReactionTags, SavedReactionTag, AvailableEffect, MessagesAvailableEffects, MessageReactions, MessagesSendReaction, PaidReactionPrivacy} from '@layer';
 import findAndSplice from '@helpers/array/findAndSplice';
 import indexOfAndSplice from '@helpers/array/indexOfAndSplice';
 import assumeType from '@helpers/assumeType';
@@ -483,6 +483,21 @@ export class AppReactionsManager extends AppManager {
     sendAsPeerId,
     count
   }: SendReactionOptions): Promise<MessageReactions> {
+    const p2pPeerId = message?.peerId;
+    if(p2pPeerId && Number(p2pPeerId) >= 1e15) {
+      // Nostra P2P: VMT bridge publishes kind-7 and persists locally; UI reads the reactions store.
+      await this.apiManager.invokeApi('messages.sendReaction', {
+        message,
+        reaction,
+        add_to_recent: true
+      } as unknown as MessagesSendReaction);
+      return message.reactions || {
+        _: 'messageReactions',
+        results: [],
+        pFlags: {}
+      };
+    }
+
     if(reaction._ === 'availableReaction') {
       reaction = {
         _: 'reactionEmoji',
