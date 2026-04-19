@@ -371,7 +371,24 @@ export async function handleRelayMessage(
   try {
     const store = getMessageStore();
     const conversationId = store.getConversationId(ctx.ownId, msg.from);
-    store.saveMessage({
+    // Compute mid/twebPeerId eagerly so the FIRST IDB row for an incoming
+    // message carries them. Otherwise NostraSync.onIncomingMessage races
+    // with this save: if our fire-and-forget put lands AFTER NostraSync's
+    // awaited put, the merge preserves existing.mid via message-store.ts:139,
+    // but the mirror vs. IDB invariant sees a window where the mirror has
+    // a mid that IDB hasn't persisted yet. Closing FIND-e49755c1 requires
+    // every write on either side of the race to contain mid+twebPeerId.
+    let resolvedMid: number | undefined;
+    let resolvedPeerId: number | undefined;
+    try {
+      const {NostraBridge} = await import('./nostra-bridge');
+      const bridge = NostraBridge.getInstance();
+      resolvedPeerId = await bridge.mapPubkeyToPeerId(msg.from);
+      resolvedMid = await bridge.mapEventIdToMid(msg.id, Math.floor(msg.timestamp));
+    } catch(e: any) {
+      ctx.log.warn('[ChatAPI] incoming save: mid/peerId compute failed:', e?.message);
+    }
+    const row: StoredMessage = {
       eventId: msg.id,
       appMessageId: chatMessage.id,
       conversationId,
@@ -392,7 +409,11 @@ export async function handleRelayMessage(
         duration: fileMetadata.duration,
         waveform: fileMetadata.waveform
       } : undefined
-    }).catch((err) => {
+    };
+    if(resolvedMid !== undefined) row.mid = resolvedMid;
+    if(resolvedPeerId !== undefined) row.twebPeerId = resolvedPeerId;
+    if(resolvedMid !== undefined) row.isOutgoing = false;
+    store.saveMessage(row).catch((err) => {
       ctx.log.warn('[ChatAPI] failed to save incoming message:', err);
     });
   } catch(err) {

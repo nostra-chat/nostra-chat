@@ -441,10 +441,14 @@ export class ChatAPI {
   /**
    * Send a text message
    * @param content - The text content to send
+   * @param opts - Optional mirror-coherence metadata so the initial IDB row
+   *   carries `mid`/`twebPeerId`/`isOutgoing`. VMT sendMessage passes these
+   *   through to eliminate the two-write race that caused FIND-e49755c1
+   *   (mirror had mids, IDB row was still partial).
    * @returns The generated message ID
    */
-  async sendText(content: string): Promise<string> {
-    return this.sendMessage('text', content);
+  async sendText(content: string, opts?: {mid?: number; twebPeerId?: number}): Promise<string> {
+    return this.sendMessage('text', content, opts);
   }
 
   /**
@@ -459,6 +463,7 @@ export class ChatAPI {
    * @param mimeType - MIME type of the file
    * @param size - File size in bytes
    * @param dim - Optional dimensions {width, height}
+   * @param extras - Optional metadata (duration/waveform) + mirror-coherence opts
    * @returns The generated message ID
    */
   async sendFileMessage(
@@ -470,7 +475,7 @@ export class ChatAPI {
     mimeType: string,
     size: number,
     dim?: {width: number; height: number},
-    extras?: {duration?: number; waveform?: string}
+    extras?: {duration?: number; waveform?: string; mid?: number; twebPeerId?: number}
   ): Promise<string> {
     const fileContent = JSON.stringify({
       url,
@@ -483,13 +488,18 @@ export class ChatAPI {
       ...(extras?.duration !== undefined ? {duration: extras.duration} : {}),
       ...(extras?.waveform !== undefined ? {waveform: extras.waveform} : {})
     });
-    return this.sendMessage(type as ChatMessageType, fileContent);
+    const {mid, twebPeerId} = extras || {};
+    return this.sendMessage(type as ChatMessageType, fileContent, {mid, twebPeerId});
   }
 
   /**
    * Internal send implementation
    */
-  private async sendMessage(type: ChatMessageType, content: string): Promise<string> {
+  private async sendMessage(
+    type: ChatMessageType,
+    content: string,
+    opts?: {mid?: number; twebPeerId?: number}
+  ): Promise<string> {
     const messageId = this.generateMessageId();
     const timestamp = Date.now();
     const peerOwnId = this.activePeer;
@@ -510,11 +520,15 @@ export class ChatAPI {
     // Add to history
     this.history.push(message);
 
-    // Save to message store with 'sending' status
+    // Save to message store with 'sending' status.
+    // NOTE: when `opts.mid`/`opts.twebPeerId` are passed (from VMT), the row
+    // carries them on the FIRST write so the mirror/IDB coherence invariant
+    // never sees a partial row (fixes FIND-e49755c1). Without them, this is
+    // the legacy partial row that a subsequent VMT saveMessage merges into.
     try {
       const store = getMessageStore();
       const conversationId = store.getConversationId(this.ownId, peerOwnId || '');
-      await store.saveMessage({
+      const row: StoredMessage = {
         eventId: messageId,
         conversationId,
         senderPubkey: this.ownId,
@@ -522,7 +536,14 @@ export class ChatAPI {
         type: type === 'text' ? 'text' : 'file',
         timestamp: Math.floor(timestamp / 1000),
         deliveryState: 'sending'
-      });
+      };
+      if(opts?.mid !== undefined) row.mid = opts.mid;
+      if(opts?.twebPeerId !== undefined) row.twebPeerId = opts.twebPeerId;
+      // twebPeerId presence is a reliable "this is a send via VMT" signal —
+      // callers pass it when they know the message is outgoing, even if they
+      // haven't precomputed the mid yet.
+      if(opts?.twebPeerId !== undefined) row.isOutgoing = true;
+      await store.saveMessage(row);
     } catch(err) {
       this.log.warn('[ChatAPI] failed to save to message store:', err);
     }

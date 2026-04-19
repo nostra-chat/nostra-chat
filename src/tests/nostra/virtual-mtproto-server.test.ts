@@ -360,7 +360,9 @@ describe('NostraMTProtoServer', () => {
       });
 
       expect(result._).toBe('updates');
-      expect(mockChatAPI.sendText).toHaveBeenCalledWith('hello there');
+      // VMT passes twebPeerId so the initial ChatAPI IDB row already carries
+      // it — closes FIND-e49755c1 (mirror/IDB drift).
+      expect(mockChatAPI.sendText).toHaveBeenCalledWith('hello there', expect.objectContaining({twebPeerId: expect.any(Number)}));
       // Source returns emptyUpdates — Worker's P2P shortcut in
       // appMessagesManager handles the pending-to-sent transition
       // instead of relying on updateNewMessage from the server.

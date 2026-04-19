@@ -1,0 +1,18 @@
+{
+  "invariantId": "INV-mirrors-idb-coherent",
+  "tier": "medium",
+  "message": "mirror mids not in idb on userA: 1776598357119890,1776598357119891",
+  "evidence": {
+    "user": "userA",
+    "missing": [
+      1776598357119890,
+      1776598357119891
+    ]
+  },
+  "action": {
+    "name": "waitForPropagation",
+    "args": {
+      "ms": 2716
+    }
+  }
+}

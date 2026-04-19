@@ -738,14 +738,23 @@ export class NostraMTProtoServer {
         await this.chatAPI.connect(peerPubkey);
       }
 
+      // Pass `twebPeerId` via the sendText opts so ChatAPI's internal partial
+      // save ALREADY carries twebPeerId + isOutgoing:true. The second save
+      // below adds `mid`. Without this, the invariant could observe an mid
+      // in the mirror before the authoritative row landed in IDB
+      // (FIND-e49755c1).
       const text = params?.message ?? '';
-      const eventId: string = await this.chatAPI.sendText(text);
+      const twebPeerId = Math.abs(peerId);
       const now = Math.floor(Date.now() / 1000);
+
+      const eventId: string = await this.chatAPI.sendText(text, {twebPeerId});
       const mid = await this.mapper.mapEventId(eventId, now);
 
       const store = getMessageStore();
       const conversationId = store.getConversationId(this.ownPubkey, peerPubkey);
 
+      // Authoritative save with mid. Merges with ChatAPI's earlier partial
+      // row via message-store.ts:132-143.
       await store.saveMessage({
         eventId,
         conversationId,
@@ -755,7 +764,7 @@ export class NostraMTProtoServer {
         timestamp: now,
         deliveryState: 'sent',
         mid,
-        twebPeerId: Math.abs(peerId),
+        twebPeerId,
         isOutgoing: true
       });
 
