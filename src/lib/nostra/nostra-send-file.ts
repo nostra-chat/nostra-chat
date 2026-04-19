@@ -45,7 +45,7 @@ export interface SendCtx {
       mimeType: string,
       size: number,
       dim?: {width: number; height: number},
-      extras?: {duration?: number; waveform?: string}
+      extras?: {duration?: number; waveform?: string; mid?: number; twebPeerId?: number; timestampSec?: number}
     ): Promise<string>;
   };
   dispatch(name: string, payload: any): void;
@@ -228,14 +228,20 @@ export async function sendFileViaNostra(
     if(ctx.chatAPI.getActivePeer() !== ctx.peerPubkey) {
       await ctx.chatAPI.connect(ctx.peerPubkey);
     }
+    // Capture `realMid` BEFORE sendFileMessage so ChatAPI's partial save
+    // already carries the same mid+twebPeerId+timestamp VMT will later
+    // stamp. Without this pinning, the partial row's (eventId, timestamp)
+    // pair diverges by a second and `?? mapEventId(...)` fallbacks in
+    // getDialogs/getHistory/refreshDialogPreview spawn a ghost mid with
+    // no IDB counterpart (FIND-e49755c1 residual).
+    const realMid = Math.floor(Date.now() / 1000);
     const eventId = await ctx.chatAPI.sendFileMessage(
       type, url, sha256Hex, keyHex, ivHex,
       blob.type || 'application/octet-stream',
       blob.size,
       args.width && args.height ? {width: args.width, height: args.height} : undefined,
-      {duration: args.duration, waveform: args.waveform}
+      {duration: args.duration, waveform: args.waveform, mid: realMid, twebPeerId: Math.abs(peerId), timestampSec: realMid}
     );
-    const realMid = Math.floor(Date.now() / 1000);
 
     await ctx.saveMessage({
       peerId, mid: realMid, eventId,

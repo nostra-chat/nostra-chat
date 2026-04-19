@@ -171,7 +171,21 @@ describe('FIND-e49755c1 — mirror/IDB coherence', () => {
       random_id: BigInt(1)
     });
 
-    expect(mockChatAPI.sendText).toHaveBeenCalledWith('hello', expect.objectContaining({twebPeerId: PEER_ID}));
+    // Assert VMT pins the seconds-precision timestamp alongside twebPeerId.
+    // Without this pinning the ChatAPI row's `timestamp` could land in a
+    // DIFFERENT second than VMT's `mapEventId(eventId, now)` second, and the
+    // downstream `latest.mid ?? mapEventId(eventId, latest.timestamp)`
+    // fallback (refreshDialogPreview / getDialogs / getHistory) would compute
+    // a DIFFERENT mid and inject a ghost into the mirror with no IDB row.
+    // This is the FIND-e49755c1 residual closure contract.
+    expect(mockChatAPI.sendText).toHaveBeenCalledWith(
+      'hello',
+      expect.objectContaining({twebPeerId: PEER_ID, timestampSec: expect.any(Number)})
+    );
+    const sendTextCall = mockChatAPI.sendText.mock.calls[0];
+    const sendOpts = sendTextCall[1];
+    expect(typeof sendOpts.timestampSec).toBe('number');
+    expect(sendOpts.timestampSec).toBeGreaterThan(1_700_000_000);
 
     const row = store.rows.get('ev_send_001');
     expect(row).toBeDefined();

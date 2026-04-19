@@ -445,9 +445,20 @@ export class ChatAPI {
    *   carries `mid`/`twebPeerId`/`isOutgoing`. VMT sendMessage passes these
    *   through to eliminate the two-write race that caused FIND-e49755c1
    *   (mirror had mids, IDB row was still partial).
+   *
+   *   `timestampSec` is the authoritative "now" second captured by the
+   *   caller BEFORE send. When provided, the partial IDB row's timestamp
+   *   is set to this value so any later `mapEventId(eventId, row.timestamp)`
+   *   fallback (used by getDialogs/getHistory/refreshDialogPreview when the
+   *   row's mid hasn't merged yet) computes the SAME mid the caller will
+   *   later write via its authoritative save. Without this, VMT's
+   *   `Math.floor(Date.now()/1000)` captured before sendText can diverge
+   *   from ChatAPI's internal `Math.floor(Date.now()/1000)` captured after
+   *   relay publish — which silently spawns a second mirror mid with no
+   *   IDB row (FIND-e49755c1 residual).
    * @returns The generated message ID
    */
-  async sendText(content: string, opts?: {mid?: number; twebPeerId?: number}): Promise<string> {
+  async sendText(content: string, opts?: {mid?: number; twebPeerId?: number; timestampSec?: number}): Promise<string> {
     return this.sendMessage('text', content, opts);
   }
 
@@ -475,7 +486,7 @@ export class ChatAPI {
     mimeType: string,
     size: number,
     dim?: {width: number; height: number},
-    extras?: {duration?: number; waveform?: string; mid?: number; twebPeerId?: number}
+    extras?: {duration?: number; waveform?: string; mid?: number; twebPeerId?: number; timestampSec?: number}
   ): Promise<string> {
     const fileContent = JSON.stringify({
       url,
@@ -488,8 +499,8 @@ export class ChatAPI {
       ...(extras?.duration !== undefined ? {duration: extras.duration} : {}),
       ...(extras?.waveform !== undefined ? {waveform: extras.waveform} : {})
     });
-    const {mid, twebPeerId} = extras || {};
-    return this.sendMessage(type as ChatMessageType, fileContent, {mid, twebPeerId});
+    const {mid, twebPeerId, timestampSec} = extras || {};
+    return this.sendMessage(type as ChatMessageType, fileContent, {mid, twebPeerId, timestampSec});
   }
 
   /**
@@ -498,10 +509,15 @@ export class ChatAPI {
   private async sendMessage(
     type: ChatMessageType,
     content: string,
-    opts?: {mid?: number; twebPeerId?: number}
+    opts?: {mid?: number; twebPeerId?: number; timestampSec?: number}
   ): Promise<string> {
     const messageId = this.generateMessageId();
-    const timestamp = Date.now();
+    // If caller provided an authoritative seconds-precision timestamp, pin
+    // the internal timestamp to it so the partial IDB row's timestamp
+    // matches whatever VMT will later stamp on its authoritative save. See
+    // FIND-e49755c1 residual analysis: mirror ended up with two mids when
+    // these two timestamps landed in different seconds.
+    const timestamp = opts?.timestampSec !== undefined ? opts.timestampSec * 1000 : Date.now();
     const peerOwnId = this.activePeer;
 
     this.log('[ChatAPI] sending message:', type, 'id:', messageId, 'peer:', peerOwnId?.slice(0, 8) + '...');

@@ -738,16 +738,21 @@ export class NostraMTProtoServer {
         await this.chatAPI.connect(peerPubkey);
       }
 
-      // Pass `twebPeerId` via the sendText opts so ChatAPI's internal partial
-      // save ALREADY carries twebPeerId + isOutgoing:true. The second save
-      // below adds `mid`. Without this, the invariant could observe an mid
-      // in the mirror before the authoritative row landed in IDB
-      // (FIND-e49755c1).
+      // Pass `twebPeerId` + `timestampSec` via the sendText opts so ChatAPI's
+      // internal partial save carries twebPeerId + isOutgoing:true AND pins
+      // its row timestamp to the SAME second VMT will use below. The second
+      // save adds `mid`. Pinning the timestamp is critical: if a downstream
+      // consumer (getDialogs / getHistory / refreshDialogPreview) observes
+      // the partial row BEFORE the mid-carrying save merges, the
+      // `latest.mid ?? await mapEventId(latest.eventId, latest.timestamp)`
+      // fallback must compute the IDENTICAL mid VMT writes here. Otherwise
+      // the mirror gains a ghost mid with no IDB counterpart (FIND-e49755c1
+      // residual).
       const text = params?.message ?? '';
       const twebPeerId = Math.abs(peerId);
       const now = Math.floor(Date.now() / 1000);
 
-      const eventId: string = await this.chatAPI.sendText(text, {twebPeerId});
+      const eventId: string = await this.chatAPI.sendText(text, {twebPeerId, timestampSec: now});
       const mid = await this.mapper.mapEventId(eventId, now);
 
       const store = getMessageStore();
