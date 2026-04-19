@@ -587,12 +587,26 @@ export default class ReactionElement extends HTMLElement {
       onlyAround?: boolean
       assetName?: LottieAssetName
     }) => {
+      // Nostra mode guard: in the P2P client the reactions catalog
+      // (`messages.getAvailableReactions`) is a stub that returns empty, so
+      // `availableReaction` can be undefined AND `sticker`/`around_animation`
+      // missing. Both `wrapStickerAnimation` (via aroundParams.doc) and
+      // `wrapSticker` (via the stickerResult doc) will dereference their
+      // `doc` arg unconditionally — bail out when no doc is resolvable and
+      // we don't have an explicit asset name fallback. The reaction counter
+      // still paints as plain emoji via the earlier `renderDoc` path.
+      const hasAroundDoc = !!(genericEffect || availableReaction?.around_animation);
+      if(!assetName && !hasAroundDoc && !sticker) return;
+
       const size = genericEffect ? options.sizes.genericEffect : options.sizes.size;
       const div = genericEffect ? undefined : document.createElement('div');
       div && div.classList.add(CLASS_NAME + '-sticker-activate');
 
       const genericEffectSize = options.sizes.genericEffectSize;
-      const isGenericMasked = genericEffect && sticker.sticker !== StickerType.Lottie;
+      // Nostra mode: reactions catalog is stub-empty, so `sticker` can arrive
+      // undefined even when `genericEffect` is present. Guard the deref —
+      // treat missing sticker as non-masked (Lottie default path).
+      const isGenericMasked = genericEffect && sticker && sticker.sticker !== StickerType.Lottie;
 
       const textColor = options.textColor || 'primary-text-color';
 
@@ -617,17 +631,28 @@ export default class ReactionElement extends HTMLElement {
         container: div,
         noCache: true
       }, assetName) : wrapStickerAnimation(aroundParams).stickerPromise;
-      const genericResult = genericEffect && wrapStickerAnimation({
+      // Nostra: if `sticker` is undefined (stub catalog), fall back to
+      // `aroundParams.doc` (which already has the genericEffect fallback
+      // chain). Skip the whole genericResult if no doc is resolvable —
+      // `wrapStickerAnimation` passes `doc` straight to `wrapSticker`,
+      // which dereferences `.sticker` and would crash.
+      const genericDoc = isGenericMasked ? aroundParams.doc : (sticker || aroundParams.doc);
+      const genericResult = genericEffect && genericDoc && wrapStickerAnimation({
         ...aroundParams,
-        doc: isGenericMasked ? aroundParams.doc : sticker,
+        doc: genericDoc,
         size: genericEffectSize,
         stickerSize: size,
         loopEffect: true,
         textColor
       });
-      const stickerResult = (!genericEffect || isGenericMasked) && !onlyAround && wrapSticker({
+      // Nostra mode: `availableReaction` can be undefined when the reactions
+      // catalog is stub-empty. Resolve the doc via optional chaining — if
+      // nothing is available, skip wrapSticker entirely (it dereferences
+      // `.sticker` on its first arg and would crash with an undefined doc).
+      const stickerDoc = sticker || availableReaction?.center_icon;
+      const stickerResult = (!genericEffect || isGenericMasked) && !onlyAround && stickerDoc && wrapSticker({
         div: div || document.createElement('div'),
-        doc: sticker || availableReaction.center_icon,
+        doc: stickerDoc,
         width: size,
         height: size,
         withThumb: false,
