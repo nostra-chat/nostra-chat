@@ -388,34 +388,44 @@ export async function handleRelayMessage(
     } catch(e: any) {
       ctx.log.warn('[ChatAPI] incoming save: mid/peerId compute failed:', e?.message);
     }
-    const row: StoredMessage = {
-      eventId: msg.id,
-      appMessageId: chatMessage.id,
-      conversationId,
-      senderPubkey: msg.from,
-      content: chatMessage.content,
-      type: msgType === 'text' ? 'text' : 'file',
-      timestamp: msg.timestamp,
-      deliveryState: 'delivered',
-      fileMetadata: fileMetadata ? {
-        url: fileMetadata.url,
-        sha256: fileMetadata.sha256,
-        mimeType: fileMetadata.mimeType,
-        size: fileMetadata.size,
-        width: fileMetadata.width,
-        height: fileMetadata.height,
-        keyHex: fileMetadata.keyHex,
-        ivHex: fileMetadata.ivHex,
-        duration: fileMetadata.duration,
-        waveform: fileMetadata.waveform
-      } : undefined
-    };
-    if(resolvedMid !== undefined) row.mid = resolvedMid;
-    if(resolvedPeerId !== undefined) row.twebPeerId = resolvedPeerId;
-    if(resolvedMid !== undefined) row.isOutgoing = false;
-    store.saveMessage(row).catch((err) => {
-      ctx.log.warn('[ChatAPI] failed to save incoming message:', err);
-    });
+    // Identity-triple contract: the FIRST IDB write for an incoming message
+    // MUST carry mid+twebPeerId. Bridge failures would land a partial row and
+    // leak into the mirror as a ghost mid via VMT read fallbacks — the exact
+    // FIND-e49755c1 shape. If the bridge compute fails we skip the save
+    // entirely and let NostraSync.onIncomingMessage land the authoritative
+    // row (it has the same inputs and a retry path).
+    if(resolvedMid === undefined || resolvedPeerId === undefined) {
+      ctx.log.warn('[ChatAPI] incoming save: skipping partial row (bridge resolve failed)', {eventId: msg.id});
+    } else {
+      const row: StoredMessage = {
+        eventId: msg.id,
+        appMessageId: chatMessage.id,
+        conversationId,
+        senderPubkey: msg.from,
+        content: chatMessage.content,
+        type: msgType === 'text' ? 'text' : 'file',
+        timestamp: msg.timestamp,
+        deliveryState: 'delivered',
+        mid: resolvedMid,
+        twebPeerId: resolvedPeerId,
+        isOutgoing: false,
+        fileMetadata: fileMetadata ? {
+          url: fileMetadata.url,
+          sha256: fileMetadata.sha256,
+          mimeType: fileMetadata.mimeType,
+          size: fileMetadata.size,
+          width: fileMetadata.width,
+          height: fileMetadata.height,
+          keyHex: fileMetadata.keyHex,
+          ivHex: fileMetadata.ivHex,
+          duration: fileMetadata.duration,
+          waveform: fileMetadata.waveform
+        } : undefined
+      };
+      store.saveMessage(row).catch((err) => {
+        ctx.log.warn('[ChatAPI] failed to save incoming message:', err);
+      });
+    }
   } catch(err) {
     ctx.log.warn('[ChatAPI] message store error:', err);
   }
@@ -462,6 +472,24 @@ async function handleSelfEcho(
   const conversationId = store.getConversationId(ctx.ownId, peerPubkey);
   const parsed = parseMessageContent(msg.content);
 
+  // Identity-triple contract: cross-device self-echo writes MUST carry
+  // mid+twebPeerId or they become ghost-mid sources downstream.
+  let resolvedMid: number | undefined;
+  let resolvedPeerId: number | undefined;
+  try {
+    const {NostraBridge} = await import('./nostra-bridge');
+    const bridge = NostraBridge.getInstance();
+    resolvedPeerId = await bridge.mapPubkeyToPeerId(peerPubkey);
+    resolvedMid = await bridge.mapEventIdToMid(echoId, Math.floor(msg.timestamp));
+  } catch(e: any) {
+    ctx.log.warn('[ChatAPI] self-echo: bridge resolve failed', e?.message);
+  }
+
+  if(resolvedMid === undefined || resolvedPeerId === undefined) {
+    ctx.log.warn('[ChatAPI] self-echo: skipping partial save (bridge resolve failed)', {echoId});
+    return {action: 'skipped', reason: 'self_echo_bridge_failed'};
+  }
+
   await store.saveMessage({
     eventId: echoId,
     conversationId,
@@ -470,6 +498,8 @@ async function handleSelfEcho(
     type: 'text',
     timestamp: msg.timestamp,
     deliveryState: 'sent',
+    mid: resolvedMid,
+    twebPeerId: resolvedPeerId,
     isOutgoing: true
   });
 

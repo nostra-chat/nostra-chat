@@ -24,6 +24,7 @@ function uniqueConvId(): string {
   return `test-conv-${++testCounter}-${Date.now()}`;
 }
 
+let midCounter = 1;
 function makeMsg(overrides: Partial<StoredMessage> = {}): StoredMessage {
   return {
     eventId: 'evt-' + Math.random().toString(36).slice(2, 10),
@@ -33,6 +34,8 @@ function makeMsg(overrides: Partial<StoredMessage> = {}): StoredMessage {
     type: 'text',
     timestamp: Math.floor(Date.now() / 1000),
     deliveryState: 'delivered',
+    mid: midCounter++,
+    twebPeerId: 1_000_000_000_000_001,
     ...overrides
   };
 }

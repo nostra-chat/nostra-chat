@@ -537,29 +537,50 @@ export class ChatAPI {
     this.history.push(message);
 
     // Save to message store with 'sending' status.
-    // NOTE: when `opts.mid`/`opts.twebPeerId` are passed (from VMT), the row
-    // carries them on the FIRST write so the mirror/IDB coherence invariant
-    // never sees a partial row (fixes FIND-e49755c1). Without them, this is
-    // the legacy partial row that a subsequent VMT saveMessage merges into.
+    //
+    // Identity-triple contract (Phase 2b.1, FIND-e49755c1): every first-write
+    // row MUST carry mid + twebPeerId + timestamp computed ONCE at creation.
+    // When VMT passes `{twebPeerId, timestampSec}` we compute mid locally via
+    // the bridge so the row is authoritative from the first save — no more
+    // partial row that later reads would fall back to recompute against.
+    //
+    // Legacy callers (tests, non-VMT send paths) that don't supply the triple
+    // are skipped here; they don't have a coherent mid to store anyway. The
+    // relay publish still happens so cross-device self-echo can save the row
+    // later with full identity.
     try {
       const store = getMessageStore();
       const conversationId = store.getConversationId(this.ownId, peerOwnId || '');
-      const row: StoredMessage = {
-        eventId: messageId,
-        conversationId,
-        senderPubkey: this.ownId,
-        content,
-        type: type === 'text' ? 'text' : 'file',
-        timestamp: Math.floor(timestamp / 1000),
-        deliveryState: 'sending'
-      };
-      if(opts?.mid !== undefined) row.mid = opts.mid;
-      if(opts?.twebPeerId !== undefined) row.twebPeerId = opts.twebPeerId;
-      // twebPeerId presence is a reliable "this is a send via VMT" signal —
-      // callers pass it when they know the message is outgoing, even if they
-      // haven't precomputed the mid yet.
-      if(opts?.twebPeerId !== undefined) row.isOutgoing = true;
-      await store.saveMessage(row);
+      const timestampSec = Math.floor(timestamp / 1000);
+
+      let rowMid: number | undefined = opts?.mid;
+      const twebPeerId = opts?.twebPeerId;
+      if(rowMid === undefined && twebPeerId !== undefined) {
+        try {
+          const {NostraBridge} = await import('./nostra-bridge');
+          rowMid = await NostraBridge.getInstance().mapEventIdToMid(messageId, timestampSec);
+        } catch(e: any) {
+          this.log.warn('[ChatAPI] mid compute failed:', e?.message);
+        }
+      }
+
+      if(rowMid !== undefined && twebPeerId !== undefined) {
+        const row: StoredMessage = {
+          eventId: messageId,
+          conversationId,
+          senderPubkey: this.ownId,
+          content,
+          type: type === 'text' ? 'text' : 'file',
+          timestamp: timestampSec,
+          deliveryState: 'sending',
+          mid: rowMid,
+          twebPeerId,
+          isOutgoing: true
+        };
+        await store.saveMessage(row);
+      } else {
+        this.log.warn('[ChatAPI] skipping partial send save — caller did not supply identity triple', {messageId});
+      }
     } catch(err) {
       this.log.warn('[ChatAPI] failed to save to message store:', err);
     }
@@ -791,7 +812,13 @@ export class ChatAPI {
   }
 
   /**
-   * Update the status of a message in history and message store
+   * Update the status of a message in history and message store.
+   *
+   * IDENTITY-TRIPLE CONTRACT (Phase 2b.1): this method must only mutate
+   * `deliveryState` on the stored row — NEVER touch `mid`, `twebPeerId`, or
+   * `timestamp`. Those are immutable after creation. We read the full row from
+   * store and re-save it with only `deliveryState` changed, preserving the
+   * triple.
    */
   private updateMessageStatus(messageId: string, status: ChatMessageStatus): void {
     const msg = this.history.find(m => m.id === messageId);
@@ -807,8 +834,12 @@ export class ChatAPI {
       store.getMessages(conversationId, 1).then(msgs => {
         const stored = msgs.find(m => m.eventId === messageId);
         if(stored) {
-          stored.deliveryState = status === 'failed' ? 'sending' : status as StoredMessage['deliveryState'];
-          store.saveMessage(stored).catch((e) => console.debug('[ChatAPI] delivery state persist failed:', e?.message));
+          // Explicit identity preservation — mutate ONLY deliveryState.
+          const next: StoredMessage = {
+            ...stored,
+            deliveryState: status === 'failed' ? 'sending' : status as StoredMessage['deliveryState']
+          };
+          store.saveMessage(next).catch((e) => console.debug('[ChatAPI] delivery state persist failed:', e?.message));
         }
       }).catch((e) => console.debug('[ChatAPI] delivery state lookup failed:', e?.message));
     }
