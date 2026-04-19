@@ -23,9 +23,25 @@ export async function replayFile(path: string): Promise<Action[]> {
 }
 
 export async function replayBaseline(): Promise<Action[]> {
-  const path = 'docs/fuzz-baseline/baseline-seed42.json';
-  if(!existsSync(path)) {
-    throw new Error(`No baseline at ${path}. Run with --emit-baseline first.`);
+  const {readdirSync} = await import('fs');
+  const dir = 'docs/fuzz-baseline';
+  if(!existsSync(dir)) {
+    throw new Error(`No baseline directory at ${dir}. Run with --emit-baseline first.`);
   }
-  return replayFile(path);
+  const candidates = readdirSync(dir).filter((f) => /^baseline-seed\d+(-v2b\d+)?\.json$/.test(f));
+  if(!candidates.length) throw new Error(`No baseline found in ${dir}. Run with --emit-baseline first.`);
+  // Prefer v2bN over unversioned; within v2bN prefer higher N.
+  const score = (name: string): number => {
+    const m = name.match(/-v2b(\d+)\.json$/);
+    return m ? 1000 + Number(m[1]) : 0;
+  };
+  candidates.sort((a, b) => score(b) - score(a));
+  const path = join(dir, candidates[0]);
+  const raw = JSON.parse(readFileSync(path, 'utf-8'));
+  if(raw.fuzzerVersion && raw.fuzzerVersion !== 'phase2b1') {
+    console.warn(`[replay] baseline fuzzerVersion=${raw.fuzzerVersion} != phase2b1 — action registry may drift; consider re-emit`);
+  }
+  const commands = Array.isArray(raw) ? raw : raw.commands;
+  if(!Array.isArray(commands)) throw new Error(`Baseline file does not contain a commands array: ${path}`);
+  return commands as Action[];
 }
