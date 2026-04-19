@@ -192,9 +192,10 @@ export const deleteRandomOwnBubble: ActionSpec = {
 
 export const reactToRandomBubble: ActionSpec = {
   name: 'reactToRandomBubble',
-  weight: 8,
+  weight: 12,
   generateArgs: () => fc.record({
     user: fc.constantFrom('userA', 'userB'),
+    fromTarget: fc.constantFrom('own', 'peer'),
     emoji: fc.constantFrom('❤️', '👍', '😂', '🔥', '🤔')
   }),
   async drive(ctx: FuzzContext, action: Action) {
@@ -205,7 +206,8 @@ export const reactToRandomBubble: ActionSpec = {
     }, sender.remotePeerId);
     await sender.page.waitForTimeout(300);
 
-    const mid = await pickRandomBubbleMid(ctx, from, false);
+    const ownOnly = action.args.fromTarget === 'own';
+    const mid = await pickRandomBubbleMid(ctx, from, ownOnly);
     if(!mid) {action.skipped = true; return action;}
 
     const ok = await sender.page.evaluate(async ({targetMid, emoji}: any) => {
@@ -223,7 +225,7 @@ export const reactToRandomBubble: ActionSpec = {
     }, {targetMid: mid, emoji: action.args.emoji});
     if(!ok) {action.skipped = true; return action;}
 
-    action.meta = {reactedMid: mid, emoji: action.args.emoji};
+    action.meta = {reactedMid: mid, emoji: action.args.emoji, fromTarget: action.args.fromTarget};
     return action;
   }
 };
