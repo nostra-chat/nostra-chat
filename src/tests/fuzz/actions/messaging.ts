@@ -229,3 +229,39 @@ export const reactToRandomBubble: ActionSpec = {
     return action;
   }
 };
+
+export const removeReaction: ActionSpec = {
+  name: 'removeReaction',
+  weight: 4,
+  generateArgs: () => fc.record({user: fc.constantFrom('userA', 'userB')}),
+  async drive(ctx: FuzzContext, action: Action) {
+    const from: 'userA' | 'userB' = action.args.user;
+    const sender = ctx.users[from];
+    await sender.page.evaluate((peerId: number) => {
+      (window as any).appImManager?.setPeer?.({peerId});
+    }, sender.remotePeerId);
+    await sender.page.waitForTimeout(200);
+
+    const picked = await sender.page.evaluate(async () => {
+      const store = (window as any).__nostraReactionsStore;
+      if(!store) return null;
+      const rows = await store.getAll();
+      const own = rows.filter((r: any) => r.fromPubkey && r.reactionEventId);
+      if(!own.length) return null;
+      const p = own[Math.floor(Math.random() * own.length)];
+      return {reactionEventId: p.reactionEventId, mid: p.targetMid, emoji: p.emoji};
+    });
+    if(!picked) {action.skipped = true; return action;}
+
+    const ok = await sender.page.evaluate(async (reId: string) => {
+      try {
+        await (window as any).__nostraReactionsPublish.unpublish(reId);
+        return true;
+      } catch { return false; }
+    }, picked.reactionEventId);
+    if(!ok) {action.skipped = true; return action;}
+
+    action.meta = {removedReactionId: picked.reactionEventId, mid: picked.mid, emoji: picked.emoji};
+    return action;
+  }
+};
