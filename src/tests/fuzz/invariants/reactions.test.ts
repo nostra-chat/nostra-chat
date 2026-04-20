@@ -89,7 +89,7 @@ describe('INV-reaction-aggregated-render — FIND-bbf8efa8 regression', () => {
       id: 'userA' as const,
       context: null as any,
       page: {evaluate: vi.fn(async () => '👍❤️😂')} as any,
-      displayName: 'A', npub: '', remotePeerId: 0, consoleLog: [], reloadTimes: [Date.now()]
+      displayName: 'A', npub: '', remotePeerId: 0, consoleLog: [] as string[], reloadTimes: [Date.now()]
     };
     const ctx = {users: {userA: user, userB: user}, relay: null as any, snapshots: new Map(), actionIndex: 0};
     const r = await reactionAggregatedRender.check(ctx, action);
@@ -102,7 +102,7 @@ describe('INV-reaction-aggregated-render — FIND-bbf8efa8 regression', () => {
       id: 'userA' as const,
       context: null as any,
       page: {evaluate: vi.fn(async () => '👍😂')} as any,
-      displayName: 'A', npub: '', remotePeerId: 0, consoleLog: [], reloadTimes: [Date.now()]
+      displayName: 'A', npub: '', remotePeerId: 0, consoleLog: [] as string[], reloadTimes: [Date.now()]
     };
     const ctx = {users: {userA: user, userB: user}, relay: null as any, snapshots: new Map(), actionIndex: 0};
     const r = await reactionAggregatedRender.check(ctx, action);
