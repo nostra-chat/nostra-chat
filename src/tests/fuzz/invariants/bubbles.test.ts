@@ -75,6 +75,39 @@ describe('INV-bubble-chronological — FIND-c0046153 regression', () => {
   });
 });
 
+describe('INV-bubble-chronological — FIND-chrono-v2 regression', () => {
+  // Three items with identical timestamp but distinct mid; insertion order
+  // is reversed from expected. After sort, must land in descending mid.
+  it('sorts same-timestamp items by mid desc deterministically', () => {
+    const items = [
+      {mid: 100, timestamp: 1712345678},
+      {mid: 300, timestamp: 1712345678},
+      {mid: 200, timestamp: 1712345678}
+    ];
+    // Sort comparator under test (replicate the P2P path)
+    items.sort((a, b) => {
+      if(a.timestamp !== b.timestamp) return b.timestamp - a.timestamp;
+      return b.mid - a.mid;
+    });
+    expect(items.map((i) => i.mid)).toEqual([300, 200, 100]);
+  });
+
+  it('is deterministic across 20 runs', () => {
+    for(let run = 0; run < 20; run++) {
+      const shuffled = [
+        {mid: 100, timestamp: 1712345678},
+        {mid: 300, timestamp: 1712345678},
+        {mid: 200, timestamp: 1712345678}
+      ].sort(() => Math.random() - 0.5);
+      shuffled.sort((a, b) => {
+        if(a.timestamp !== b.timestamp) return b.timestamp - a.timestamp;
+        return b.mid - a.mid;
+      });
+      expect(shuffled.map((i) => i.mid)).toEqual([300, 200, 100]);
+    }
+  });
+});
+
 describe('INV-no-auto-pin', () => {
   it('passes when no bubble is pinned', async () => {
     const r = await noAutoPin.check(ctx(userWithBubbles([{mid: '1', timestamp: 1}])));

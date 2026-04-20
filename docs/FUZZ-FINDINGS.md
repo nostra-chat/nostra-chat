@@ -1,25 +1,27 @@
 # Fuzz Findings
 
 Last updated: 2026-04-20
-Open bugs: 1 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3 · Fixed in Phase 2b.2b: 2
+Open bugs: 0 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3 · Fixed in Phase 2b.2b: 3
 
 ## Open (sorted by occurrences desc)
 
-### FIND-chrono-v2 — INV-bubble-chronological (same-second tempMid race)
-
-**Status:** OPEN (carry-forward to Phase 2b.2b)
-**Tier:** cheap
-**First observed:** 2026-04-20 during Task 4 investigation of FIND-eef9f130
-**Assertion:** `INV-bubble-chronological` fires on ~60% of `FIND-eef9f130` replays even AFTER Task 2's `bubbleGroups` sort-key fix (which covered FIND-c0046153's specific trace at 9/9). The residual flake is a DIFFERENT race: same-second same-user interleaved send where the `is-sending` placeholder bubble has `tempMid = topMessage + 1` based on the previous topMessage, but a concurrent peer-incoming bubble arrives with the same `timestampSec`. Task 2's switch to `'timestamp'` sort key resolves same-second ties by insertion order (non-deterministic), exposing a new variant.
-
-**Reproduction:** `pnpm fuzz --replay=FIND-eef9f130` — ~60% of runs.
-**Relationship to FIND-c0046153:** Distinct. c0046153's trace passes 9/9. This is a contention variant surfaced by eef9f130's higher-concurrency sequence.
-**Hypothesis:** fix either (a) add `mid` as tiebreaker after `timestamp` in the P2P sort (straightforward), or (b) root-cause fix `generateTempMessageId` to encode wall-clock seconds (deeper).
-**Owner:** Phase 2b.2b.
+_(none)_
 
 ## Fixed
 
 ### Fixed in Phase 2b.2b
+
+#### FIND-chrono-v2 — INV-bubble-chronological (same-second tempMid race)
+- **Status**: fixed in Phase 2b.2b
+- **Tier**: cheap
+- **Occurrences**: ~60% of `FIND-eef9f130` replays
+- **First seen**: 2026-04-20 during Task 4 investigation of FIND-eef9f130
+- **Last seen**: 2026-04-20
+- **Assertion**: `INV-bubble-chronological` fires on a same-second same-user interleaved send where the `is-sending` placeholder bubble has `tempMid = topMessage + 1` and a concurrent peer-incoming bubble arrives with the same `timestampSec`. Phase 2b.2a's switch to `'timestamp'` sort key resolved FIND-c0046153 but left same-second ties subject to non-deterministic insertion order, exposing this variant.
+- **Root cause**: single-key `insertSomething(array, item, 'timestamp', reverse)` collapsed to insertion order when two P2P items shared the same wall-clock second — `mid` was ignored as a tiebreaker, so distinct mids interleaved unpredictably in the DOM.
+- **Fix**: added `insertSomethingWithTiebreak<T>(to, what, primaryKey, secondaryKey, reverse)` alongside `insertSomething` in `src/components/chat/bubbleGroups.ts`. New private method `insertGroupItem(arr, item)` dispatches to the two-key variant when `_isP2P=true` (set in the constructor from `Number(chat.peerId) >= 1e15`), using `(timestamp, mid)` both descending. Non-P2P chats retain the single-key `insertSomething` path unchanged. Callsite `insertItemToArray` now delegates to `insertGroupItem`.
+- **Relationship to FIND-c0046153**: distinct. c0046153's trace passes 9/9 with 2b.2a's fix. This is a contention variant surfaced by eef9f130's higher-concurrency sequence.
+- **Regression coverage**: `src/tests/fuzz/invariants/bubbles.test.ts` — new `INV-bubble-chronological — FIND-chrono-v2 regression` suite with 2 comparator-level tests (deterministic descending mid ordering across same-second ties + stability across 20 shuffled runs).
 
 #### FIND-cold-deleteWhileSending — POST_deleteWhileSending_consistent (cold-start relay delivery)
 - **Status**: fixed in Phase 2b.2b

@@ -54,6 +54,39 @@ function insertSomething<T>(to: Array<T>, what: T, sortKey: keyof T, reverse: bo
   }
 }
 
+// [Nostra.chat] FIND-chrono-v2: P2P bubble sort needs a (timestamp, mid) tiebreaker.
+// Same-second tempMid race produces bubbles with identical `timestamp`; the single-key
+// `insertSomething` collapses to insertion order (non-deterministic), exposing an
+// `INV-bubble-chronological` flake on ~60% of replays. Sort primary desc, then
+// secondary desc, stable per-call regardless of insertion order.
+function insertSomethingWithTiebreak<T>(
+  to: Array<T>,
+  what: T,
+  primaryKey: keyof T,
+  secondaryKey: keyof T,
+  reverse: boolean
+): number {
+  indexOfAndSplice(to, what);
+  if(reverse) {
+    // ASCENDING insertion (reverse=true): primary asc, then secondary asc
+    let i = 0;
+    while(i < to.length && (
+      (to[i] as any)[primaryKey] < (what as any)[primaryKey] ||
+      ((to[i] as any)[primaryKey] === (what as any)[primaryKey] && (to[i] as any)[secondaryKey] < (what as any)[secondaryKey])
+    )) i++;
+    to.splice(i, 0, what);
+    return i;
+  }
+  // DESCENDING insertion: primary desc, then secondary desc
+  let i = 0;
+  while(i < to.length && (
+    (to[i] as any)[primaryKey] > (what as any)[primaryKey] ||
+    ((to[i] as any)[primaryKey] === (what as any)[primaryKey] && (to[i] as any)[secondaryKey] > (what as any)[secondaryKey])
+  )) i++;
+  to.splice(i, 0, what);
+  return i;
+}
+
 function canHaveReplyMarkup(message: Message.message) {
   const replyMarkup = message.reply_markup;
   let replyMarkupRows = replyMarkup?._ === 'replyInlineMarkup' && replyMarkup.rows;
@@ -368,6 +401,7 @@ export default class BubbleGroups {
   private sortGroupsKey: Extract<keyof BubbleGroup, 'lastMid' | 'lastTimestamp'>;
   public sortGroupItemsKey: Extract<keyof GroupItem, 'groupMid' | 'timestamp'>;
   public reverse: boolean; // * used for search
+  private _isP2P: boolean = false;
 
   constructor(private chat: Chat) {
     if(chat.type !== ChatType.Search) {
@@ -380,6 +414,7 @@ export default class BubbleGroups {
       // encode `ts * 1e6 + hash`. Sorting by `message.date` is the invariant
       // source of truth for DOM chronology, independent of mid assignment.
       const isP2P = Number(chat.peerId) >= 1e15;
+      this._isP2P = isP2P;
       this.sortItemsKey = chat.type === ChatType.Scheduled || isP2P ? 'timestamp' : 'mid';
       this.sortGroupsKey = chat.type === ChatType.Scheduled || isP2P ? 'lastTimestamp' : 'lastMid';
       // [Nostra.chat] sortGroupItemsKey stays 'groupMid' even for P2P — within-group
@@ -655,7 +690,23 @@ export default class BubbleGroups {
   }
 
   insertItemToArray(item: GroupItem, array: GroupItem[]) {
-    return insertSomething(array, item, this.sortItemsKey, this.reverse = item.reverse);
+    return this.insertGroupItem(array, item);
+  }
+
+  // [Nostra.chat] FIND-chrono-v2: for P2P chats use a (timestamp, mid) two-key sort to
+  // disambiguate same-second ties deterministically. Non-P2P (Telegram MTProto) chats
+  // keep the single-key `mid`-based `insertSomething` path unchanged.
+  private insertGroupItem(arr: GroupItem[], item: GroupItem): number {
+    if(this._isP2P) {
+      return insertSomethingWithTiebreak<GroupItem>(
+        arr,
+        item,
+        'timestamp',
+        'mid',
+        this.reverse = item.reverse
+      );
+    }
+    return insertSomething(arr, item, this.sortItemsKey, this.reverse = item.reverse);
   }
 
   insertGroup(group: BubbleGroup) {
