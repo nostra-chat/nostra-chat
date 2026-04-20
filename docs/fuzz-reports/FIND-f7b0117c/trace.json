@@ -1,0 +1,19 @@
+{
+  "seed": 48,
+  "backend": "local",
+  "commands": [
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userB",
+        "text": "y "
+      },
+      "meta": {
+        "sentAt": 1776500835226,
+        "fromId": "userB",
+        "toId": "userA",
+        "text": "y "
+      }
+    }
+  ]
+}

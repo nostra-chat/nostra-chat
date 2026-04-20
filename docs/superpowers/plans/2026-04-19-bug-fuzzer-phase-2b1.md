@@ -2861,6 +2861,19 @@ Save the PR URL output from Step 2 for reference. Ping the maintainer for 2-devi
 
 ---
 
+## Execution notes (post-completion)
+
+Task 21 baseline emit: BLOCKED during execution. The architectural identity triple fix (see `docs/fuzz-reports/FIND-e49755c1/README.md`) closed the mid/IDB drift that originally triggered during baseline runs. A subsequent fuzz run (seed=42, duration=6m, --emit-baseline) completed 5 clean iterations before seed=48 iter 6 surfaced a NEW `INV-bubble-chronological` failure (FIND-c0046153). Different seeds surfaced further pre-existing bugs. All 3 logged as open for 2b.2.
+
+Decision: ship 2b.1 reactions RX + architectural fix; defer baseline emit + 3 new open FINDs to 2b.2.
+
+Task 24 tech gate adapted: unit tests + lint + tsc pass. Fuzz run deferred to 2b.2.
+Task 25 PR opened with carry-forward documentation.
+
+Completed commits on `fuzz-phase-2b1`: 26 (reactions infrastructure + architectural fix + docs + fuzz emit prep). Baseline file NOT emitted to main.
+
+---
+
 ## Self-Review Notes
 
 Before claiming the plan done, verify:

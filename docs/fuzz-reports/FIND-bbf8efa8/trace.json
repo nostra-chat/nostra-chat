@@ -1,0 +1,51 @@
+{
+  "seed": 101,
+  "backend": "local",
+  "commands": [
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userA",
+        "text": "hi"
+      },
+      "meta": {
+        "sentAt": 1776632512255,
+        "fromId": "userA",
+        "toId": "userB",
+        "text": "hi"
+      }
+    },
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userA",
+        "text": "10B9|tl`k\"A"
+      },
+      "meta": {
+        "sentAt": 1776632512837,
+        "fromId": "userA",
+        "toId": "userB",
+        "text": "10B9|tl`k\"A"
+      }
+    },
+    {
+      "name": "reactMultipleEmoji",
+      "args": {
+        "user": "userB",
+        "emojis": [
+          "👍",
+          "❤️",
+          "😂"
+        ]
+      },
+      "meta": {
+        "targetMid": "1776632512772244",
+        "emojis": [
+          "👍",
+          "❤️",
+          "😂"
+        ]
+      }
+    }
+  ]
+}

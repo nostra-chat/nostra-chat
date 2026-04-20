@@ -1,0 +1,78 @@
+{
+  "seed": 52,
+  "backend": "local",
+  "commands": [
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userB",
+        "text": "~?WDIxqj35"
+      },
+      "meta": {
+        "sentAt": 1776500290594,
+        "fromId": "userB",
+        "toId": "userA",
+        "text": "~?WDIxqj35"
+      }
+    },
+    {
+      "name": "waitForPropagation",
+      "args": {
+        "ms": 524
+      }
+    },
+    {
+      "name": "deleteRandomOwnBubble",
+      "args": {
+        "user": "userB"
+      },
+      "meta": {
+        "deletedMid": "0.0001",
+        "deletedAt": 1776500291651
+      }
+    },
+    {
+      "name": "waitForPropagation",
+      "args": {
+        "ms": 2083
+      }
+    },
+    {
+      "name": "scrollHistoryUp",
+      "args": {
+        "user": "userA"
+      }
+    },
+    {
+      "name": "editRandomOwnBubble",
+      "args": {
+        "user": "userA",
+        "newText": "Y_+"
+      },
+      "skipped": true
+    },
+    {
+      "name": "openRandomChat",
+      "args": {
+        "user": "userB"
+      }
+    },
+    {
+      "name": "reactToRandomBubble",
+      "args": {
+        "user": "userA",
+        "emoji": "👍"
+      },
+      "meta": {
+        "reactedMid": "1776500290432397",
+        "emoji": "👍"
+      }
+    },
+    {
+      "name": "scrollHistoryUp",
+      "args": {
+        "user": "userA"
+      }
+    }
+  ]
+}

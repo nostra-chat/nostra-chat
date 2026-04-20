@@ -1,0 +1,68 @@
+{
+  "seed": 47,
+  "backend": "local",
+  "commands": [
+    {
+      "name": "waitForPropagation",
+      "args": {
+        "ms": 1633
+      }
+    },
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userA",
+        "text": "G+"
+      },
+      "meta": {
+        "sentAt": 1776500764940,
+        "fromId": "userA",
+        "toId": "userB",
+        "text": "G+"
+      }
+    },
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userA",
+        "text": ".~r6fZO"
+      },
+      "meta": {
+        "sentAt": 1776500765488,
+        "fromId": "userA",
+        "toId": "userB",
+        "text": ".~r6fZO"
+      }
+    },
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userB",
+        "text": "+\"2:vr!r"
+      },
+      "meta": {
+        "sentAt": 1776500766056,
+        "fromId": "userB",
+        "toId": "userA",
+        "text": "+\"2:vr!r"
+      }
+    },
+    {
+      "name": "waitForPropagation",
+      "args": {
+        "ms": 1272
+      }
+    },
+    {
+      "name": "reactToRandomBubble",
+      "args": {
+        "user": "userA",
+        "emoji": "🔥"
+      },
+      "meta": {
+        "reactedMid": "0.0002",
+        "emoji": "🔥"
+      }
+    }
+  ]
+}

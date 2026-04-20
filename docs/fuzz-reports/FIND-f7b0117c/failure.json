@@ -1,0 +1,22 @@
+{
+  "invariantId": "INV-sent-bubble-visible-after-send",
+  "tier": "cheap",
+  "message": "sent text \"y \" not visible on sender userB",
+  "evidence": {
+    "sender": "userB",
+    "text": "y "
+  },
+  "action": {
+    "name": "sendText",
+    "args": {
+      "from": "userB",
+      "text": "y "
+    },
+    "meta": {
+      "sentAt": 1776500835226,
+      "fromId": "userB",
+      "toId": "userA",
+      "text": "y "
+    }
+  }
+}

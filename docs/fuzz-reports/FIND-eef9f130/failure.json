@@ -1,0 +1,18 @@
+{
+  "invariantId": "POST-sendText-input-cleared",
+  "tier": "postcondition",
+  "message": "chat input not cleared after send (still contains \"hello\")",
+  "action": {
+    "name": "sendText",
+    "args": {
+      "from": "userA",
+      "text": "hello"
+    },
+    "meta": {
+      "sentAt": 1776632588217,
+      "fromId": "userA",
+      "toId": "userB",
+      "text": "hello"
+    }
+  }
+}

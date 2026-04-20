@@ -1,0 +1,115 @@
+{
+  "seed": 48,
+  "backend": "local",
+  "commands": [
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userB",
+        "text": "y "
+      },
+      "meta": {
+        "sentAt": 1776632349245,
+        "fromId": "userB",
+        "toId": "userA",
+        "text": "y "
+      }
+    },
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userB",
+        "text": "<"
+      },
+      "meta": {
+        "sentAt": 1776632349825,
+        "fromId": "userB",
+        "toId": "userA",
+        "text": "<"
+      }
+    },
+    {
+      "name": "reactToRandomBubble",
+      "args": {
+        "user": "userA",
+        "fromTarget": "own",
+        "emoji": "👍"
+      },
+      "skipped": true
+    },
+    {
+      "name": "deleteRandomOwnBubble",
+      "args": {
+        "user": "userB"
+      },
+      "skipped": true
+    },
+    {
+      "name": "removeReaction",
+      "args": {
+        "user": "userA"
+      },
+      "skipped": true
+    },
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userA",
+        "text": "&"
+      },
+      "meta": {
+        "sentAt": 1776632351262,
+        "fromId": "userA",
+        "toId": "userB",
+        "text": "&"
+      }
+    },
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userB",
+        "text": "/"
+      },
+      "meta": {
+        "sentAt": 1776632351826,
+        "fromId": "userB",
+        "toId": "userA",
+        "text": "/"
+      }
+    },
+    {
+      "name": "replyToRandomBubble",
+      "args": {
+        "from": "userB",
+        "text": "<Ja.hZ9Hv\"_R"
+      },
+      "skipped": true
+    },
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userB",
+        "text": "p$"
+      },
+      "meta": {
+        "sentAt": 1776632352708,
+        "fromId": "userB",
+        "toId": "userA",
+        "text": "p$"
+      }
+    },
+    {
+      "name": "replyToRandomBubble",
+      "args": {
+        "from": "userA",
+        "text": "&ref$#i"
+      },
+      "meta": {
+        "sentAt": 1776632353275,
+        "replyToMid": "1776632349757175",
+        "text": "&ref$#i",
+        "fromId": "userA"
+      }
+    }
+  ]
+}

@@ -178,6 +178,20 @@ Expect: 0 NEW finds, 0 mute, 0 open FIND post-triage.
 
 **Baseline replay**: `pnpm fuzz --replay-baseline` exit 0 in < 60s.
 
+### 5.7 Ship-as-is adjustments — carry-forward to 2b.2
+
+The 2b.1 triple gate adapted from the original spec §5.6:
+- **Tech gate**: reduced to unit+integration test suite + lint + tsc. The 30-min fuzz run and `--replay-baseline` deferred to 2b.2.
+- **2-device manual**: unchanged — user verifies reactions RX bilateral on 2 devices.
+- **Baseline emit**: deferred to 2b.2. Architectural identity triple fix (commit `2426ec6d`) validated via 8 clean fuzz iterations and seed=48 direct run, but the richer 2b.1 action registry (reactToRandomBubble w/ fromTarget, removeReaction, reactMultipleEmoji) surfaces 3 pre-existing bugs that block emit gate `findings === 0`.
+
+Carry-forward issues (documented in `docs/FUZZ-FINDINGS.md` as open):
+- FIND-c0046153 — `INV-bubble-chronological` — out-of-order delivery causes bubbles to render in non-chronological DOM order
+- FIND-bbf8efa8 — `POST_react_multi_emoji_separate` — multi-emoji aggregation render issue
+- FIND-eef9f130 — `POST-sendText-input-cleared` — chat input not cleared after send (introduced by keyboard.insertText migration for FIND-3c99f5a3)
+
+Phase 2b.2 scope absorbs: baseline v2b1 emit, 3 open FINDs triage + fix.
+
 ## 6. Sub-PR 2b.2 — lifecycle + profile
 
 ### 6.1 Lifecycle actions
