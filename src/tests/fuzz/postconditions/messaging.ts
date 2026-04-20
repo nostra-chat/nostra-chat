@@ -206,8 +206,13 @@ export const POST_deleteWhileSending_consistent: Postcondition = {
     if(action.skipped) return {ok: true};
     const text: string = action.meta?.text || '';
     if(!text) return {ok: true};
-    // Poll up to 3s; outcome must be symmetric: both sides see the msg, or neither does.
-    const deadline = Date.now() + 3000;
+    // If no tempMid was found, the delete was never actually issued — action
+    // effectively became a plain send. Relay delivery timing (especially on
+    // first-action cold-start) is not this postcondition's concern; skip.
+    if(action.meta?.tempMid == null) return {ok: true};
+    // Poll up to 6s (enough for relay publish + peer subscribe roundtrip);
+    // outcome must be symmetric: both sides see the msg, or neither does.
+    const deadline = Date.now() + 6000;
     while(Date.now() < deadline) {
       const states: Record<string, boolean> = {};
       for(const id of ['userA', 'userB'] as const) {

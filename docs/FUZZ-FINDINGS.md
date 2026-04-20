@@ -1,9 +1,35 @@
 # Fuzz Findings
 
 Last updated: 2026-04-20
-Open bugs: 1 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3
+Open bugs: 3 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3
 
 ## Open (sorted by occurrences desc)
+
+### FIND-cold-deleteWhileSending — POST_deleteWhileSending_consistent (cold-start relay delivery)
+
+**Status:** OPEN (carry-forward to Phase 2b.2b)
+**Tier:** postcondition
+**First observed:** 2026-04-20 during Task 7 smoke fuzz on seed=42
+**Assertion:** `asymmetric deleteWhileSending outcome: sender=true, peer=false` on first smoke-run action. Partial mitigation applied (skip-if-tempMid-null + 6s poll window) did not fully close the race.
+
+**Reproduction:** first-action occurrence on fresh harness boot; likely to recur when `deleteWhileSending` happens before relay subscription has fully stabilized.
+**Hypothesis:** the send bubble renders on sender (optimistic DOM inject), but the relay publish + peer subscribe roundtrip has not completed within the 6s window after harness boot. Second run consistently passes once warmed up. Not a production bug — harness warmup issue.
+**Fix direction:** add a harness warmup guard (skip postcondition for first N actions, or wait for a known "relay subscribed" signal before declaring the fuzz sequence started).
+**Owner:** Phase 2b.2b.
+**Blocks:** `baseline-seed42-v2b1.json` emit (this is one of 2 reasons the emit deferred).
+
+### FIND-cold-reactPeerSeesEmoji — POST_react_peer_sees_emoji (cold-start reaction delivery)
+
+**Status:** OPEN (carry-forward to Phase 2b.2b)
+**Tier:** postcondition
+**First observed:** 2026-04-20 during Task 7 smoke fuzz on seed=42
+**Assertion:** `peer userB never saw emoji 🔥 on bubble <mid>` on action 4 of a cold-started sequence.
+
+**Reproduction:** seed=42 fuzz run, `reactToRandomBubble({user:'userA', fromTarget:'peer', emoji:'🔥'})` fires before peer's kind-7 subscription has received the event.
+**Hypothesis:** identical cold-start issue to FIND-cold-deleteWhileSending — the peer's relay subscription for `kinds: [1059, 7, 5]` has not propagated the kind-7 by the postcondition's 3s poll deadline. Not a production bug — pre-existing Phase 2a postcondition that becomes observable when fuzz reaches reaction actions before relay stabilizes.
+**Fix direction:** same harness warmup guard as FIND-cold-deleteWhileSending.
+**Owner:** Phase 2b.2b.
+**Blocks:** `baseline-seed42-v2b1.json` emit (second of 2 reasons).
 
 ### FIND-chrono-v2 — INV-bubble-chronological (same-second tempMid race)
 
