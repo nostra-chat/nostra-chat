@@ -1,5 +1,6 @@
 import {describe, it, expect, vi} from 'vitest';
 import {noDupMid, bubbleChronological, noAutoPin} from './bubbles';
+import insertSomethingWithTiebreak from '@/helpers/array/insertSomethingWithTiebreak';
 import type {FuzzContext, UserHandle} from '../types';
 
 function userWithBubbles(bubbles: Array<{mid: string; timestamp: number; pinned?: boolean}>): UserHandle {
@@ -76,35 +77,39 @@ describe('INV-bubble-chronological — FIND-c0046153 regression', () => {
 });
 
 describe('INV-bubble-chronological — FIND-chrono-v2 regression', () => {
-  // Three items with identical timestamp but distinct mid; insertion order
-  // is reversed from expected. After sort, must land in descending mid.
-  it('sorts same-timestamp items by mid desc deterministically', () => {
-    const items = [
-      {mid: 100, timestamp: 1712345678},
-      {mid: 300, timestamp: 1712345678},
-      {mid: 200, timestamp: 1712345678}
-    ];
-    // Sort comparator under test (replicate the P2P path)
-    items.sort((a, b) => {
-      if(a.timestamp !== b.timestamp) return b.timestamp - a.timestamp;
-      return b.mid - a.mid;
-    });
-    expect(items.map((i) => i.mid)).toEqual([300, 200, 100]);
+  // Exercise the exported production helper directly; previous revision tested
+  // a local comparator tautology via Array.prototype.sort and would not have
+  // caught an off-by-one in `insertSomethingWithTiebreak`.
+  it('insertSomethingWithTiebreak (desc): same-timestamp inserts land by mid desc', () => {
+    const arr: Array<{mid: number; timestamp: number}> = [];
+    insertSomethingWithTiebreak(arr, {mid: 100, timestamp: 1712345678}, 'timestamp', 'mid', false);
+    expect(arr.map((i) => i.mid)).toEqual([100]);
+    insertSomethingWithTiebreak(arr, {mid: 300, timestamp: 1712345678}, 'timestamp', 'mid', false);
+    expect(arr.map((i) => i.mid)).toEqual([300, 100]);
+    insertSomethingWithTiebreak(arr, {mid: 200, timestamp: 1712345678}, 'timestamp', 'mid', false);
+    expect(arr.map((i) => i.mid)).toEqual([300, 200, 100]);
   });
 
-  it('is deterministic across 20 runs', () => {
+  it('insertSomethingWithTiebreak (desc): deterministic across 20 shuffled runs', () => {
     for(let run = 0; run < 20; run++) {
       const shuffled = [
         {mid: 100, timestamp: 1712345678},
         {mid: 300, timestamp: 1712345678},
         {mid: 200, timestamp: 1712345678}
       ].sort(() => Math.random() - 0.5);
-      shuffled.sort((a, b) => {
-        if(a.timestamp !== b.timestamp) return b.timestamp - a.timestamp;
-        return b.mid - a.mid;
-      });
-      expect(shuffled.map((i) => i.mid)).toEqual([300, 200, 100]);
+      const arr: Array<{mid: number; timestamp: number}> = [];
+      for(const item of shuffled) insertSomethingWithTiebreak(arr, item, 'timestamp', 'mid', false);
+      expect(arr.map((i) => i.mid)).toEqual([300, 200, 100]);
     }
+  });
+
+  it('insertSomethingWithTiebreak (asc / reverse=true): same-timestamp inserts land by mid asc', () => {
+    // Ascending branch used by search-chats view; exercise the `reverse=true` code path.
+    const arr: Array<{mid: number; timestamp: number}> = [];
+    insertSomethingWithTiebreak(arr, {mid: 300, timestamp: 1712345678}, 'timestamp', 'mid', true);
+    insertSomethingWithTiebreak(arr, {mid: 100, timestamp: 1712345678}, 'timestamp', 'mid', true);
+    insertSomethingWithTiebreak(arr, {mid: 200, timestamp: 1712345678}, 'timestamp', 'mid', true);
+    expect(arr.map((i) => i.mid)).toEqual([100, 200, 300]);
   });
 });
 

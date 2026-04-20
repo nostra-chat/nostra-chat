@@ -10,6 +10,7 @@ import {MyMessage} from '@appManagers/appMessagesManager';
 import type Chat from '@components/chat/chat';
 import indexOfAndSplice from '@helpers/array/indexOfAndSplice';
 import insertInDescendSortedArray from '@helpers/array/insertInDescendSortedArray';
+import insertSomethingWithTiebreak from '@helpers/array/insertSomethingWithTiebreak';
 import positionElementByIndex from '@helpers/dom/positionElementByIndex';
 import {Message, ReplyMarkup} from '@layer';
 import {NULL_PEER_ID, REPLIES_PEER_ID, VERIFICATION_CODES_BOT_ID} from '@appManagers/constants';
@@ -52,39 +53,6 @@ function insertSomething<T>(to: Array<T>, what: T, sortKey: keyof T, reverse: bo
     // @ts-ignore
     return insertInDescendSortedArray(to, what, sortKey);
   }
-}
-
-// [Nostra.chat] FIND-chrono-v2: P2P bubble sort needs a (timestamp, mid) tiebreaker.
-// Same-second tempMid race produces bubbles with identical `timestamp`; the single-key
-// `insertSomething` collapses to insertion order (non-deterministic), exposing an
-// `INV-bubble-chronological` flake on ~60% of replays. Sort primary desc, then
-// secondary desc, stable per-call regardless of insertion order.
-function insertSomethingWithTiebreak<T>(
-  to: Array<T>,
-  what: T,
-  primaryKey: keyof T,
-  secondaryKey: keyof T,
-  reverse: boolean
-): number {
-  indexOfAndSplice(to, what);
-  if(reverse) {
-    // ASCENDING insertion (reverse=true): primary asc, then secondary asc
-    let i = 0;
-    while(i < to.length && (
-      (to[i] as any)[primaryKey] < (what as any)[primaryKey] ||
-      ((to[i] as any)[primaryKey] === (what as any)[primaryKey] && (to[i] as any)[secondaryKey] < (what as any)[secondaryKey])
-    )) i++;
-    to.splice(i, 0, what);
-    return i;
-  }
-  // DESCENDING insertion: primary desc, then secondary desc
-  let i = 0;
-  while(i < to.length && (
-    (to[i] as any)[primaryKey] > (what as any)[primaryKey] ||
-    ((to[i] as any)[primaryKey] === (what as any)[primaryKey] && (to[i] as any)[secondaryKey] > (what as any)[secondaryKey])
-  )) i++;
-  to.splice(i, 0, what);
-  return i;
 }
 
 function canHaveReplyMarkup(message: Message.message) {
