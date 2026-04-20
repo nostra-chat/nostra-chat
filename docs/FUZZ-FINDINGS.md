@@ -1,35 +1,9 @@
 # Fuzz Findings
 
 Last updated: 2026-04-20
-Open bugs: 3 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3
+Open bugs: 1 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3 · Fixed in Phase 2b.2b: 2
 
 ## Open (sorted by occurrences desc)
-
-### FIND-cold-deleteWhileSending — POST_deleteWhileSending_consistent (cold-start relay delivery)
-
-**Status:** OPEN (carry-forward to Phase 2b.2b)
-**Tier:** postcondition
-**First observed:** 2026-04-20 during Task 7 smoke fuzz on seed=42
-**Assertion:** `asymmetric deleteWhileSending outcome: sender=true, peer=false` on first smoke-run action. Partial mitigation applied (skip-if-tempMid-null + 6s poll window) did not fully close the race.
-
-**Reproduction:** first-action occurrence on fresh harness boot; likely to recur when `deleteWhileSending` happens before relay subscription has fully stabilized.
-**Hypothesis:** the send bubble renders on sender (optimistic DOM inject), but the relay publish + peer subscribe roundtrip has not completed within the 6s window after harness boot. Second run consistently passes once warmed up. Not a production bug — harness warmup issue.
-**Fix direction:** add a harness warmup guard (skip postcondition for first N actions, or wait for a known "relay subscribed" signal before declaring the fuzz sequence started).
-**Owner:** Phase 2b.2b.
-**Blocks:** `baseline-seed42-v2b1.json` emit (this is one of 2 reasons the emit deferred).
-
-### FIND-cold-reactPeerSeesEmoji — POST_react_peer_sees_emoji (cold-start reaction delivery)
-
-**Status:** OPEN (carry-forward to Phase 2b.2b)
-**Tier:** postcondition
-**First observed:** 2026-04-20 during Task 7 smoke fuzz on seed=42
-**Assertion:** `peer userB never saw emoji 🔥 on bubble <mid>` on action 4 of a cold-started sequence.
-
-**Reproduction:** seed=42 fuzz run, `reactToRandomBubble({user:'userA', fromTarget:'peer', emoji:'🔥'})` fires before peer's kind-7 subscription has received the event.
-**Hypothesis:** identical cold-start issue to FIND-cold-deleteWhileSending — the peer's relay subscription for `kinds: [1059, 7, 5]` has not propagated the kind-7 by the postcondition's 3s poll deadline. Not a production bug — pre-existing Phase 2a postcondition that becomes observable when fuzz reaches reaction actions before relay stabilizes.
-**Fix direction:** same harness warmup guard as FIND-cold-deleteWhileSending.
-**Owner:** Phase 2b.2b.
-**Blocks:** `baseline-seed42-v2b1.json` emit (second of 2 reasons).
 
 ### FIND-chrono-v2 — INV-bubble-chronological (same-second tempMid race)
 
@@ -44,6 +18,32 @@ Open bugs: 3 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3
 **Owner:** Phase 2b.2b.
 
 ## Fixed
+
+### Fixed in Phase 2b.2b
+
+#### FIND-cold-deleteWhileSending — POST_deleteWhileSending_consistent (cold-start relay delivery)
+- **Status**: fixed in Phase 2b.2b
+- **Tier**: postcondition
+- **Occurrences**: 1
+- **First seen**: 2026-04-20
+- **Last seen**: 2026-04-20
+- **Seed**: 42
+- **Assertion**: `asymmetric deleteWhileSending outcome: sender=true, peer=false` on first smoke-run action.
+- **Root cause**: first fuzz action raced a not-yet-fully-warm relay subscription for kinds 1059/7/5. The sender's optimistic bubble rendered, but the relay publish + peer subscribe roundtrip had not completed within the postcondition's poll window. Partial 2b.2a mitigations (skip-if-tempMid-null + 6s poll) did not fully close the race.
+- **Fix**: Deterministic multi-kind warmup handshake in `bootHarness` after `linkContacts`. `warmupHandshake` exercises kinds 1059 (text send), 7 (react), and 5 (delete) bidirectionally and awaits DOM confirmation at each step (15s each) before returning control to the fuzzer. Scope: 1 file, ~165 LOC. `src/tests/fuzz/harness.ts`.
+- **Regression coverage**: live smoke `pnpm fuzz --duration=60s --seed=42` must emit the four `[harness] warmup: step N ack` log lines before the first fuzz action executes. Deferred to post-`pnpm start` environment.
+
+#### FIND-cold-reactPeerSeesEmoji — POST_react_peer_sees_emoji (cold-start reaction delivery)
+- **Status**: fixed in Phase 2b.2b
+- **Tier**: postcondition
+- **Occurrences**: 1
+- **First seen**: 2026-04-20
+- **Last seen**: 2026-04-20
+- **Seed**: 42
+- **Assertion**: `peer userB never saw emoji 🔥 on bubble <mid>` on action 4 of a cold-started sequence.
+- **Root cause**: identical cold-start class as `FIND-cold-deleteWhileSending`. Peer's relay subscription for kind-7 had not propagated by the postcondition's 3s poll deadline when the first reaction action fired.
+- **Fix**: Same `warmupHandshake` in `bootHarness` — step 2 is the bidirectional react (B reacts to A's warmup text, A awaits the reaction in their DOM), guaranteeing the kind-7 roundtrip is fully warm before any fuzz action runs.
+- **Regression coverage**: same as above.
 
 ### Fixed in Phase 2b.2a
 
