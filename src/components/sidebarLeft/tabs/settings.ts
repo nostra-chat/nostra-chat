@@ -192,12 +192,24 @@ export default class AppSettingsTab extends SliderSuperTab {
       listenerSetter: this.listenerSetter
     });
 
+    const updatesRow = new Row({
+      title: 'App Updates',
+      icon: 'download',
+      clickable: async() => {
+        const {default: AppUpdateSettingsTab} = await import('@components/sidebarLeft/tabs/updateSettings');
+        const tab = this.slider.createTab(AppUpdateSettingsTab);
+        tab.open();
+      },
+      listenerSetter: this.listenerSetter
+    });
+
     buttonsDiv.append(
       identityRow.container,
       relayRow.container,
       privacyRow.container,
       notificationsRow.container,
-      generalRow.container
+      generalRow.container,
+      updatesRow.container
     );
 
     const buttonsSection = new SettingSection();
