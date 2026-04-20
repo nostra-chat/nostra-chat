@@ -332,7 +332,6 @@ export class ChatAPI {
       }
     });
     nostraReactionsReceive.setOwnPubkey(this.ownId);
-    setReactionsChatAPI(this as any);
     nostraReactionsReceive.setMessageResolver(async(eventId) => {
       const {getMessageStore} = await import('./message-store');
       const store = getMessageStore();

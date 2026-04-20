@@ -48,6 +48,11 @@ class NostraReactionsLocal {
     });
   }
 
+  /**
+   * Sync read from the in-memory cache. Fast but may lag by one dispatch
+   * if called from a `nostra_reactions_changed` listener registered before
+   * the cache-warmer. Prefer {@link getReactionsFresh} in event handlers.
+   */
   getReactions(peerId: number, mid: number): string[] {
     const set = this.cache.get(key(peerId, mid));
     return set ? Array.from(set) : [];

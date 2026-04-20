@@ -137,3 +137,5 @@ Regression: `INV-reaction-aggregated-render` (cheap tier) asserts all
 N emojis from `reactMultipleEmoji.meta.emojis` are present in the sender
 bubble's `.reactions` textContent after the postcondition settles. Two
 Vitest cases cover the pass/fail branches of the invariant itself.
+
+Single-emoji reactions were not visibly affected in practice because user-paced taps arrive after `initGlobalSubscription` has completed; only programmatic rapid-fire sequences (fuzz + possibly future bulk-reaction UX) expose the race.
