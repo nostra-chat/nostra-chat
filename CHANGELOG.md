@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/nostra-chat/nostra-chat/compare/v0.8.3...v0.9.0) (2026-04-20)
+
+
+### Features
+
+* **settings:** mount App Updates tab with diagnostics, reset baseline, and inline explainer ([#49](https://github.com/nostra-chat/nostra-chat/issues/49)) ([f268022](https://github.com/nostra-chat/nostra-chat/commit/f268022cdb156b5f725530e62c414a4b67b20407))
+
 ## [0.8.3](https://github.com/nostra-chat/nostra-chat/compare/v0.8.2...v0.8.3) (2026-04-20)
 
 
