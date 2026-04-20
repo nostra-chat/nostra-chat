@@ -1,0 +1,33 @@
+{
+  "invariantId": "POST_react_multi_emoji_separate",
+  "tier": "postcondition",
+  "message": "sender userB missing one of 👍,❤️,😂 on bubble 1776632512772244",
+  "evidence": {
+    "user": "userB",
+    "mid": "1776632512772244",
+    "emojis": [
+      "👍",
+      "❤️",
+      "😂"
+    ]
+  },
+  "action": {
+    "name": "reactMultipleEmoji",
+    "args": {
+      "user": "userB",
+      "emojis": [
+        "👍",
+        "❤️",
+        "😂"
+      ]
+    },
+    "meta": {
+      "targetMid": "1776632512772244",
+      "emojis": [
+        "👍",
+        "❤️",
+        "😂"
+      ]
+    }
+  }
+}

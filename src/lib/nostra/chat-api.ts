@@ -25,6 +25,8 @@ import {wrapNip17Message} from './nostr-crypto';
 import {isControlEvent, getGroupIdFromRumor} from './group-control-messages';
 import rootScope from '@lib/rootScope';
 import {handleRelayMessage as handleRelayMessageImpl, IncomingEdit} from './chat-api-receive';
+import {nostraReactionsReceive} from './nostra-reactions-receive';
+import {setChatAPI as setReactionsChatAPI} from './nostra-reactions-publish';
 
 /**
  * Message types supported in chat
@@ -303,6 +305,35 @@ export class ChatAPI {
     }
 
     this.relayPool.subscribeMessages();
+
+    // Wire kind-7 / kind-5 routing for NIP-25 reactions. The relay pool
+    // dedupes by event.id; the receive module handles author verification,
+    // out-of-order buffering, and store persistence + dispatch.
+    this.relayPool.setOnRawEvent((event) => {
+      if(event.kind === 7) {
+        nostraReactionsReceive.onKind7(event as any).catch((err) => {
+          this.log.warn('[ChatAPI] reactions onKind7 failed:', err);
+        });
+        return;
+      }
+      if(event.kind === 5) {
+        nostraReactionsReceive.onKind5(event as any).catch((err) => {
+          this.log.warn('[ChatAPI] reactions onKind5 failed:', err);
+        });
+        return;
+      }
+    });
+    nostraReactionsReceive.setOwnPubkey(this.ownId);
+    setReactionsChatAPI(this as any);
+    nostraReactionsReceive.setMessageResolver(async(eventId) => {
+      const {getMessageStore} = await import('./message-store');
+      const store = getMessageStore();
+      const row = await store.getByEventId(eventId);
+      if(!row) return undefined;
+      if(row.mid === undefined || row.twebPeerId === undefined) return undefined;
+      return {mid: row.mid, peerId: row.twebPeerId};
+    });
+
     this.backfillConversations().catch((e) => this.log('[ChatAPI] backfill failed:', e?.message));
     this.log('[ChatAPI] global relay subscription active');
   }
@@ -318,9 +349,9 @@ export class ChatAPI {
   async publishEvent(unsigned: {
     kind: number;
     created_at: number;
-    tags: any[];
+    tags: string[][];
     content: string;
-  }): Promise<void> {
+  }): Promise<{id: string; pubkey: string; kind: number; created_at: number; tags: string[][]; content: string; sig: string}> {
     const sk = this.relayPool.getPrivateKey?.();
     if(!sk) {
       throw new Error('[ChatAPI] cannot publish event: relay pool has no private key');
@@ -337,6 +368,7 @@ export class ChatAPI {
       content: unsigned.content
     }, sk);
     await this.relayPool.publishRawEvent(signed as any);
+    return signed as any;
   }
 
   /**
@@ -409,10 +441,25 @@ export class ChatAPI {
   /**
    * Send a text message
    * @param content - The text content to send
+   * @param opts - Optional mirror-coherence metadata so the initial IDB row
+   *   carries `mid`/`twebPeerId`/`isOutgoing`. VMT sendMessage passes these
+   *   through to eliminate the two-write race that caused FIND-e49755c1
+   *   (mirror had mids, IDB row was still partial).
+   *
+   *   `timestampSec` is the authoritative "now" second captured by the
+   *   caller BEFORE send. When provided, the partial IDB row's timestamp
+   *   is set to this value so any later `mapEventId(eventId, row.timestamp)`
+   *   fallback (used by getDialogs/getHistory/refreshDialogPreview when the
+   *   row's mid hasn't merged yet) computes the SAME mid the caller will
+   *   later write via its authoritative save. Without this, VMT's
+   *   `Math.floor(Date.now()/1000)` captured before sendText can diverge
+   *   from ChatAPI's internal `Math.floor(Date.now()/1000)` captured after
+   *   relay publish — which silently spawns a second mirror mid with no
+   *   IDB row (FIND-e49755c1 residual).
    * @returns The generated message ID
    */
-  async sendText(content: string): Promise<string> {
-    return this.sendMessage('text', content);
+  async sendText(content: string, opts?: {mid?: number; twebPeerId?: number; timestampSec?: number}): Promise<string> {
+    return this.sendMessage('text', content, opts);
   }
 
   /**
@@ -427,6 +474,7 @@ export class ChatAPI {
    * @param mimeType - MIME type of the file
    * @param size - File size in bytes
    * @param dim - Optional dimensions {width, height}
+   * @param extras - Optional metadata (duration/waveform) + mirror-coherence opts
    * @returns The generated message ID
    */
   async sendFileMessage(
@@ -438,7 +486,7 @@ export class ChatAPI {
     mimeType: string,
     size: number,
     dim?: {width: number; height: number},
-    extras?: {duration?: number; waveform?: string}
+    extras?: {duration?: number; waveform?: string; mid?: number; twebPeerId?: number; timestampSec?: number}
   ): Promise<string> {
     const fileContent = JSON.stringify({
       url,
@@ -451,15 +499,25 @@ export class ChatAPI {
       ...(extras?.duration !== undefined ? {duration: extras.duration} : {}),
       ...(extras?.waveform !== undefined ? {waveform: extras.waveform} : {})
     });
-    return this.sendMessage(type as ChatMessageType, fileContent);
+    const {mid, twebPeerId, timestampSec} = extras || {};
+    return this.sendMessage(type as ChatMessageType, fileContent, {mid, twebPeerId, timestampSec});
   }
 
   /**
    * Internal send implementation
    */
-  private async sendMessage(type: ChatMessageType, content: string): Promise<string> {
+  private async sendMessage(
+    type: ChatMessageType,
+    content: string,
+    opts?: {mid?: number; twebPeerId?: number; timestampSec?: number}
+  ): Promise<string> {
     const messageId = this.generateMessageId();
-    const timestamp = Date.now();
+    // If caller provided an authoritative seconds-precision timestamp, pin
+    // the internal timestamp to it so the partial IDB row's timestamp
+    // matches whatever VMT will later stamp on its authoritative save. See
+    // FIND-e49755c1 residual analysis: mirror ended up with two mids when
+    // these two timestamps landed in different seconds.
+    const timestamp = opts?.timestampSec !== undefined ? opts.timestampSec * 1000 : Date.now();
     const peerOwnId = this.activePeer;
 
     this.log('[ChatAPI] sending message:', type, 'id:', messageId, 'peer:', peerOwnId?.slice(0, 8) + '...');
@@ -478,19 +536,51 @@ export class ChatAPI {
     // Add to history
     this.history.push(message);
 
-    // Save to message store with 'sending' status
+    // Save to message store with 'sending' status.
+    //
+    // Identity-triple contract (Phase 2b.1, FIND-e49755c1): every first-write
+    // row MUST carry mid + twebPeerId + timestamp computed ONCE at creation.
+    // When VMT passes `{twebPeerId, timestampSec}` we compute mid locally via
+    // the bridge so the row is authoritative from the first save — no more
+    // partial row that later reads would fall back to recompute against.
+    //
+    // Legacy callers (tests, non-VMT send paths) that don't supply the triple
+    // are skipped here; they don't have a coherent mid to store anyway. The
+    // relay publish still happens so cross-device self-echo can save the row
+    // later with full identity.
     try {
       const store = getMessageStore();
       const conversationId = store.getConversationId(this.ownId, peerOwnId || '');
-      await store.saveMessage({
-        eventId: messageId,
-        conversationId,
-        senderPubkey: this.ownId,
-        content,
-        type: type === 'text' ? 'text' : 'file',
-        timestamp: Math.floor(timestamp / 1000),
-        deliveryState: 'sending'
-      });
+      const timestampSec = Math.floor(timestamp / 1000);
+
+      let rowMid: number | undefined = opts?.mid;
+      const twebPeerId = opts?.twebPeerId;
+      if(rowMid === undefined && twebPeerId !== undefined) {
+        try {
+          const {NostraBridge} = await import('./nostra-bridge');
+          rowMid = await NostraBridge.getInstance().mapEventIdToMid(messageId, timestampSec);
+        } catch(e: any) {
+          this.log.warn('[ChatAPI] mid compute failed:', e?.message);
+        }
+      }
+
+      if(rowMid !== undefined && twebPeerId !== undefined) {
+        const row: StoredMessage = {
+          eventId: messageId,
+          conversationId,
+          senderPubkey: this.ownId,
+          content,
+          type: type === 'text' ? 'text' : 'file',
+          timestamp: timestampSec,
+          deliveryState: 'sending',
+          mid: rowMid,
+          twebPeerId,
+          isOutgoing: true
+        };
+        await store.saveMessage(row);
+      } else {
+        this.log.warn('[ChatAPI] skipping partial send save — caller did not supply identity triple', {messageId});
+      }
     } catch(err) {
       this.log.warn('[ChatAPI] failed to save to message store:', err);
     }
@@ -722,7 +812,13 @@ export class ChatAPI {
   }
 
   /**
-   * Update the status of a message in history and message store
+   * Update the status of a message in history and message store.
+   *
+   * IDENTITY-TRIPLE CONTRACT (Phase 2b.1): this method must only mutate
+   * `deliveryState` on the stored row — NEVER touch `mid`, `twebPeerId`, or
+   * `timestamp`. Those are immutable after creation. We read the full row from
+   * store and re-save it with only `deliveryState` changed, preserving the
+   * triple.
    */
   private updateMessageStatus(messageId: string, status: ChatMessageStatus): void {
     const msg = this.history.find(m => m.id === messageId);
@@ -738,8 +834,12 @@ export class ChatAPI {
       store.getMessages(conversationId, 1).then(msgs => {
         const stored = msgs.find(m => m.eventId === messageId);
         if(stored) {
-          stored.deliveryState = status === 'failed' ? 'sending' : status as StoredMessage['deliveryState'];
-          store.saveMessage(stored).catch((e) => console.debug('[ChatAPI] delivery state persist failed:', e?.message));
+          // Explicit identity preservation — mutate ONLY deliveryState.
+          const next: StoredMessage = {
+            ...stored,
+            deliveryState: status === 'failed' ? 'sending' : status as StoredMessage['deliveryState']
+          };
+          store.saveMessage(next).catch((e) => console.debug('[ChatAPI] delivery state persist failed:', e?.message));
         }
       }).catch((e) => console.debug('[ChatAPI] delivery state lookup failed:', e?.message));
     }

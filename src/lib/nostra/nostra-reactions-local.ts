@@ -1,43 +1,68 @@
 /**
- * Sender-side local reactions store for Nostra P2P (FIND-1526f892 Phase 2a).
+ * Legacy shim for code expecting the Phase 2a sender-only reactions store.
  *
- * When a user taps a reaction, tweb's appReactionsManager.sendReaction goes
- * through the MTProto path and does NOT update any Nostra-visible UI. Until
- * Phase 2b adds the NIP-25 kind-7 relay publish + receive bridge, we
- * maintain a local-only store scoped to the sender's session so the
- * reaction appears immediately on the bubble.
+ * Phase 2b.1 replaces the in-memory Map with a read-through facade over
+ * `nostraReactionsStore` (IDB-backed). Callers use `addReaction()` and
+ * `getReactions()` as before; internally:
+ *  - addReaction triggers nostraReactionsPublish.publish (relay + store)
+ *  - getReactions reads from the store synchronously via a local cache
  *
- * Intentionally in-memory (cleared on logout/reload) — reactions are not
- * persisted; receiving a reaction from the other side will come in 2b and
- * will use a separate store.
+ * The sync cache is needed because `bubbles.ts` calls `getReactions()`
+ * during render and can't await an IDB transaction. We warm the cache on
+ * every store mutation via the `nostra_reactions_changed` rootScope event.
  */
 import rootScope from '@lib/rootScope';
+import {nostraReactionsStore} from './nostra-reactions-store';
+import {nostraReactionsPublish} from './nostra-reactions-publish';
 
 type Key = string; // `${peerId}:${mid}`
 
 const key = (peerId: number, mid: number): Key => `${peerId}:${mid}`;
 
 class NostraReactionsLocal {
-  private store: Map<Key, Set<string>> = new Map();
+  /** Sync cache for render-time access. Hydrated from store + updated on events. */
+  private cache: Map<Key, Set<string>> = new Map();
 
-  addReaction(peerId: number, mid: number, emoji: string): void {
-    const k = key(peerId, mid);
-    let set = this.store.get(k);
-    if(!set) {set = new Set(); this.store.set(k, set);}
-    const existed = set.has(emoji);
-    set.add(emoji);
-    if(!existed) {
-      rootScope.dispatchEventSingle('nostra_reaction_added', {peerId, mid, emoji});
+  constructor() {
+    rootScope.addEventListener('nostra_reactions_changed', async({peerId, mid}) => {
+      if(!peerId || !mid) return;
+      await this.refreshCache(peerId as number, mid);
+    });
+  }
+
+  async addReaction(peerId: number, mid: number, emoji: string, context?: {targetEventId: string; targetAuthor: string}): Promise<void> {
+    if(!context) {
+      // No relay context provided (legacy callers); update cache only.
+      const k = key(peerId, mid);
+      let set = this.cache.get(k);
+      if(!set) {set = new Set(); this.cache.set(k, set);}
+      set.add(emoji);
+      return;
     }
+    await nostraReactionsPublish.publish({
+      targetEventId: context.targetEventId,
+      targetMid: mid,
+      targetPeerId: peerId,
+      targetAuthor: context.targetAuthor,
+      emoji
+    });
   }
 
   getReactions(peerId: number, mid: number): string[] {
-    const set = this.store.get(key(peerId, mid));
+    const set = this.cache.get(key(peerId, mid));
     return set ? Array.from(set) : [];
   }
 
   clear(): void {
-    this.store.clear();
+    this.cache.clear();
+  }
+
+  private async refreshCache(peerId: number, mid: number): Promise<void> {
+    // Load all reactions for the target and project into cache.
+    const rows = await nostraReactionsStore.getAll();
+    const matching = rows.filter((r) => r.targetPeerId === peerId && r.targetMid === mid);
+    const set = new Set<string>(matching.map((r) => r.emoji));
+    this.cache.set(key(peerId, mid), set);
   }
 }
 

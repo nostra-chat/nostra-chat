@@ -257,7 +257,7 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
 
         const foldersSync = new FoldersSync({
           chatAPI: {
-            publishEvent: (event) => chatAPI.publishEvent(event),
+            publishEvent: async(event) => { await chatAPI.publishEvent(event); },
             queryLatestEvent: (filter) => chatAPI.queryLatestEvent(filter) as any
           },
           filtersStore: {

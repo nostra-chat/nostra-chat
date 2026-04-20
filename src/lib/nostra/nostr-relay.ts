@@ -32,6 +32,16 @@ export const NOSTR_KIND_GIFTWRAP = 1059;
 export const NOSTR_KIND_METADATA = 0;
 
 /**
+ * NIP-25 reaction event (kind 7) — plaintext, referenced via e/p tags.
+ */
+export const NOSTR_KIND_REACTION = 7;
+
+/**
+ * NIP-09 delete event (kind 5) — used by Nostra to retract a kind-7 reaction.
+ */
+export const NOSTR_KIND_DELETE = 5;
+
+/**
  * Decrypted message structure returned by getMessages.
  * After NIP-17 migration, includes rumor kind and tags for routing.
  */
@@ -115,6 +125,11 @@ export class NostrRelay {
 
   // Message handler
   private onMessageHandler: ((message: DecryptedMessage) => void) | null = null;
+
+  // Raw event handler — fires for non-giftwrap kinds that the subscription
+  // filter allows through (kind-7 reactions, kind-5 deletes). Plaintext
+  // Nostr events are NOT unwrapped since they have no rumor envelope.
+  private onRawEventHandler: ((event: NostrEvent) => void) | null = null;
 
   // Receipt handler (delivery/read receipts)
   private onReceiptHandler: ((receipt: {eventId: string; type: 'delivery' | 'read'; from: string}) => void) | null = null;
@@ -440,7 +455,7 @@ export class NostrRelay {
     this.log('[NostrRelay] subscribing to messages');
 
     const filter: Record<string, unknown> = {
-      'kinds': [NOSTR_KIND_GIFTWRAP],
+      'kinds': [NOSTR_KIND_GIFTWRAP, NOSTR_KIND_REACTION, NOSTR_KIND_DELETE],
       '#p': [this.publicKey]
     };
 
@@ -467,6 +482,14 @@ export class NostrRelay {
    */
   onMessage(handler: (message: DecryptedMessage) => void): void {
     this.onMessageHandler = handler;
+  }
+
+  /**
+   * Register a handler for raw (non-giftwrap) events — currently kind-7
+   * reactions and kind-5 deletes that the subscription filter admits.
+   */
+  onRawEvent(handler: (event: NostrEvent) => void): void {
+    this.onRawEventHandler = handler;
   }
 
   /**
@@ -912,15 +935,43 @@ export class NostrRelay {
    * self-sent messages vs. messages from others.
    */
   private async handleEvent(event: NostrEvent): Promise<void> {
-    // Ignore events without required fields
-    if(!event.content || !event.pubkey) {
-      this.log.warn('[NostrRelay] received incomplete event');
+    // Ignore events without required fields (kind-7 reactions allow empty
+    // content in theory, but NIP-25 defines content as the reaction emoji
+    // so in practice it is always set; kind-5 delete has content='' but
+    // still has pubkey).
+    if(!event.pubkey) {
+      this.log.warn('[NostrRelay] received event missing pubkey');
       return;
     }
 
-    // Only process kind 1059 gift-wrap events
+    // Route plaintext non-giftwrap kinds (reactions, deletes) through the
+    // raw-event handler after verifying the signature. These do not go
+    // through NIP-17 unwrap — they carry their referent in e/p tags.
+    if(event.kind === NOSTR_KIND_REACTION || event.kind === NOSTR_KIND_DELETE) {
+      if(!verifyEvent(event as any)) {
+        this.log.warn('[NostrRelay] dropping non-giftwrap event with invalid signature, kind:', event.kind, 'pubkey:', event.pubkey.slice(0, 8) + '...');
+        return;
+      }
+      if(this.onRawEventHandler) {
+        try {
+          this.onRawEventHandler(event);
+        } catch(err) {
+          this.log.error('[NostrRelay] raw event handler threw:', err);
+        }
+      }
+      return;
+    }
+
+    // Only process kind 1059 gift-wrap events beyond this point
     if(event.kind !== NOSTR_KIND_GIFTWRAP) {
       this.log.debug('[NostrRelay] ignoring non-gift-wrap event kind:', event.kind);
+      return;
+    }
+
+    // Gift-wraps require content — other kinds may not, but we only
+    // reach this branch for kind 1059.
+    if(!event.content) {
+      this.log.warn('[NostrRelay] received incomplete gift-wrap event');
       return;
     }
 

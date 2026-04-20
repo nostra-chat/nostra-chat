@@ -1,0 +1,19 @@
+{
+  "invariantId": "INV-console-clean",
+  "tier": "cheap",
+  "message": "Unallowlisted console error: [warning] cleanups created outside a `createRoot` or `render` will never be run",
+  "evidence": {
+    "badLine": "[warning] cleanups created outside a `createRoot` or `render` will never be run"
+  },
+  "action": {
+    "name": "reactToRandomBubble",
+    "args": {
+      "user": "userA",
+      "emoji": "🔥"
+    },
+    "meta": {
+      "reactedMid": "0.0002",
+      "emoji": "🔥"
+    }
+  }
+}

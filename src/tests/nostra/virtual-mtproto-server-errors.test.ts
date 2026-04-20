@@ -230,7 +230,8 @@ describe('NostraMTProtoServer — error + malformed input paths', () => {
     expect(result._).toBe('updates');
     // Current behaviour: empty message is sent — there is NO input validation
     // in virtual-mtproto-server.sendMessage today.
-    expect(mockChatAPI.sendText).toHaveBeenCalledWith('');
+    // 2nd arg = opts carrying twebPeerId (FIND-e49755c1 fix).
+    expect(mockChatAPI.sendText).toHaveBeenCalledWith('', expect.objectContaining({twebPeerId: expect.any(Number)}));
   });
 
   it('sendMessage with missing message property defaults to empty string', async() => {
@@ -247,7 +248,7 @@ describe('NostraMTProtoServer — error + malformed input paths', () => {
     });
 
     expect(result._).toBe('updates');
-    expect(mockChatAPI.sendText).toHaveBeenCalledWith('');
+    expect(mockChatAPI.sendText).toHaveBeenCalledWith('', expect.objectContaining({twebPeerId: expect.any(Number)}));
   });
 
   it('sendMessage: chatAPI.sendText rejection returns emptyUpdates (no throw)', async() => {

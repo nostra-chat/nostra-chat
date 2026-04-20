@@ -39,7 +39,10 @@ export const sendText: ActionSpec = {
     await input.focus();
     await sender.page.keyboard.press('Control+A');
     await sender.page.keyboard.press('Backspace');
-    await sender.page.keyboard.type(action.args.text);
+    // insertText preserves surrogate pairs (emoji). keyboard.type iterates
+    // UTF-16 code units, which presses each half of a surrogate pair as its
+    // own key — garbage/empty on contenteditable. See FIND-3c99f5a3.
+    await sender.page.keyboard.insertText(action.args.text);
 
     const sendBtn = sender.page.locator('.chat-input button.btn-send').first();
     await sendBtn.click().catch(() => {});
@@ -101,7 +104,8 @@ export const replyToRandomBubble: ActionSpec = {
     await input.focus();
     await sender.page.keyboard.press('Control+A');
     await sender.page.keyboard.press('Backspace');
-    await sender.page.keyboard.type(action.args.text);
+    // insertText preserves surrogate pairs — see FIND-3c99f5a3 notes on sendText.
+    await sender.page.keyboard.insertText(action.args.text);
     await sender.page.locator('.chat-input button.btn-send').first().click().catch(() => {});
 
     action.meta = {sentAt: Date.now(), replyToMid: mid, text: action.args.text, fromId: from};
@@ -150,7 +154,8 @@ export const editRandomOwnBubble: ActionSpec = {
     await input.focus();
     await sender.page.keyboard.press('Control+A');
     await sender.page.keyboard.press('Backspace');
-    await sender.page.keyboard.type(action.args.newText);
+    // insertText preserves surrogate pairs — see FIND-3c99f5a3 notes on sendText.
+    await sender.page.keyboard.insertText(action.args.newText);
     await sender.page.locator('.chat-input button.btn-send').first().click().catch(() => {});
 
     action.meta = {editedMid: mid, newText: action.args.newText, editedAt: Date.now(), beforeSnapshot};
@@ -192,9 +197,10 @@ export const deleteRandomOwnBubble: ActionSpec = {
 
 export const reactToRandomBubble: ActionSpec = {
   name: 'reactToRandomBubble',
-  weight: 8,
+  weight: 12,
   generateArgs: () => fc.record({
     user: fc.constantFrom('userA', 'userB'),
+    fromTarget: fc.constantFrom('own', 'peer'),
     emoji: fc.constantFrom('❤️', '👍', '😂', '🔥', '🤔')
   }),
   async drive(ctx: FuzzContext, action: Action) {
@@ -205,7 +211,8 @@ export const reactToRandomBubble: ActionSpec = {
     }, sender.remotePeerId);
     await sender.page.waitForTimeout(300);
 
-    const mid = await pickRandomBubbleMid(ctx, from, false);
+    const ownOnly = action.args.fromTarget === 'own';
+    const mid = await pickRandomBubbleMid(ctx, from, ownOnly);
     if(!mid) {action.skipped = true; return action;}
 
     const ok = await sender.page.evaluate(async ({targetMid, emoji}: any) => {
@@ -223,7 +230,83 @@ export const reactToRandomBubble: ActionSpec = {
     }, {targetMid: mid, emoji: action.args.emoji});
     if(!ok) {action.skipped = true; return action;}
 
-    action.meta = {reactedMid: mid, emoji: action.args.emoji};
+    action.meta = {reactedMid: mid, emoji: action.args.emoji, fromTarget: action.args.fromTarget};
+    return action;
+  }
+};
+
+export const removeReaction: ActionSpec = {
+  name: 'removeReaction',
+  weight: 4,
+  generateArgs: () => fc.record({user: fc.constantFrom('userA', 'userB')}),
+  async drive(ctx: FuzzContext, action: Action) {
+    const from: 'userA' | 'userB' = action.args.user;
+    const sender = ctx.users[from];
+    await sender.page.evaluate((peerId: number) => {
+      (window as any).appImManager?.setPeer?.({peerId});
+    }, sender.remotePeerId);
+    await sender.page.waitForTimeout(200);
+
+    const picked = await sender.page.evaluate(async () => {
+      const store = (window as any).__nostraReactionsStore;
+      if(!store) return null;
+      const rows = await store.getAll();
+      const own = rows.filter((r: any) => r.fromPubkey && r.reactionEventId);
+      if(!own.length) return null;
+      const p = own[Math.floor(Math.random() * own.length)];
+      return {reactionEventId: p.reactionEventId, mid: p.targetMid, emoji: p.emoji};
+    });
+    if(!picked) {action.skipped = true; return action;}
+
+    const ok = await sender.page.evaluate(async (reId: string) => {
+      try {
+        await (window as any).__nostraReactionsPublish.unpublish(reId);
+        return true;
+      } catch { return false; }
+    }, picked.reactionEventId);
+    if(!ok) {action.skipped = true; return action;}
+
+    action.meta = {removedReactionId: picked.reactionEventId, mid: picked.mid, emoji: picked.emoji};
+    return action;
+  }
+};
+
+export const reactMultipleEmoji: ActionSpec = {
+  name: 'reactMultipleEmoji',
+  weight: 3,
+  generateArgs: () => fc.record({
+    user: fc.constantFrom('userA', 'userB'),
+    emojis: fc.uniqueArray(fc.constantFrom('❤️', '👍', '😂', '🔥', '🤔'), {minLength: 2, maxLength: 3})
+  }),
+  async drive(ctx: FuzzContext, action: Action) {
+    const from: 'userA' | 'userB' = action.args.user;
+    const sender = ctx.users[from];
+    await sender.page.evaluate((peerId: number) => {
+      (window as any).appImManager?.setPeer?.({peerId});
+    }, sender.remotePeerId);
+    await sender.page.waitForTimeout(200);
+
+    const mid = await pickRandomBubbleMid(ctx, from, false);
+    if(!mid) {action.skipped = true; return action;}
+
+    const emojis: string[] = action.args.emojis;
+    for(const emoji of emojis) {
+      const ok = await sender.page.evaluate(async ({targetMid, em}: any) => {
+        const rs = (window as any).rootScope;
+        const peerId = (window as any).appImManager?.chat?.peerId;
+        try {
+          await rs.managers.appReactionsManager.sendReaction({
+            message: {peerId, mid: Number(targetMid)},
+            reaction: {_: 'reactionEmoji', emoticon: em}
+          });
+          return true;
+        } catch { return false; }
+      }, {targetMid: mid, em: emoji});
+      if(!ok) {action.skipped = true; return action;}
+      await sender.page.waitForTimeout(300); // let each publish settle
+    }
+
+    action.meta = {targetMid: mid, emojis};
     return action;
   }
 };

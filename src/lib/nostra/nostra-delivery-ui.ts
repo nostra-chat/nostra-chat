@@ -54,7 +54,14 @@ async function refreshDialogPreview(numericPeerId: number): Promise<void> {
   const latest = (await store.getMessages(convId, 1))[0];
   if(!latest) return;
 
-  const mid = latest.mid ?? await mapper.mapEventId(latest.eventId, latest.timestamp);
+  // Identity-triple contract: `latest.mid` is authoritative. Bail out if
+  // missing rather than spawn a ghost mid with a stale-timestamp hash
+  // (root cause of FIND-e49755c1 residual).
+  if(latest.mid == null) {
+    console.error('[NostraDeliveryUI] refreshDialogPreview: stored message missing mid — upstream write path is broken', {eventId: latest.eventId, timestamp: latest.timestamp});
+    return;
+  }
+  const mid = latest.mid;
   const isOut = latest.isOutgoing ?? (latest.senderPubkey === ownPk);
   const msg = mapper.createTwebMessage({
     mid,

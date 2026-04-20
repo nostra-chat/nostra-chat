@@ -10,7 +10,23 @@
  */
 
 /**
- * Stored message interface for IndexedDB
+ * Stored message interface for IndexedDB.
+ *
+ * IDENTITY-TRIPLE CONTRACT (Phase 2b.1 — see docs/fuzz-reports/FIND-e49755c1/):
+ *   - `eventId`, `mid`, `twebPeerId`, `timestamp` are the authoritative identity
+ *     of a message row. They MUST be computed ONCE at message creation and are
+ *     IMMUTABLE afterwards.
+ *   - All write paths supply the full triple. The store never fills identity
+ *     fields from fallbacks.
+ *   - Read paths consume `row.mid` / `row.timestamp` directly and NEVER recompute
+ *     identity from `(eventId, timestamp)` — if a read observes a row without a
+ *     mid, that is a bug in the write path and should throw.
+ *
+ * `PartialStoredMessage` exists ONLY as a narrow escape hatch for the rare
+ * in-place update case where a caller spreads an existing row through
+ * `saveMessage`. The message-store merges missing fields from the prior row on
+ * upsert (see `saveMessage` body). No new write path may introduce rows without
+ * `mid` / `twebPeerId`.
  */
 export interface StoredMessage {
   /** Nostr event ID (unique) */
@@ -23,7 +39,7 @@ export interface StoredMessage {
   content: string;
   /** Message type */
   type: 'text' | 'file';
-  /** Unix timestamp in seconds */
+  /** Unix timestamp in seconds — authoritative creation time (immutable) */
   timestamp: number;
   /** Delivery state */
   deliveryState: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
@@ -40,10 +56,10 @@ export interface StoredMessage {
     duration?: number;
     waveform?: string;
   };
-  /** tweb message ID (mid) for cache reconstruction on reload */
-  mid?: number;
+  /** tweb message ID (mid) — computed ONCE at creation via mapEventId(eventId, timestamp) */
+  mid: number;
   /** tweb numeric peerId used in storageKey (e.g. the sender peerId) */
-  twebPeerId?: number;
+  twebPeerId: number;
   /** Whether this message was outgoing */
   isOutgoing?: boolean;
   /** Parsed application message ID (chat-XXX-N) — used so read receipts can key off the same ID that delivery receipts use */
@@ -51,6 +67,18 @@ export interface StoredMessage {
   /** Unix timestamp (seconds) of the most recent edit. Absent on never-edited messages. */
   editedAt?: number;
 }
+
+/**
+ * Narrow escape hatch for writes that update an existing row without
+ * supplying the full identity triple. `saveMessage` merges missing
+ * `mid` / `twebPeerId` from the prior row. Callers using this type
+ * MUST guarantee an existing row is present (i.e. they are patching
+ * a row they previously wrote with the full triple).
+ */
+export type PartialStoredMessage = Omit<StoredMessage, 'mid' | 'twebPeerId'> & {
+  mid?: number;
+  twebPeerId?: number;
+};
 
 // ─── Constants ─────────────────────────────────────────────────────
 
@@ -116,9 +144,18 @@ export class MessageStore {
 
   /**
    * Save a message (upsert by eventId).
-   * If a message with the same eventId exists, it is replaced.
+   * If a message with the same eventId exists, fields from the new write are
+   * merged over the existing row with missing `mid`/`twebPeerId`/`isOutgoing`/
+   * `editedAt` preserved from the prior row.
+   *
+   * Accepts `PartialStoredMessage` (mid/twebPeerId optional) so legitimate
+   * in-place updates (edit, delivery-state mutations) can spread an existing
+   * row and mutate only the fields they care about. For FIRST-time writes the
+   * caller MUST supply the full identity triple (mid + twebPeerId + timestamp);
+   * otherwise downstream readers will either observe a partial row or fall
+   * through to the throw path in VMT.
    */
-  async saveMessage(msg: StoredMessage): Promise<void> {
+  async saveMessage(msg: PartialStoredMessage): Promise<void> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite');

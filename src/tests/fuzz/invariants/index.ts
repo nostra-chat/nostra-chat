@@ -4,9 +4,10 @@ import {consoleClean} from './console';
 import {noDupMid, bubbleChronological, noAutoPin, sentBubbleVisibleAfterSend} from './bubbles';
 import {deliveryUiMatchesTracker, deliveryTrackerNoOrphans} from './delivery';
 import {avatarDomMatchesCache} from './avatar';
-import {mirrorsIdbCoherent, peersComplete} from './state';
+import {mirrorsIdbCoherent, peersComplete, storedMessageIdentityComplete} from './state';
 import {offlineQueuePurged} from './queue';
 import {noNip04, idbSeedEncrypted, editPreservesMidTimestamp, editAuthorCheck, virtualPeerIdStable} from './regression';
+import {reactionDedupe, noKind7SelfEchoDrop, reactionBilateral, reactionAuthorCheck, reactionRemoveKind} from './reactions';
 
 export const ALL_INVARIANTS: Invariant[] = [
   consoleClean,
@@ -16,17 +17,24 @@ export const ALL_INVARIANTS: Invariant[] = [
   sentBubbleVisibleAfterSend,
   deliveryUiMatchesTracker,
   avatarDomMatchesCache,
+  // Cheap — reactions
+  reactionDedupe,
+  noKind7SelfEchoDrop,
   // Medium tier
   mirrorsIdbCoherent,
+  storedMessageIdentityComplete,
   peersComplete,
   deliveryTrackerNoOrphans,
   offlineQueuePurged,
+  reactionBilateral,
   // Regression tier
   noNip04,
   idbSeedEncrypted,
   editPreservesMidTimestamp,
   editAuthorCheck,
-  virtualPeerIdStable
+  virtualPeerIdStable,
+  reactionAuthorCheck,
+  reactionRemoveKind
 ];
 
 const MEDIUM_EVERY = 10;

@@ -442,8 +442,14 @@ git commit -m "feat(nostra): add nostra-reactions-store (IDB-backed NIP-25 rows)
 **Files:**
 - Create: `src/lib/nostra/nostra-reactions-publish.ts`
 - Create: `src/tests/nostra/nostra-reactions-publish.test.ts`
+- Modify: `src/lib/nostra/chat-api.ts` (change `publishEvent` to return the signed event instead of `void`)
+- Modify: `src/lib/rootScope.ts` (add `'nostra_reactions_changed': {peerId: PeerId | number; mid: number}` to `BroadcastEvents`)
 
 Context: Wraps `ChatAPI.publishEvent` to emit kind-7 (add reaction) and kind-5 (remove). Also writes to `nostraReactionsStore` synchronously so sender UI updates before relay round-trip. The module is pure orchestration — it delegates signing/fanout to `ChatAPI`.
+
+**Important invariants** (from code-review C1/C2):
+- `ChatAPI.publishEvent` must return the signed event (`{id, pubkey, sig, ...}`), NOT `Promise<void>` — the publisher needs `signed.id` as `reactionEventId`.
+- Mutation notifications use the typed **`nostra_reactions_changed`** event (Nostra-specific). Do NOT reuse tweb's `messages_reactions` — that event is typed as an array-shape `[{message, changedResults, removedResults}]` and consumers (`appReactionsManager`, `bubbles.ts`) will crash on shape mismatch.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -570,7 +576,7 @@ export interface PublishArgs {
 }
 
 interface ChatAPILike {
-  publishEvent(unsigned: {kind: number; created_at: number; tags: any[]; content: string}): Promise<any>;
+  publishEvent(unsigned: {kind: number; created_at: number; tags: string[][]; content: string}): Promise<{id: string; pubkey: string; sig: string; kind: number; created_at: number; tags: string[][]; content: string}>;
   ownId: string;
 }
 
@@ -604,7 +610,7 @@ class NostraReactionsPublish {
       reactionEventId,
       createdAt: unsigned.created_at
     });
-    rootScope.dispatchEventSingle('messages_reactions' as any, {
+    rootScope.dispatchEventSingle('nostra_reactions_changed', {
       peerId: args.targetPeerId,
       mid: args.targetMid
     });
@@ -624,7 +630,7 @@ class NostraReactionsPublish {
     };
     await chatAPI.publishEvent(unsigned);
     await nostraReactionsStore.removeByReactionEventId(reactionEventId);
-    rootScope.dispatchEventSingle('messages_reactions' as any, {
+    rootScope.dispatchEventSingle('nostra_reactions_changed', {
       peerId: row.targetPeerId,
       mid: row.targetMid
     });
@@ -857,7 +863,7 @@ class NostraReactionsReceive {
       if(!row) continue;
       if(row.fromPubkey !== event.pubkey) continue; // author mismatch — reject
       await nostraReactionsStore.removeByReactionEventId(reactionEventId);
-      rootScope.dispatchEventSingle('messages_reactions' as any, {
+      rootScope.dispatchEventSingle('nostra_reactions_changed', {
         peerId: row.targetPeerId,
         mid: row.targetMid
       });
@@ -888,7 +894,7 @@ class NostraReactionsReceive {
       createdAt: event.created_at
     };
     await nostraReactionsStore.add(row);
-    rootScope.dispatchEventSingle('messages_reactions' as any, {
+    rootScope.dispatchEventSingle('nostra_reactions_changed', {
       peerId: targetPeerId,
       mid: targetMid
     });
@@ -1256,7 +1262,7 @@ Replace the file with:
  *
  * The sync cache is needed because `bubbles.ts` calls `getReactions()`
  * during render and can't await an IDB transaction. We warm the cache on
- * every store mutation via the `messages_reactions` rootScope event.
+ * every store mutation via the `nostra_reactions_changed` rootScope event.
  */
 import rootScope from '@lib/rootScope';
 import {nostraReactionsStore} from './nostra-reactions-store';
@@ -1271,9 +1277,9 @@ class NostraReactionsLocal {
   private cache: Map<Key, Set<string>> = new Map();
 
   constructor() {
-    rootScope.addEventListener('messages_reactions' as any, async (data: any) => {
-      if(!data?.peerId || !data?.mid) return;
-      await this.refreshCache(data.peerId, data.mid);
+    rootScope.addEventListener('nostra_reactions_changed', async ({peerId, mid}) => {
+      if(!peerId || !mid) return;
+      await this.refreshCache(peerId as number, mid);
     });
   }
 
@@ -1350,7 +1356,7 @@ describe('nostraReactionsLocal (shim over nostraReactionsStore)', () => {
     });
     // Simulate the event that would normally fire on store add
     const rootScope = (await import('@lib/rootScope')).default;
-    rootScope.dispatchEventSingle('messages_reactions' as any, {peerId: 1e16, mid: 1});
+    rootScope.dispatchEventSingle('nostra_reactions_changed', {peerId: 1e16, mid: 1});
     await new Promise((r) => setTimeout(r, 10));
     expect(local.getReactions(1e16, 1)).toEqual(['👍']);
   });
@@ -1392,6 +1398,9 @@ git commit -m "refactor(nostra): nostra-reactions-local shim over persistent rea
 - Modify: `src/lib/nostra/chat-api.ts`
 
 Context: `nostra-reactions-publish.ts` requires `setChatAPI()` called once at ChatAPI boot. The existing `initGlobalSubscription` is the right place.
+
+**Acceptance criteria:**
+- `ChatAPI.publishEvent` returns the *signed* event (`{id, pubkey, kind, created_at, tags, content, sig}`), not `Promise<void>`. The Task 3 fix already tightened this — callers that ignore the return value (e.g. `FoldersSync.publish`) continue to work unchanged since a wider return type is backward-compatible. Verify with `grep -rn "\.publishEvent(" src/lib/` that no caller destructures return properties expecting `void`.
 
 - [ ] **Step 1: Import the setter**
 
@@ -1731,29 +1740,27 @@ git commit -m "fix(reaction): guard availableReaction access sites for Nostra mo
 
 ---
 
-## Task 12: Wire bubble re-render on `messages_reactions` event
+## Task 12: Wire bubble re-render on `nostra_reactions_changed` event
 
 **Files:**
 - Modify: `src/components/chat/bubbles.ts` (single function add)
 
-Context: The `nostra-reactions-local.ts` shim dispatches `messages_reactions` on mutation. `bubbles.ts` must have a listener that recomputes the `.reactions` DOM for the affected `data-mid` bubble. Look for an existing subscriber first — `messages_reactions` may already have one from tweb legacy.
+Context: The `nostra-reactions-local.ts` shim dispatches `nostra_reactions_changed` (a typed Nostra-specific event defined in `BroadcastEvents`) on mutation. `bubbles.ts` must have a listener that recomputes the `.reactions` DOM for the affected `data-mid` bubble. Note: tweb legacy `messages_reactions` is an array-shape event used by the MTProto flow — do NOT repurpose it; Nostra uses its own typed event to avoid shape collisions.
 
 - [ ] **Step 1: Check for existing listener**
 
 ```bash
-grep -n "messages_reactions" src/components/chat/bubbles.ts
+grep -n "nostra_reactions_changed" src/components/chat/bubbles.ts
 ```
 
-If a listener exists: it probably looks up `message.reactions` via manager; Nostra path needs to use `nostraReactionsLocal.getReactions(peerId, mid)` instead.
-
-If no listener exists: add one.
+Expected: no match (you're adding the first listener).
 
 - [ ] **Step 2: Add / patch listener**
 
 Locate the `bubbles.ts` subscription region (grep `addEventListener('message_sent'` or similar) and add:
 
 ```ts
-rootScope.addEventListener('messages_reactions', async ({peerId, mid}) => {
+rootScope.addEventListener('nostra_reactions_changed', async ({peerId, mid}) => {
   if(!this.peerId || this.peerId !== peerId) return;
   const bubble = this.bubbles[mid];
   if(!bubble) return;
@@ -1761,7 +1768,7 @@ rootScope.addEventListener('messages_reactions', async ({peerId, mid}) => {
   // from store on event fire per reactions-local.ts).
   if(Number(peerId) >= 1e15) {
     const {nostraReactionsLocal} = await import('@lib/nostra/nostra-reactions-local');
-    const emojis = nostraReactionsLocal.getReactions(peerId, mid);
+    const emojis = nostraReactionsLocal.getReactions(peerId as number, mid);
     this.renderNostraReactions(bubble, emojis);
     return;
   }
@@ -1795,7 +1802,7 @@ Expected: PASS.
 
 ```bash
 git add src/components/chat/bubbles.ts
-git commit -m "feat(bubbles): render Nostra reactions from store on messages_reactions event"
+git commit -m "feat(bubbles): render Nostra reactions from store on nostra_reactions_changed event"
 ```
 
 ---
@@ -2851,6 +2858,19 @@ EOF
 - [ ] **Step 3: Record PR URL**
 
 Save the PR URL output from Step 2 for reference. Ping the maintainer for 2-device manual run + merge approval.
+
+---
+
+## Execution notes (post-completion)
+
+Task 21 baseline emit: BLOCKED during execution. The architectural identity triple fix (see `docs/fuzz-reports/FIND-e49755c1/README.md`) closed the mid/IDB drift that originally triggered during baseline runs. A subsequent fuzz run (seed=42, duration=6m, --emit-baseline) completed 5 clean iterations before seed=48 iter 6 surfaced a NEW `INV-bubble-chronological` failure (FIND-c0046153). Different seeds surfaced further pre-existing bugs. All 3 logged as open for 2b.2.
+
+Decision: ship 2b.1 reactions RX + architectural fix; defer baseline emit + 3 new open FINDs to 2b.2.
+
+Task 24 tech gate adapted: unit tests + lint + tsc pass. Fuzz run deferred to 2b.2.
+Task 25 PR opened with carry-forward documentation.
+
+Completed commits on `fuzz-phase-2b1`: 26 (reactions infrastructure + architectural fix + docs + fuzz emit prep). Baseline file NOT emitted to main.
 
 ---
 

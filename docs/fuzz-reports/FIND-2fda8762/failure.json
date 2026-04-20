@@ -1,0 +1,18 @@
+{
+  "invariantId": "INV-console-clean",
+  "tier": "cheap",
+  "message": "Unallowlisted console error: [pageerror] Cannot read properties of undefined (reading 'center_icon')\nTypeError: Cannot read properties of undefined (reading 'center_icon')\n    at http://localhost:8090/src/components/chat/reaction.ts?t=1776497147834:205:33\n    at async Promise.all (index 0)",
+  "evidence": {
+    "badLine": "[pageerror] Cannot read properties of undefined (reading 'center_icon')\nTypeError: Cannot read properties of undefined (reading 'center_icon')\n    at http://localhost:8090/src/components/chat/reaction.ts?t=1776497147834:205:33\n    at async Promise.all (index 0)"
+  },
+  "action": {
+    "name": "deleteRandomOwnBubble",
+    "args": {
+      "user": "userB"
+    },
+    "meta": {
+      "deletedMid": "1776499539063110",
+      "deletedAt": 1776499540743
+    }
+  }
+}

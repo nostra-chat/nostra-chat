@@ -109,7 +109,14 @@ export const sentBubbleVisibleAfterSend: Invariant = {
       for(const b of bubbles) {
         const clone = b.cloneNode(true) as HTMLElement;
         clone.querySelectorAll('.time, .time-inner, .reactions, .bubble-pin').forEach((e) => e.remove());
-        if((clone.textContent || '').includes(needle)) return true;
+        // tweb may render emoji as <img alt="🔥"> (native-emoji off / custom
+        // emoji pack); textContent ignores alt. Concat alt= of all imgs so
+        // the needle match works in both rendering modes. Mirrors the fix in
+        // postconditions/messaging.ts (POST-sendText-bubble-appears, FIND-3c99f5a3).
+        const imgAlt = Array.from(clone.querySelectorAll('img[alt]'))
+          .map((i) => i.getAttribute('alt') || '').join('');
+        const fullText = (clone.textContent || '') + imgAlt;
+        if(fullText.includes(needle)) return true;
       }
       return false;
     }, text);

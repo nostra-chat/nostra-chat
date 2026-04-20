@@ -1,52 +1,44 @@
-import {describe, it, expect, beforeEach, vi} from 'vitest';
+// @vitest-environment jsdom
+import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
+import 'fake-indexeddb/auto';
 
-describe('nostra reactions local store', () => {
+describe('nostraReactionsLocal (shim over nostraReactionsStore)', () => {
+  let local: any;
   let store: any;
 
   beforeEach(async() => {
     vi.resetModules();
-    const mod = await import('@lib/nostra/nostra-reactions-local');
-    store = mod.nostraReactionsLocal;
-    store.clear();
+    await new Promise<void>((resolve) => {
+      const req = (globalThis as any).indexedDB.deleteDatabase('nostra-reactions');
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+      req.onblocked = () => resolve();
+    });
+    const storeMod = await import('@lib/nostra/nostra-reactions-store');
+    store = storeMod.nostraReactionsStore;
+    await store.init();
+    const localMod = await import('@lib/nostra/nostra-reactions-local');
+    local = localMod.nostraReactionsLocal;
   });
 
-  it('returns empty list for an unknown (peerId, mid)', () => {
-    expect(store.getReactions(42, 1000)).toEqual([]);
+  afterEach(async() => {
+    await store?.destroy?.();
   });
 
-  it('adds an emoji reaction for a message and returns it', () => {
-    store.addReaction(42, 1000, '👍');
-    expect(store.getReactions(42, 1000)).toEqual(['👍']);
+  it('getReactions returns cached emoji set for peerId/mid', async() => {
+    await store.add({
+      targetEventId: 'evt1', targetMid: 1, targetPeerId: 1e16,
+      fromPubkey: 'pub1', emoji: '👍', reactionEventId: 'r1', createdAt: 1
+    });
+    // Simulate the event that would normally fire on store add
+    const rootScope = (await import('@lib/rootScope')).default;
+    rootScope.dispatchEventSingle('nostra_reactions_changed', {peerId: 1e16, mid: 1});
+    await new Promise((r) => setTimeout(r, 10));
+    expect(local.getReactions(1e16, 1)).toEqual(['👍']);
   });
 
-  it('deduplicates same emoji on same message', () => {
-    store.addReaction(42, 1000, '👍');
-    store.addReaction(42, 1000, '👍');
-    expect(store.getReactions(42, 1000)).toEqual(['👍']);
-  });
-
-  it('keeps reactions per-message scoped', () => {
-    store.addReaction(42, 1000, '👍');
-    store.addReaction(42, 1001, '🔥');
-    expect(store.getReactions(42, 1000)).toEqual(['👍']);
-    expect(store.getReactions(42, 1001)).toEqual(['🔥']);
-  });
-
-  it('dispatches nostra_reaction_added on rootScope when a reaction is added', async() => {
-    const dispatches: any[] = [];
-    vi.doMock('@lib/rootScope', () => ({
-      default: {
-        dispatchEventSingle: (name: string, payload: any) => dispatches.push({name, payload})
-      }
-    }));
-    vi.resetModules();
-    const mod = await import('@lib/nostra/nostra-reactions-local');
-    const fresh = mod.nostraReactionsLocal;
-    fresh.clear();
-    fresh.addReaction(42, 1000, '👍');
-    expect(dispatches).toEqual([
-      {name: 'nostra_reaction_added', payload: {peerId: 42, mid: 1000, emoji: '👍'}}
-    ]);
-    vi.unmock('@lib/rootScope');
+  it('addReaction without context updates local cache only (legacy path)', async() => {
+    await local.addReaction(1e16, 2, '❤️');
+    expect(local.getReactions(1e16, 2)).toEqual(['❤️']);
   });
 });

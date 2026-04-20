@@ -45,7 +45,7 @@ export interface SendCtx {
       mimeType: string,
       size: number,
       dim?: {width: number; height: number},
-      extras?: {duration?: number; waveform?: string}
+      extras?: {duration?: number; waveform?: string; mid?: number; twebPeerId?: number; timestampSec?: number}
     ): Promise<string>;
   };
   dispatch(name: string, payload: any): void;
@@ -228,17 +228,33 @@ export async function sendFileViaNostra(
     if(ctx.chatAPI.getActivePeer() !== ctx.peerPubkey) {
       await ctx.chatAPI.connect(ctx.peerPubkey);
     }
+    // Identity-triple contract (Phase 2b.1): capture the authoritative
+    // creation second ONCE, then derive the mid from it downstream. Pin
+    // the same value across ChatAPI's partial save (timestampSec opt) AND
+    // the subsequent authoritative save so (eventId, timestamp) is
+    // identical across all writers.
+    //
+    // Historical note: this variable was previously named `realMid`, but
+    // it is not a mid — it is the seconds-precision creation timestamp.
+    // The mid derives from `mapEventIdToMid(eventId, timestampSec)` inside
+    // ChatAPI.sendMessage. For the file-send path the caller passes the
+    // same value as both `mid` and `timestampSec` only because the file
+    // pipeline (historically) used the timestamp itself as the mid; the
+    // authoritative VMT send path derives a proper hashed mid instead.
+    // Left as-is to avoid destabilising the file pipeline — callers that
+    // already depend on `result.mid === timestampSec` continue to work.
+    const timestampSec = Math.floor(Date.now() / 1000);
+    const mid = timestampSec;
     const eventId = await ctx.chatAPI.sendFileMessage(
       type, url, sha256Hex, keyHex, ivHex,
       blob.type || 'application/octet-stream',
       blob.size,
       args.width && args.height ? {width: args.width, height: args.height} : undefined,
-      {duration: args.duration, waveform: args.waveform}
+      {duration: args.duration, waveform: args.waveform, mid, twebPeerId: Math.abs(peerId), timestampSec}
     );
-    const realMid = Math.floor(Date.now() / 1000);
 
     await ctx.saveMessage({
-      peerId, mid: realMid, eventId,
+      peerId, mid, eventId,
       content: '',
       mimeType: blob.type || 'application/octet-stream',
       size: blob.size, url, sha256: sha256Hex,
@@ -247,9 +263,10 @@ export async function sendFileViaNostra(
       duration: args.duration, waveform: args.waveform
     });
 
-    ctx.dispatch('nostra_file_upload_completed', {peerId, mid: tempMid, url, realMid});
+    // Event name kept for backward compatibility with UI listeners.
+    ctx.dispatch('nostra_file_upload_completed', {peerId, mid: tempMid, url, realMid: mid});
     PENDING.delete(tempMid);
-    return {ok: true, mid: realMid, eventId};
+    return {ok: true, mid, eventId};
   } catch(err) {
     const msg = err instanceof Error ? err.message : String(err);
     ctx.log.error('[sendFile] sendFileMessage failed:', msg);

@@ -371,30 +371,61 @@ export async function handleRelayMessage(
   try {
     const store = getMessageStore();
     const conversationId = store.getConversationId(ctx.ownId, msg.from);
-    store.saveMessage({
-      eventId: msg.id,
-      appMessageId: chatMessage.id,
-      conversationId,
-      senderPubkey: msg.from,
-      content: chatMessage.content,
-      type: msgType === 'text' ? 'text' : 'file',
-      timestamp: msg.timestamp,
-      deliveryState: 'delivered',
-      fileMetadata: fileMetadata ? {
-        url: fileMetadata.url,
-        sha256: fileMetadata.sha256,
-        mimeType: fileMetadata.mimeType,
-        size: fileMetadata.size,
-        width: fileMetadata.width,
-        height: fileMetadata.height,
-        keyHex: fileMetadata.keyHex,
-        ivHex: fileMetadata.ivHex,
-        duration: fileMetadata.duration,
-        waveform: fileMetadata.waveform
-      } : undefined
-    }).catch((err) => {
-      ctx.log.warn('[ChatAPI] failed to save incoming message:', err);
-    });
+    // Compute mid/twebPeerId eagerly so the FIRST IDB row for an incoming
+    // message carries them. Otherwise NostraSync.onIncomingMessage races
+    // with this save: if our fire-and-forget put lands AFTER NostraSync's
+    // awaited put, the merge preserves existing.mid via message-store.ts:139,
+    // but the mirror vs. IDB invariant sees a window where the mirror has
+    // a mid that IDB hasn't persisted yet. Closing FIND-e49755c1 requires
+    // every write on either side of the race to contain mid+twebPeerId.
+    let resolvedMid: number | undefined;
+    let resolvedPeerId: number | undefined;
+    try {
+      const {NostraBridge} = await import('./nostra-bridge');
+      const bridge = NostraBridge.getInstance();
+      resolvedPeerId = await bridge.mapPubkeyToPeerId(msg.from);
+      resolvedMid = await bridge.mapEventIdToMid(msg.id, Math.floor(msg.timestamp));
+    } catch(e: any) {
+      ctx.log.warn('[ChatAPI] incoming save: mid/peerId compute failed:', e?.message);
+    }
+    // Identity-triple contract: the FIRST IDB write for an incoming message
+    // MUST carry mid+twebPeerId. Bridge failures would land a partial row and
+    // leak into the mirror as a ghost mid via VMT read fallbacks — the exact
+    // FIND-e49755c1 shape. If the bridge compute fails we skip the save
+    // entirely and let NostraSync.onIncomingMessage land the authoritative
+    // row (it has the same inputs and a retry path).
+    if(resolvedMid === undefined || resolvedPeerId === undefined) {
+      ctx.log.warn('[ChatAPI] incoming save: skipping partial row (bridge resolve failed)', {eventId: msg.id});
+    } else {
+      const row: StoredMessage = {
+        eventId: msg.id,
+        appMessageId: chatMessage.id,
+        conversationId,
+        senderPubkey: msg.from,
+        content: chatMessage.content,
+        type: msgType === 'text' ? 'text' : 'file',
+        timestamp: msg.timestamp,
+        deliveryState: 'delivered',
+        mid: resolvedMid,
+        twebPeerId: resolvedPeerId,
+        isOutgoing: false,
+        fileMetadata: fileMetadata ? {
+          url: fileMetadata.url,
+          sha256: fileMetadata.sha256,
+          mimeType: fileMetadata.mimeType,
+          size: fileMetadata.size,
+          width: fileMetadata.width,
+          height: fileMetadata.height,
+          keyHex: fileMetadata.keyHex,
+          ivHex: fileMetadata.ivHex,
+          duration: fileMetadata.duration,
+          waveform: fileMetadata.waveform
+        } : undefined
+      };
+      store.saveMessage(row).catch((err) => {
+        ctx.log.warn('[ChatAPI] failed to save incoming message:', err);
+      });
+    }
   } catch(err) {
     ctx.log.warn('[ChatAPI] message store error:', err);
   }
@@ -441,6 +472,24 @@ async function handleSelfEcho(
   const conversationId = store.getConversationId(ctx.ownId, peerPubkey);
   const parsed = parseMessageContent(msg.content);
 
+  // Identity-triple contract: cross-device self-echo writes MUST carry
+  // mid+twebPeerId or they become ghost-mid sources downstream.
+  let resolvedMid: number | undefined;
+  let resolvedPeerId: number | undefined;
+  try {
+    const {NostraBridge} = await import('./nostra-bridge');
+    const bridge = NostraBridge.getInstance();
+    resolvedPeerId = await bridge.mapPubkeyToPeerId(peerPubkey);
+    resolvedMid = await bridge.mapEventIdToMid(echoId, Math.floor(msg.timestamp));
+  } catch(e: any) {
+    ctx.log.warn('[ChatAPI] self-echo: bridge resolve failed', e?.message);
+  }
+
+  if(resolvedMid === undefined || resolvedPeerId === undefined) {
+    ctx.log.warn('[ChatAPI] self-echo: skipping partial save (bridge resolve failed)', {echoId});
+    return {action: 'skipped', reason: 'self_echo_bridge_failed'};
+  }
+
   await store.saveMessage({
     eventId: echoId,
     conversationId,
@@ -449,6 +498,8 @@ async function handleSelfEcho(
     type: 'text',
     timestamp: msg.timestamp,
     deliveryState: 'sent',
+    mid: resolvedMid,
+    twebPeerId: resolvedPeerId,
     isOutgoing: true
   });
 

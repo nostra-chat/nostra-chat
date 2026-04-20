@@ -1,0 +1,18 @@
+{
+  "invariantId": "POST-sendText-bubble-appears",
+  "tier": "postcondition",
+  "message": "sent bubble with text \"y \" never appeared on sender",
+  "action": {
+    "name": "sendText",
+    "args": {
+      "from": "userB",
+      "text": "y "
+    },
+    "meta": {
+      "sentAt": 1776499330665,
+      "fromId": "userB",
+      "toId": "userA",
+      "text": "y "
+    }
+  }
+}

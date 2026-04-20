@@ -89,7 +89,13 @@ async function main() {
       // Artifact capture done — now release the context we kept alive for it.
       if(lastTeardown) await lastTeardown().catch(() => {});
     } else {
-      lastCleanActions = actions;
+      // Track the LONGEST clean iteration so --emit-baseline captures a
+      // representative trace, not whichever short sequence happened to run
+      // last. Count non-skipped actions — skipped ones are no-ops and
+      // shouldn't bias selection.
+      const effective = actions.filter((a) => !a.skipped).length;
+      const prev = lastCleanActions.filter((a) => !a.skipped).length;
+      if(effective > prev) lastCleanActions = actions;
     }
   }
 
@@ -111,7 +117,7 @@ async function main() {
       maxCommands: opts.maxCommands,
       commands: lastCleanActions,
       emittedAt: new Date().toISOString(),
-      fuzzerVersion: 'phase2a'
+      fuzzerVersion: 'phase2b1'
     };
     if(!existsSync('docs/fuzz-baseline')) mkdirSync('docs/fuzz-baseline', {recursive: true});
     const path = `docs/fuzz-baseline/baseline-seed${opts.seed}.json`;

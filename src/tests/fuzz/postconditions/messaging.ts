@@ -19,7 +19,13 @@ export const POST_sendText_bubble_appears: Postcondition = {
         for(const b of bubbles) {
           const clone = b.cloneNode(true) as HTMLElement;
           clone.querySelectorAll('.time, .time-inner, .reactions, .bubble-pin').forEach((e) => e.remove());
-          if((clone.textContent || '').includes(needle)) return true;
+          // tweb may render emoji as <img alt="🔥"> (native-emoji off / custom
+          // emoji pack); textContent ignores alt. Concat alt= of all imgs so
+          // the needle match works in both rendering modes.
+          const imgAlt = Array.from(clone.querySelectorAll('img[alt]'))
+            .map((i) => i.getAttribute('alt') || '').join('');
+          const fullText = (clone.textContent || '') + imgAlt;
+          if(fullText.includes(needle)) return true;
         }
         return false;
       }, text);
@@ -120,5 +126,89 @@ export const POST_react_emoji_appears: Postcondition = {
       await sender.page.waitForTimeout(200);
     }
     return {ok: false, message: `reaction ${emoji} not visible on mid=${mid}`};
+  }
+};
+
+export const POST_react_peer_sees_emoji: Postcondition = {
+  id: 'POST_react_peer_sees_emoji',
+  async check(ctx: FuzzContext, action: Action) {
+    if(action.skipped) return {ok: true};
+    const fromUser: 'userA' | 'userB' = action.args.user;
+    const toUser: 'userA' | 'userB' = fromUser === 'userA' ? 'userB' : 'userA';
+    const peer = ctx.users[toUser];
+    const emoji = action.args.emoji;
+    const mid = action.meta?.reactedMid;
+    if(!mid) return {ok: true};
+    // Poll up to 3s.
+    const deadline = Date.now() + 3000;
+    while(Date.now() < deadline) {
+      const has = await peer.page.evaluate((target) => {
+        const bubbles = Array.from(document.querySelectorAll('.bubbles-inner .bubble[data-mid]'));
+        for(const b of bubbles) {
+          if((b as HTMLElement).dataset.mid !== String(target.mid)) continue;
+          const rt = b.querySelector('.reactions');
+          if(rt && rt.textContent?.includes(target.emoji)) return true;
+        }
+        return false;
+      }, {mid, emoji});
+      if(has) return {ok: true};
+      await peer.page.waitForTimeout(250);
+    }
+    return {ok: false, message: `peer ${toUser} never saw emoji ${emoji} on bubble ${mid}`, evidence: {from: fromUser, to: toUser, mid, emoji}};
+  }
+};
+
+export const POST_remove_reaction_peer_disappears: Postcondition = {
+  id: 'POST_remove_reaction_peer_disappears',
+  async check(ctx: FuzzContext, action: Action) {
+    if(action.skipped) return {ok: true};
+    const fromUser: 'userA' | 'userB' = action.args.user;
+    const toUser: 'userA' | 'userB' = fromUser === 'userA' ? 'userB' : 'userA';
+    const peer = ctx.users[toUser];
+    const emoji = action.meta?.emoji;
+    const mid = action.meta?.mid;
+    if(!emoji || !mid) return {ok: true};
+    const deadline = Date.now() + 3000;
+    while(Date.now() < deadline) {
+      const stillThere = await peer.page.evaluate((target) => {
+        const bubbles = Array.from(document.querySelectorAll('.bubbles-inner .bubble[data-mid]'));
+        for(const b of bubbles) {
+          if((b as HTMLElement).dataset.mid !== String(target.mid)) continue;
+          const rt = b.querySelector('.reactions');
+          if(rt && rt.textContent?.includes(target.emoji)) return true;
+        }
+        return false;
+      }, {mid, emoji});
+      if(!stillThere) return {ok: true};
+      await peer.page.waitForTimeout(250);
+    }
+    return {ok: false, message: `peer ${toUser} still shows removed emoji ${emoji} on bubble ${mid}`, evidence: {from: fromUser, to: toUser, mid, emoji}};
+  }
+};
+
+export const POST_react_multi_emoji_separate: Postcondition = {
+  id: 'POST_react_multi_emoji_separate',
+  async check(ctx: FuzzContext, action: Action) {
+    if(action.skipped) return {ok: true};
+    const fromUser: 'userA' | 'userB' = action.args.user;
+    const sender = ctx.users[fromUser];
+    const emojis: string[] = action.meta?.emojis || [];
+    const mid = action.meta?.targetMid;
+    if(!emojis.length || !mid) return {ok: true};
+    const deadline = Date.now() + 3000;
+    while(Date.now() < deadline) {
+      const visible = await sender.page.evaluate((target) => {
+        const bubbles = Array.from(document.querySelectorAll('.bubbles-inner .bubble[data-mid]'));
+        for(const b of bubbles) {
+          if((b as HTMLElement).dataset.mid !== String(target.mid)) continue;
+          const rt = b.querySelector('.reactions');
+          return rt?.textContent || '';
+        }
+        return '';
+      }, {mid});
+      if(emojis.every((em) => visible.includes(em))) return {ok: true};
+      await sender.page.waitForTimeout(250);
+    }
+    return {ok: false, message: `sender ${fromUser} missing one of ${emojis.join(',')} on bubble ${mid}`, evidence: {user: fromUser, mid, emojis}};
   }
 };

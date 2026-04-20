@@ -1210,6 +1210,19 @@ export default class ChatBubbles {
       });
     }
 
+    // Nostra P2P reactions render path — sibling of messages_reactions (tweb).
+    // Dispatched by nostra-reactions-local shim on store mutation.
+    this.listenerSetter.add(rootScope)('nostra_reactions_changed', async({peerId, mid}) => {
+      if(!this.peerId || this.peerId !== peerId) return;
+      const bubble = this.getBubble(peerId as PeerId, mid);
+      if(!bubble) return;
+      if(Number(peerId) >= 1e15) {
+        const {nostraReactionsLocal} = await import('@lib/nostra/nostra-reactions-local');
+        const emojis = nostraReactionsLocal.getReactions(peerId as number, mid);
+        this.renderNostraReactions(bubble, emojis);
+      }
+    });
+
     !DO_NOT_UPDATE_MESSAGE_REPLY && this.listenerSetter.add(rootScope)('messages_downloaded', this.updateMessageReply);
     !DO_NOT_UPDATE_MESSAGE_REPLY && this.listenerSetter.add(rootScope)('stories_downloaded', this.updateMessageReply);
 
@@ -8731,6 +8744,17 @@ export default class ChatBubbles {
         messageDiv.append(reactionsElement);
       }
     }
+  }
+
+  private renderNostraReactions(bubble: HTMLElement, emojis: string[]): void {
+    let container = bubble.querySelector(':scope > .reactions') as HTMLElement | null;
+    if(!container) {
+      container = document.createElement('div');
+      container.className = 'reactions nostra-reactions';
+      bubble.appendChild(container);
+    }
+    container.textContent = emojis.join(' ');
+    container.style.display = emojis.length ? '' : 'none';
   }
 
   private setStoryContainerDimensions(container: HTMLElement) {

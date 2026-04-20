@@ -205,15 +205,42 @@ function extractPeerId(peer: any): number | null {
 
 // ─── Server ──────────────────────────────────────────────────────────
 
+export interface NostraMTProtoServerDeps {
+  /**
+   * Resolve a target message's relay event id + sender pubkey from a
+   * peerId + mid pair. Used by `messages.sendReaction` to build the
+   * `e`/`p` tags on a kind-7 reaction. Optional DI seam for tests; the
+   * default implementation reads from the message-store.
+   */
+  getMessageByPeerMid?: (peerId: number, mid: number) => Promise<{relayEventId: string; senderPubkey: string} | null> | {relayEventId: string; senderPubkey: string} | null;
+}
+
 export class NostraMTProtoServer {
   private mapper: NostraPeerMapper;
   private ownPubkey: string | null;
   private chatAPI: any | null;
+  private deps: NostraMTProtoServerDeps;
 
-  constructor() {
+  constructor(deps: NostraMTProtoServerDeps = {}) {
     this.mapper = new NostraPeerMapper();
     this.ownPubkey = null;
     this.chatAPI = null;
+    this.deps = deps;
+  }
+
+  private async getMessageByPeerMid(peerId: number, mid: number): Promise<{relayEventId: string; senderPubkey: string} | null> {
+    if(this.deps.getMessageByPeerMid) {
+      const r = await this.deps.getMessageByPeerMid(peerId, mid);
+      return r || null;
+    }
+    try {
+      const row = await getMessageStore().getByMid(mid);
+      if(!row) return null;
+      return {relayEventId: row.eventId, senderPubkey: row.senderPubkey};
+    } catch(e) {
+      console.warn(LOG_PREFIX, 'getMessageByPeerMid: store lookup failed', e);
+      return null;
+    }
   }
 
   setOwnPubkey(pubkey: string): void {
@@ -281,6 +308,9 @@ export class NostraMTProtoServer {
       case 'messages.editMessage':
         return this.editMessage(params);
 
+      case 'messages.sendReaction':
+        return this.sendReaction(params);
+
       case 'messages.sendMedia':
         return this.sendMedia(params);
 
@@ -336,7 +366,14 @@ export class NostraMTProtoServer {
           const latest = latestMsgs[0];
           const peerId = await this.mapper.mapPubkey(peerPubkey);
 
-          const mid = latest.mid ?? await this.mapper.mapEventId(latest.eventId, latest.timestamp);
+          // Identity-triple contract: `latest.mid` is set at creation and
+          // never recomputed. If it's missing, an upstream write path is
+          // broken — surface loudly rather than silently spawn a ghost mid.
+          if(latest.mid == null) {
+            console.error(LOG_PREFIX, 'getDialogs: stored message missing mid — upstream write path is broken', {eventId: latest.eventId, timestamp: latest.timestamp});
+            throw new Error('StoredMessage.mid is required (getDialogs 1:1 branch)');
+          }
+          const mid = latest.mid;
 
           // Read display name from peer mapping (nickname saved at add-contact time)
           const mapping = await getMapping(peerPubkey);
@@ -400,7 +437,11 @@ export class NostraMTProtoServer {
           let topDate = group.createdAt;
 
           if(latest) {
-            mid = latest.mid ?? await this.mapper.mapEventId(latest.eventId, latest.timestamp);
+            if(latest.mid == null) {
+              console.error(LOG_PREFIX, 'getDialogs: stored group message missing mid — upstream write path is broken', {eventId: latest.eventId, timestamp: latest.timestamp});
+              throw new Error('StoredMessage.mid is required (getDialogs group branch)');
+            }
+            mid = latest.mid;
             topDate = latest.timestamp;
 
             const isOutgoing = latest.isOutgoing ?? (latest.senderPubkey === this.ownPubkey);
@@ -487,7 +528,11 @@ export class NostraMTProtoServer {
         // Skip synthetic contact-init entries (empty content, used only for dialog creation)
         if(stored.eventId.startsWith('contact-init-') && !stored.content) continue;
 
-        const mid = stored.mid ?? await this.mapper.mapEventId(stored.eventId, stored.timestamp);
+        if(stored.mid == null) {
+          console.error(LOG_PREFIX, 'getHistory: stored message missing mid — upstream write path is broken', {eventId: stored.eventId, timestamp: stored.timestamp});
+          throw new Error('StoredMessage.mid is required (getHistory)');
+        }
+        const mid = stored.mid;
         const isOutgoing = stored.isOutgoing ?? (stored.senderPubkey === this.ownPubkey);
         const fromPeerId = isOutgoing ? undefined : absPeerId;
 
@@ -553,7 +598,11 @@ export class NostraMTProtoServer {
               pubkeyB;
 
             const peerId = await this.mapper.mapPubkey(peerPubkey);
-            const mid = stored.mid ?? await this.mapper.mapEventId(stored.eventId, stored.timestamp);
+            if(stored.mid == null) {
+              console.error(LOG_PREFIX, 'searchMessages: stored message missing mid — upstream write path is broken', {eventId: stored.eventId, timestamp: stored.timestamp});
+              throw new Error('StoredMessage.mid is required (searchMessages)');
+            }
+            const mid = stored.mid;
             const isOutgoing = stored.isOutgoing ?? (stored.senderPubkey === this.ownPubkey);
             const fromPeerId = isOutgoing ? undefined : peerId;
 
@@ -708,14 +757,28 @@ export class NostraMTProtoServer {
         await this.chatAPI.connect(peerPubkey);
       }
 
+      // Pass `twebPeerId` + `timestampSec` via the sendText opts so ChatAPI's
+      // internal partial save carries twebPeerId + isOutgoing:true AND pins
+      // its row timestamp to the SAME second VMT will use below. The second
+      // save adds `mid`. Pinning the timestamp is critical: if a downstream
+      // consumer (getDialogs / getHistory / refreshDialogPreview) observes
+      // the partial row BEFORE the mid-carrying save merges, the
+      // `latest.mid ?? await mapEventId(latest.eventId, latest.timestamp)`
+      // fallback must compute the IDENTICAL mid VMT writes here. Otherwise
+      // the mirror gains a ghost mid with no IDB counterpart (FIND-e49755c1
+      // residual).
       const text = params?.message ?? '';
-      const eventId: string = await this.chatAPI.sendText(text);
+      const twebPeerId = Math.abs(peerId);
       const now = Math.floor(Date.now() / 1000);
+
+      const eventId: string = await this.chatAPI.sendText(text, {twebPeerId, timestampSec: now});
       const mid = await this.mapper.mapEventId(eventId, now);
 
       const store = getMessageStore();
       const conversationId = store.getConversationId(this.ownPubkey, peerPubkey);
 
+      // Authoritative save with mid. Merges with ChatAPI's earlier partial
+      // row via message-store.ts:132-143.
       await store.saveMessage({
         eventId,
         conversationId,
@@ -725,7 +788,7 @@ export class NostraMTProtoServer {
         timestamp: now,
         deliveryState: 'sent',
         mid,
-        twebPeerId: Math.abs(peerId),
+        twebPeerId,
         isOutgoing: true
       });
 
@@ -847,6 +910,53 @@ export class NostraMTProtoServer {
       console.warn(LOG_PREFIX, 'editMessage: failed', err);
       return emptyUpdates;
     }
+  }
+
+  /**
+   * messages.sendReaction — route to kind-7 via nostraReactionsPublish.
+   *
+   * Extracts `peerId`, `mid`, and `emoji` from the tweb-shaped params,
+   * resolves the target message's relay event id + sender pubkey via
+   * `getMessageByPeerMid`, then invokes `nostraReactionsPublish.publish`.
+   * Always returns an empty tweb `updates` envelope — the UI reads the
+   * reactions store, not the MTProto response.
+   */
+  private async sendReaction(params: any): Promise<any> {
+    const emptyUpdates: any = {
+      _: 'updates',
+      updates: [],
+      users: [],
+      chats: [],
+      date: Math.floor(Date.now() / 1000),
+      seq: 0
+    };
+
+    const peerId = Number(params?.message?.peerId);
+    const mid = Number(params?.message?.mid);
+    const emoji = params?.reaction?.emoticon || '';
+
+    if(!Number.isFinite(peerId) || !Number.isFinite(mid)) return emptyUpdates;
+
+    const resolved = await this.getMessageByPeerMid(peerId, mid);
+    if(!resolved?.relayEventId) {
+      console.warn(LOG_PREFIX, 'sendReaction: target message not found', {peerId, mid});
+      return emptyUpdates;
+    }
+
+    try {
+      const {nostraReactionsPublish} = await import('./nostra-reactions-publish');
+      await nostraReactionsPublish.publish({
+        targetEventId: resolved.relayEventId,
+        targetMid: mid,
+        targetPeerId: peerId,
+        targetAuthor: resolved.senderPubkey,
+        emoji
+      });
+    } catch(e) {
+      console.warn(LOG_PREFIX, 'sendReaction: publish failed', e);
+    }
+
+    return emptyUpdates;
   }
 
   /**

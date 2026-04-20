@@ -1,0 +1,97 @@
+{
+  "seed": 102,
+  "backend": "local",
+  "commands": [
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userA",
+        "text": "$ JNnqb]s6"
+      },
+      "meta": {
+        "sentAt": 1776632584636,
+        "fromId": "userA",
+        "toId": "userB",
+        "text": "$ JNnqb]s6"
+      }
+    },
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userA",
+        "text": "hello"
+      },
+      "meta": {
+        "sentAt": 1776632585215,
+        "fromId": "userA",
+        "toId": "userB",
+        "text": "hello"
+      }
+    },
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userB",
+        "text": "uyim%{A:"
+      },
+      "meta": {
+        "sentAt": 1776632585784,
+        "fromId": "userB",
+        "toId": "userA",
+        "text": "uyim%{A:"
+      }
+    },
+    {
+      "name": "deleteRandomOwnBubble",
+      "args": {
+        "user": "userB"
+      },
+      "skipped": true
+    },
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userB",
+        "text": "test 123"
+      },
+      "meta": {
+        "sentAt": 1776632586667,
+        "fromId": "userB",
+        "toId": "userA",
+        "text": "test 123"
+      }
+    },
+    {
+      "name": "replyToRandomBubble",
+      "args": {
+        "from": "userA",
+        "text": "NJ"
+      },
+      "meta": {
+        "sentAt": 1776632587233,
+        "replyToMid": "1776632586185367",
+        "text": "NJ",
+        "fromId": "userA"
+      }
+    },
+    {
+      "name": "openRandomChat",
+      "args": {
+        "user": "userB"
+      }
+    },
+    {
+      "name": "sendText",
+      "args": {
+        "from": "userA",
+        "text": "hello"
+      },
+      "meta": {
+        "sentAt": 1776632588217,
+        "fromId": "userA",
+        "toId": "userB",
+        "text": "hello"
+      }
+    }
+  ]
+}

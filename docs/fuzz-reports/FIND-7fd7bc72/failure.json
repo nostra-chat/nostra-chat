@@ -1,0 +1,14 @@
+{
+  "invariantId": "INV-console-clean",
+  "tier": "cheap",
+  "message": "Unallowlisted console error: [pageerror] Cannot read properties of undefined (reading 'sticker')\nTypeError: Cannot read properties of undefined (reading 'sticker')\n    at wrapSticker (http://localhost:8090/src/components/wrappers/sticker.ts:72:27)\n    at wrapStickerAnimation (http://localhost:8090/src/components/wrappers/sticke",
+  "evidence": {
+    "badLine": "[pageerror] Cannot read properties of undefined (reading 'sticker')\nTypeError: Cannot read properties of undefined (reading 'sticker')\n    at wrapSticker (http://localhost:8090/src/components/wrappers/sticker.ts:72:27)\n    at wrapStickerAnimation (http://localhost:8090/src/components/wrappers/stickerAnimation.ts:53:26)\n    at onAvailableReaction (http://localhost:8090/src/components/chat/reaction.ts?t=1776499561809:419:23)\n    at http://localhost:8090/src/components/chat/reaction.ts?t=1776499561809:576:16"
+  },
+  "action": {
+    "name": "scrollHistoryUp",
+    "args": {
+      "user": "userA"
+    }
+  }
+}

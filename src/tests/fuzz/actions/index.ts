@@ -1,7 +1,7 @@
 // @ts-nocheck
 import * as fc from 'fast-check';
 import type {ActionSpec, Action} from '../types';
-import {sendText, replyToRandomBubble, editRandomOwnBubble, deleteRandomOwnBubble, reactToRandomBubble} from './messaging';
+import {sendText, replyToRandomBubble, editRandomOwnBubble, deleteRandomOwnBubble, reactToRandomBubble, removeReaction, reactMultipleEmoji} from './messaging';
 import {openRandomChat, scrollHistoryUp, waitForPropagation} from './navigation';
 
 export const ACTION_REGISTRY: ActionSpec[] = [
@@ -10,6 +10,8 @@ export const ACTION_REGISTRY: ActionSpec[] = [
   editRandomOwnBubble,
   deleteRandomOwnBubble,
   reactToRandomBubble,
+  removeReaction,
+  reactMultipleEmoji,
   openRandomChat,
   scrollHistoryUp,
   waitForPropagation
