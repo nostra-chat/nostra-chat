@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/nostra-chat/nostra-chat/compare/v0.9.0...v0.9.1) (2026-04-20)
+
+
+### Bug Fixes
+
+* **update:** register popup listeners before updateBootstrap dispatches ([5372da1](https://github.com/nostra-chat/nostra-chat/commit/5372da124098b364ea3bb617cc254dbe4d6e5244))
+
 ## [0.9.0](https://github.com/nostra-chat/nostra-chat/compare/v0.8.3...v0.9.0) (2026-04-20)
 
 
