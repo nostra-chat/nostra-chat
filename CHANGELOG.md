@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.3](https://github.com/nostra-chat/nostra-chat/compare/v0.8.2...v0.8.3) (2026-04-20)
+
+
+### Bug Fixes
+
+* **nostra:** populate getAvailableReactions stub so reactions menu renders ([#47](https://github.com/nostra-chat/nostra-chat/issues/47)) ([0a0f38a](https://github.com/nostra-chat/nostra-chat/commit/0a0f38a15989120ecc1695e91aaa45e8faafb7fb))
+
 ## [0.8.2](https://github.com/nostra-chat/nostra-chat/compare/v0.8.1...v0.8.2) (2026-04-20)
 
 
