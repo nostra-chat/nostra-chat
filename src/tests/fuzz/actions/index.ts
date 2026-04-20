@@ -5,6 +5,7 @@ import {sendText, replyToRandomBubble, editRandomOwnBubble, deleteRandomOwnBubbl
 import {openRandomChat, scrollHistoryUp, waitForPropagation} from './navigation';
 import {reloadPage, deleteWhileSending} from './lifecycle';
 import {reactViaUI} from './reactions';
+import {editNameAction, editBioAction, uploadAvatarAction, setNip05Action} from './profile';
 
 export const ACTION_REGISTRY: ActionSpec[] = [
   sendText,
@@ -19,7 +20,11 @@ export const ACTION_REGISTRY: ActionSpec[] = [
   scrollHistoryUp,
   waitForPropagation,
   reloadPage,
-  deleteWhileSending
+  deleteWhileSending,
+  editNameAction,
+  editBioAction,
+  uploadAvatarAction,
+  setNip05Action
 ];
 
 export const ACTIONS_BY_NAME: Record<string, ActionSpec> = Object.fromEntries(

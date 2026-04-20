@@ -10,6 +10,7 @@ import {noNip04, idbSeedEncrypted, editPreservesMidTimestamp, editAuthorCheck, v
 import {reactionDedupe, noKind7SelfEchoDrop, reactionBilateral, reactionAuthorCheck, reactionRemoveKind, reactionAggregatedRender} from './reactions';
 import {reactionsPickerNonempty} from './reactions-ui';
 import {historyRehydratesIdentical, offlineQueuePersistence, noDupAfterDeleteRace, noOrphanTempMidPostReload} from './lifecycle';
+import {invProfileKind0SingleActive, invProfileCacheCoherent, invProfilePropagates} from './profile';
 
 export const ALL_INVARIANTS: Invariant[] = [
   consoleClean,
@@ -25,6 +26,7 @@ export const ALL_INVARIANTS: Invariant[] = [
   noKind7SelfEchoDrop,
   reactionAggregatedRender,
   reactionsPickerNonempty,
+  invProfileKind0SingleActive,
   // Medium tier
   mirrorsIdbCoherent,
   storedMessageIdentityComplete,
@@ -35,6 +37,7 @@ export const ALL_INVARIANTS: Invariant[] = [
   historyRehydratesIdentical,
   offlineQueuePersistence,
   noOrphanTempMidPostReload,
+  invProfileCacheCoherent,
   // Regression tier
   noNip04,
   idbSeedEncrypted,
@@ -42,7 +45,8 @@ export const ALL_INVARIANTS: Invariant[] = [
   editAuthorCheck,
   virtualPeerIdStable,
   reactionAuthorCheck,
-  reactionRemoveKind
+  reactionRemoveKind,
+  invProfilePropagates
 ];
 
 const MEDIUM_EVERY = 10;

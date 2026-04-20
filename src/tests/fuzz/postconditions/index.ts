@@ -12,6 +12,11 @@ import {
   POST_react_multi_emoji_separate,
   POST_deleteWhileSending_consistent
 } from './messaging';
+import {
+  POST_editName_cache_updated,
+  POST_editName_relay_published,
+  POST_uploadAvatar_propagated
+} from './profile';
 
 export const POSTCONDITIONS: Record<string, Postcondition[]> = {
   sendText: [POST_sendText_bubble_appears, POST_sendText_input_cleared],
@@ -21,7 +26,9 @@ export const POSTCONDITIONS: Record<string, Postcondition[]> = {
   reactToRandomBubble: [POST_react_emoji_appears, POST_react_peer_sees_emoji],
   removeReaction: [POST_remove_reaction_peer_disappears],
   reactMultipleEmoji: [POST_react_multi_emoji_separate],
-  deleteWhileSending: [POST_deleteWhileSending_consistent]
+  deleteWhileSending: [POST_deleteWhileSending_consistent],
+  editName: [POST_editName_cache_updated, POST_editName_relay_published],
+  uploadAvatar: [POST_uploadAvatar_propagated]
 };
 
 export async function runPostconditions(

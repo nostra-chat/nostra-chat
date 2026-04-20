@@ -78,6 +78,43 @@ async function createUser(
   await context.addInitScript((url) => {
     (window as any).__nostraTestRelays = [{url, read: true, write: true}];
   }, relayUrl);
+
+  // Blossom mock: intercept PUT/POST to upload/media endpoints, hash body,
+  // stash bytes under window.__fuzzBlossomUploads, and return a fake
+  // `https://blossom.fuzz/<sha>.png` URL. Profile actions use this so
+  // real Blossom servers are never hit.
+  await context.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window);
+    (window as any).__fuzzBlossomUploads = new Map<string, Uint8Array>();
+    window.fetch = async function(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+      const url = typeof input === 'string' ? input : (input instanceof URL ? input.toString() : (input as Request).url);
+      const method = (init?.method || (input instanceof Request ? input.method : 'GET') || 'GET').toUpperCase();
+      if(url && /^https?:\/\/[^/]+\/(upload|media)(\/|\?|$)/.test(url) && (method === 'PUT' || method === 'POST')) {
+        const bodyAny = init?.body as any;
+        let body: Uint8Array;
+        try{
+          if(bodyAny instanceof Uint8Array) body = bodyAny;
+          else if(typeof Blob !== 'undefined' && bodyAny instanceof Blob) body = new Uint8Array(await bodyAny.arrayBuffer());
+          else if(bodyAny instanceof ArrayBuffer) body = new Uint8Array(bodyAny);
+          else if(typeof bodyAny === 'string') body = new TextEncoder().encode(bodyAny);
+          else body = new Uint8Array();
+        } catch{
+          body = new Uint8Array();
+        }
+        const hash = await crypto.subtle.digest('SHA-256', body);
+        const sha = Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, '0')).join('');
+        (window as any).__fuzzBlossomUploads.set(sha, body);
+        return new Response(JSON.stringify({
+          url: `https://blossom.fuzz/${sha}.png`,
+          sha256: sha,
+          size: body.byteLength,
+          uploaded: Math.floor(Date.now() / 1000)
+        }), {status: 200, headers: {'content-type': 'application/json'}});
+      }
+      return originalFetch(input as any, init);
+    } as typeof window.fetch;
+  });
+
   const page = await context.newPage();
 
   const consoleLog: string[] = [];
