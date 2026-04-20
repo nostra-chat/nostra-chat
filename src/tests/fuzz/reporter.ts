@@ -140,6 +140,110 @@ function parseTrace(lines: string[]): Action[] {
   return out;
 }
 
+const DEFAULT_PRELUDE = [
+  '# Fuzz Findings',
+  '',
+  '## Open (sorted by occurrences desc)',
+  '',
+  ''
+].join('\n');
+
+export interface FindingsZones {
+  prelude: string;
+  openEntries: ReportEntry[];
+  postlude: string;
+}
+
+export function splitFindingsZones(md: string): FindingsZones {
+  if(md.trim().length === 0) {
+    return {prelude: DEFAULT_PRELUDE, openEntries: [], postlude: ''};
+  }
+  const openHeadingRe = /^##\s+Open\b.*$/m;
+  const openMatch = openHeadingRe.exec(md);
+  if(!openMatch) {
+    return {prelude: md, openEntries: [], postlude: ''};
+  }
+  const openStartIdx = openMatch.index + openMatch[0].length;
+  const fixedHeadingRe = /^##\s+Fixed\b.*$/m;
+  const openBodyAndMore = md.slice(openStartIdx);
+  const fixedMatch = fixedHeadingRe.exec(openBodyAndMore);
+  let openBody: string;
+  let postlude: string;
+  if(fixedMatch) {
+    openBody = openBodyAndMore.slice(0, fixedMatch.index);
+    postlude = openBodyAndMore.slice(fixedMatch.index);
+  } else {
+    openBody = openBodyAndMore;
+    postlude = '';
+  }
+  const preludeBase = md.slice(0, openStartIdx);
+  const prelude = preludeBase + (openBody.startsWith('\n') ? '\n' : '\n');
+  const openEntries = parseFindingsMarkdown(openBody);
+  return {prelude, openEntries, postlude};
+}
+
+export interface IncomingFinding {
+  signature: string;
+  invariantId: string;
+  tier: ReportEntry['tier'];
+  assertion: string;
+  seed: number;
+  minimalTrace: Action[];
+}
+
+export function mergeFindings(
+  existingOpen: ReportEntry[],
+  incoming: IncomingFinding[],
+  fixedSignatures: Set<string>,
+  now: string
+): ReportEntry[] {
+  const byId = new Map<string, ReportEntry>();
+  for(const e of existingOpen) byId.set(e.signature, e);
+  for(const f of incoming) {
+    if(fixedSignatures.has(f.signature)) continue;
+    const prev = byId.get(f.signature);
+    if(prev) {
+      prev.occurrences += 1;
+      prev.lastSeen = now;
+    } else {
+      byId.set(f.signature, {
+        signature: f.signature,
+        invariantId: f.invariantId,
+        tier: f.tier,
+        assertion: f.assertion,
+        occurrences: 1,
+        firstSeen: now,
+        lastSeen: now,
+        seed: f.seed,
+        minimalTrace: f.minimalTrace,
+        status: 'open'
+      });
+    }
+  }
+  return [...byId.values()].sort((a, b) => b.occurrences - a.occurrences);
+}
+
+export function parseFixedSignatures(postlude: string): Set<string> {
+  const out = new Set<string>();
+  const re = /(?:^|\n)(?:####?)\s+FIND-([0-9a-f]{8})\b/g;
+  let m: RegExpExecArray | null;
+  while((m = re.exec(postlude)) !== null) out.add(m[1]);
+  return out;
+}
+
+export function writeFindingsMarkdownPure(
+  existing: string,
+  incoming: IncomingFinding[],
+  now: string
+): string {
+  const {prelude, openEntries, postlude} = splitFindingsZones(existing);
+  const fixedSigs = parseFixedSignatures(postlude);
+  const merged = mergeFindings(openEntries, incoming, fixedSigs, now);
+  const openRendered = merged.flatMap(renderEntry).join('\n');
+  const openBlock = openRendered.length > 0 ? openRendered + '\n' : '';
+  return prelude + openBlock + postlude;
+}
+
 export async function recordFinding(
   f: FailureDetails,
   minimalTrace: Action[],
@@ -158,29 +262,20 @@ export async function recordFinding(
 
   const release = await lockfile.lock(FINDINGS_PATH, {retries: 5, stale: 10_000});
   try{
-    const md = readFileSync(FINDINGS_PATH, 'utf8');
-    const entries = parseFindingsMarkdown(md);
-    const existing = entries.find((e) => e.signature === signature);
-    let isNew = false;
-    if(existing) {
-      existing.occurrences += 1;
-      existing.lastSeen = now;
-    } else {
-      isNew = true;
-      entries.push({
-        signature,
-        invariantId: f.invariantId,
-        tier: f.tier,
-        assertion: f.message,
-        occurrences: 1,
-        firstSeen: now,
-        lastSeen: now,
-        seed,
-        minimalTrace,
-        status: 'open'
-      });
-    }
-    writeFileSync(FINDINGS_PATH, renderFindingsMarkdown(entries), 'utf8');
+    const md = existsSync(FINDINGS_PATH) ? readFileSync(FINDINGS_PATH, 'utf8') : '';
+    const {openEntries} = splitFindingsZones(md);
+    const existing = openEntries.find((e) => e.signature === signature);
+    const isNew = !existing;
+    const incoming: IncomingFinding = {
+      signature,
+      invariantId: f.invariantId,
+      tier: f.tier,
+      assertion: f.message,
+      seed,
+      minimalTrace
+    };
+    const nextMd = writeFindingsMarkdownPure(md, [incoming], now);
+    writeFileSync(FINDINGS_PATH, nextMd, 'utf8');
     if(isNew && ctx) await writeArtifacts(signature, f, minimalTrace, seed, ctx);
     return {signature, isNew};
   } finally {
