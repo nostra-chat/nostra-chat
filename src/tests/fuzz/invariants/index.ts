@@ -8,6 +8,7 @@ import {mirrorsIdbCoherent, peersComplete, storedMessageIdentityComplete} from '
 import {offlineQueuePurged} from './queue';
 import {noNip04, idbSeedEncrypted, editPreservesMidTimestamp, editAuthorCheck, virtualPeerIdStable} from './regression';
 import {reactionDedupe, noKind7SelfEchoDrop, reactionBilateral, reactionAuthorCheck, reactionRemoveKind, reactionAggregatedRender} from './reactions';
+import {reactionsPickerNonempty} from './reactions-ui';
 import {historyRehydratesIdentical, offlineQueuePersistence, noDupAfterDeleteRace, noOrphanTempMidPostReload} from './lifecycle';
 
 export const ALL_INVARIANTS: Invariant[] = [
@@ -23,6 +24,7 @@ export const ALL_INVARIANTS: Invariant[] = [
   reactionDedupe,
   noKind7SelfEchoDrop,
   reactionAggregatedRender,
+  reactionsPickerNonempty,
   // Medium tier
   mirrorsIdbCoherent,
   storedMessageIdentityComplete,

@@ -4,6 +4,7 @@ import type {ActionSpec, Action} from '../types';
 import {sendText, replyToRandomBubble, editRandomOwnBubble, deleteRandomOwnBubble, reactToRandomBubble, removeReaction, reactMultipleEmoji} from './messaging';
 import {openRandomChat, scrollHistoryUp, waitForPropagation} from './navigation';
 import {reloadPage, deleteWhileSending} from './lifecycle';
+import {reactViaUI} from './reactions';
 
 export const ACTION_REGISTRY: ActionSpec[] = [
   sendText,
@@ -11,6 +12,7 @@ export const ACTION_REGISTRY: ActionSpec[] = [
   editRandomOwnBubble,
   deleteRandomOwnBubble,
   reactToRandomBubble,
+  reactViaUI,
   removeReaction,
   reactMultipleEmoji,
   openRandomChat,
