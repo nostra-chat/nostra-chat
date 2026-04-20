@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.8.0](https://github.com/nostra-chat/nostra-chat/compare/v0.7.5...v0.8.0) (2026-04-20)
+
+
+### Features
+
+* **folders:** rename default folder to People, add icon picker, remove premium limit ([#40](https://github.com/nostra-chat/nostra-chat/issues/40)) ([7309b9e](https://github.com/nostra-chat/nostra-chat/commit/7309b9e1043e8708d50e7bfb139303e9dc74a671))
+* **fuzz:** bug fuzzer phase 1 MVP — stateful property-based testing harness ([ef69141](https://github.com/nostra-chat/nostra-chat/commit/ef69141ddc46164f0f47707e5afba5960c8d2852))
+* **fuzz:** phase 2a — stability pass (close 3 P2P blockers + medium/regression invariants + baseline) ([#41](https://github.com/nostra-chat/nostra-chat/issues/41)) ([596977e](https://github.com/nostra-chat/nostra-chat/commit/596977eb67add583711bb49610ba34520d1b3c06))
+* **fuzz:** phase 2b.1 — reactions NIP-25 RX + 5 Phase-2a FINDs closed + identity triple architecture ([#42](https://github.com/nostra-chat/nostra-chat/issues/42)) ([da0f156](https://github.com/nostra-chat/nostra-chat/commit/da0f156863797c3f94268ea52183e9a17bfd46e2))
+* **fuzz:** phase 2b.2a — lifecycle + 3 carry-forward FINDs closed + baseline v2b1 deferred to 2b.2b ([#43](https://github.com/nostra-chat/nostra-chat/issues/43)) ([8343763](https://github.com/nostra-chat/nostra-chat/commit/83437633134bccaf2c14a082c39cfdae5cbb224a))
+
+
+### Bug Fixes
+
+* **bubbles:** guard wrapSticker against undefined doc in empty-chat placeholder ([99301ac](https://github.com/nostra-chat/nostra-chat/commit/99301ace7f0b2778b73022baa867bcf177477760))
+* **fuzz:** allowlist PEER_CHANGED_ERROR pageerror — intentional by-design cancellation ([10c7c2c](https://github.com/nostra-chat/nostra-chat/commit/10c7c2cefcd754a3f0675260fac575f407c829c2))
+* **fuzz:** broaden internal-logger allowlist for ANSI-prefixed variants ([105a7c4](https://github.com/nostra-chat/nostra-chat/commit/105a7c4598c4a20f52017a7012e654227c89a4ff))
+* **fuzz:** broaden Solid dev-warning allowlist to cover cleanups/effects/etc ([e749ed1](https://github.com/nostra-chat/nostra-chat/commit/e749ed12c0f82cc4eb9c3934b424d531e3a506df))
+* **fuzz:** clear console ring after harness boot so startup noise isn't flagged ([3877bbc](https://github.com/nostra-chat/nostra-chat/commit/3877bbc227b0ec25267daef1ab76550ea6186892))
+* **fuzz:** INV-sent-bubble-visible-after-send uses trimmed text (same as postcondition) ([633aed7](https://github.com/nostra-chat/nostra-chat/commit/633aed7816aba1b05ba85e99b775755930cec4a8))
+* **fuzz:** mute INV-no-dup-mid, restore reply action ([2901536](https://github.com/nostra-chat/nostra-chat/commit/290153678437fbbe9eb828293dfe180efb732434))
+* **fuzz:** mute react + delete postconditions — dominated signal, deferred to Phase 2 ([a80685b](https://github.com/nostra-chat/nostra-chat/commit/a80685b0be5edb4c053dd5cf95eed0fb0f54d146))
+* **fuzz:** mute replyToRandomBubble pending dup-mid investigation ([079446f](https://github.com/nostra-chat/nostra-chat/commit/079446f629267100a02883c60924e1172d513439))
+* **fuzz:** peer-changed allowlist regex — match multi-line pageerror (stack trace follows) ([d82c0b8](https://github.com/nostra-chat/nostra-chat/commit/d82c0b8561b4421c277f5938ce4bdb69fc9e6bcf))
+* **fuzz:** POST_sendText_bubble_appears uses trimmed text — tweb trims whitespace on send ([0ac0c9f](https://github.com/nostra-chat/nostra-chat/commit/0ac0c9f918c3d628b972a0087fdfe8c7923418d0))
+* **fuzz:** signature normalisation + broaden internal-logger allowlist ([0d739be](https://github.com/nostra-chat/nostra-chat/commit/0d739beb7aac7831a2c5753c1c20c7a3c0703210))
+* **fuzz:** signature normalise — collapse emoji + decimal mid + HEX ordering ([d6dbdc9](https://github.com/nostra-chat/nostra-chat/commit/d6dbdc92b3bf8a0eb6887d1ca3d680dcb2ea1d5d))
+* **reaction:** guard center_icon access when availableReaction is missing (Nostra stub) ([8dc2c86](https://github.com/nostra-chat/nostra-chat/commit/8dc2c86cacc06fbb074dd06ee20c00a91bfb41b1))
+* **reaction:** skip around-animation when reaction + sticker + effect all missing ([ea3ea98](https://github.com/nostra-chat/nostra-chat/commit/ea3ea983426616aeb3ed851759d1b5b74dd14af8))
+* **security:** verify inbound sigs, bind seal↔rumor pubkey, zero keys on logout ([954d5bc](https://github.com/nostra-chat/nostra-chat/commit/954d5bc75004c1d86e95ff793be674dfc6f0f7e9))
+* **stickers:** don't throw NO_STICKERS when sticker backend is empty (Nostra) ([e600677](https://github.com/nostra-chat/nostra-chat/commit/e60067732b9de24481b8ebb9ac087b7e352fac58))
+* **vmtproto:** static response for messages.getMessageReactionsList ([04d07ff](https://github.com/nostra-chat/nostra-chat/commit/04d07ffd322088720f00047fb31c865b1d95cc5a))
+* **vmtproto:** static responses for chat-open MTProto methods + diagnostic fallback log ([fbd8b56](https://github.com/nostra-chat/nostra-chat/commit/fbd8b56b3aeae5d0536377aec2c7c05345ecdee5))
+
+
+### Performance
+
+* **build:** drop prod sourcemaps, slim prism, gate visualizer ([5f9b01f](https://github.com/nostra-chat/nostra-chat/commit/5f9b01f9932cba49baa752d9ecd8551260359bdd))
+
 ## [0.7.5](https://github.com/nostra-chat/nostra-chat/compare/v0.7.4...v0.7.5) (2026-04-17)
 
 
