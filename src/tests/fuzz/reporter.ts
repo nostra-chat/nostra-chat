@@ -176,8 +176,9 @@ export function splitFindingsZones(md: string): FindingsZones {
     openBody = openBodyAndMore;
     postlude = '';
   }
-  const preludeBase = md.slice(0, openStartIdx);
-  const prelude = preludeBase + (openBody.startsWith('\n') ? '\n' : '\n');
+  // Ensure prelude ends with a newline so rendered Open entries don't collide
+  // with the `## Open …` heading text.
+  const prelude = md.slice(0, openStartIdx) + '\n';
   const openEntries = parseFindingsMarkdown(openBody);
   return {prelude, openEntries, postlude};
 }
