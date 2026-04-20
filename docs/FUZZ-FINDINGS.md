@@ -1,11 +1,21 @@
 # Fuzz Findings
 
 Last updated: 2026-04-20
-Open bugs: 0 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3
+Open bugs: 1 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3
 
 ## Open (sorted by occurrences desc)
 
-_(none)_
+### FIND-chrono-v2 — INV-bubble-chronological (same-second tempMid race)
+
+**Status:** OPEN (carry-forward to Phase 2b.2b)
+**Tier:** cheap
+**First observed:** 2026-04-20 during Task 4 investigation of FIND-eef9f130
+**Assertion:** `INV-bubble-chronological` fires on ~60% of `FIND-eef9f130` replays even AFTER Task 2's `bubbleGroups` sort-key fix (which covered FIND-c0046153's specific trace at 9/9). The residual flake is a DIFFERENT race: same-second same-user interleaved send where the `is-sending` placeholder bubble has `tempMid = topMessage + 1` based on the previous topMessage, but a concurrent peer-incoming bubble arrives with the same `timestampSec`. Task 2's switch to `'timestamp'` sort key resolves same-second ties by insertion order (non-deterministic), exposing a new variant.
+
+**Reproduction:** `pnpm fuzz --replay=FIND-eef9f130` — ~60% of runs.
+**Relationship to FIND-c0046153:** Distinct. c0046153's trace passes 9/9. This is a contention variant surfaced by eef9f130's higher-concurrency sequence.
+**Hypothesis:** fix either (a) add `mid` as tiebreaker after `timestamp` in the P2P sort (straightforward), or (b) root-cause fix `generateTempMessageId` to encode wall-clock seconds (deeper).
+**Owner:** Phase 2b.2b.
 
 ## Fixed
 

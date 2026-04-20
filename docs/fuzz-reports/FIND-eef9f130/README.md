@@ -138,4 +138,4 @@ while(Date.now() < deadline) {
 return {ok: false, message: ..., evidence: {text: lastText}};
 ```
 
-Mirrors the 2.5s+ pattern already established by `POST_sendText_bubble_appears`. Under normal conditions the clear resolves in <300ms; the 3s deadline is diagnostic overhead, not a latency guarantee — a genuinely stuck clear would still fail the postcondition cleanly with the last-observed textContent in `evidence`.
+Mirrors the 2.5s+ pattern already established by `POST_sendText_bubble_appears`. The 3s deadline is both (a) a fail-safe for when the clear pipeline genuinely fails — a stuck pipeline will wait the full 3s and then report `still contains "<text>"` with the last-observed textContent as evidence — and (b) patience budget for normal contention. In the fast path, the loop exits on the first successful probe (<300ms observed) and adds no measurable latency. Matches the precedent of `POST_edit_content_updated` (also 3s deadline).
