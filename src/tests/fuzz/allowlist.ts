@@ -91,7 +91,7 @@ export const CONSOLE_ALLOWLIST: readonly RegExp[] = [
   // not a regression introduced by any Phase 2b change; it predates the
   // fuzzer and fires within the first few seconds of boot during P2P contact
   // exchange. Allowlisted so it doesn't mask the actual FIND under test.
-  /\[ACC-\d+-MESSAGES\] noIdsDialogs/
+  /\[ACC-\d+-MESSAGES\] noIdsDialogs\b/
 ];
 
 /**
