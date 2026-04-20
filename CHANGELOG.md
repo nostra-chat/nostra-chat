@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/nostra-chat/nostra-chat/compare/v0.8.1...v0.8.2) (2026-04-20)
+
+
+### Bug Fixes
+
+* **update:** register already-installed SW URL to stop false compromise alerts on every deploy ([#45](https://github.com/nostra-chat/nostra-chat/issues/45)) ([ff6550f](https://github.com/nostra-chat/nostra-chat/commit/ff6550f6370dbb1d0e35c20ad328ea6c11337499))
+
 ## [0.8.1](https://github.com/nostra-chat/nostra-chat/compare/v0.8.0...v0.8.1) (2026-04-20)
 
 
