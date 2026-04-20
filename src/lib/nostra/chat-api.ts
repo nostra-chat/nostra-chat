@@ -189,6 +189,14 @@ export class ChatAPI {
       });
     }
 
+    // Wire the reactions publish module as early as possible. Previously this
+    // was only done inside initGlobalSubscription(), which is fire-and-forget
+    // and can be overtaken by an early sendReaction coming through the VMT
+    // bridge — observed as "ChatAPI not wired" in FIND-bbf8efa8. Doing it in
+    // the constructor makes wiring deterministic without waiting on the relay
+    // pool to connect.
+    setReactionsChatAPI(this as any);
+
     // Expose for debug inspection
     if(typeof window !== 'undefined') {
       (window as any).__nostraChatAPI = this;

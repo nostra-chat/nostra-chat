@@ -7,7 +7,7 @@ import {avatarDomMatchesCache} from './avatar';
 import {mirrorsIdbCoherent, peersComplete, storedMessageIdentityComplete} from './state';
 import {offlineQueuePurged} from './queue';
 import {noNip04, idbSeedEncrypted, editPreservesMidTimestamp, editAuthorCheck, virtualPeerIdStable} from './regression';
-import {reactionDedupe, noKind7SelfEchoDrop, reactionBilateral, reactionAuthorCheck, reactionRemoveKind} from './reactions';
+import {reactionDedupe, noKind7SelfEchoDrop, reactionBilateral, reactionAuthorCheck, reactionRemoveKind, reactionAggregatedRender} from './reactions';
 
 export const ALL_INVARIANTS: Invariant[] = [
   consoleClean,
@@ -20,6 +20,7 @@ export const ALL_INVARIANTS: Invariant[] = [
   // Cheap — reactions
   reactionDedupe,
   noKind7SelfEchoDrop,
+  reactionAggregatedRender,
   // Medium tier
   mirrorsIdbCoherent,
   storedMessageIdentityComplete,

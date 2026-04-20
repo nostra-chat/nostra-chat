@@ -1,26 +1,9 @@
 # Fuzz Findings
 
 Last updated: 2026-04-20
-Open bugs: 2 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 1
+Open bugs: 1 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 2
 
 ## Open (sorted by occurrences desc)
-
-### FIND-bbf8efa8 — POST_react_multi_emoji_separate
-- **Status**: open
-- **Tier**: postcondition
-- **Occurrences**: 1
-- **First seen**: 2026-04-19 21:01:57
-- **Last seen**: 2026-04-19 21:01:57
-- **Seed**: 101
-- **Assertion**: "sender userB missing one of 👍,❤️,😂 on bubble 1776632512772244"
-- **Replay**: `pnpm fuzz --replay=FIND-bbf8efa8`
-- **Minimal trace** (3 actions):
-  1. `sendText({"from":"userA","text":"hi"})`
-  2. `sendText({"from":"userA","text":"10B9|tl`k\"A"})`
-  3. `reactMultipleEmoji({"user":"userB","emojis":["👍","❤️","😂"]})`
-- **Scope**: Phase 2b.2 investigation. Likely cause: render aggregation issue — `renderNostraReactions` may collide with tweb's legacy `.reactions` element, or a cache-refresh race drops earlier emojis on re-render.
-- **Signature note**: manually-assigned from trace hash.
-- **Artifacts**: [`docs/fuzz-reports/FIND-bbf8efa8/`](../fuzz-reports/FIND-bbf8efa8/)
 
 ### FIND-eef9f130 — POST-sendText-input-cleared
 - **Status**: open
@@ -47,6 +30,24 @@ Open bugs: 2 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 1
 ## Fixed
 
 ### Fixed in Phase 2b.2a
+
+#### FIND-bbf8efa8 — POST_react_multi_emoji_separate
+- **Status**: fixed in Phase 2b.2a
+- **Tier**: postcondition
+- **Occurrences**: 1
+- **First seen**: 2026-04-19 21:01:57
+- **Last seen**: 2026-04-19 21:01:57
+- **Seed**: 101
+- **Assertion**: "sender userB missing one of 👍,❤️,😂 on bubble 1776632512772244"
+- **Replay**: `pnpm fuzz --replay=FIND-bbf8efa8` (passes after fix; previously failed at action 3 postcondition)
+- **Minimal trace** (3 actions):
+  1. `sendText({"from":"userA","text":"hi"})`
+  2. `sendText({"from":"userA","text":"10B9|tl`k\"A"})`
+  3. `reactMultipleEmoji({"user":"userB","emojis":["👍","❤️","😂"]})`
+- **Root cause**: Two layered races surfaced by the rapid-fire 3-publish sequence: (1) `setReactionsChatAPI` was only called inside the fire-and-forget `initGlobalSubscription()`, so a `connect(peer)` that resolved first could overtake the wiring and every VMT-bridge `sendReaction` failed with `"ChatAPI not wired"`; (2) once wired, the render listener in `bubbles.ts` (registered before the cache-warmer in `nostra-reactions-local.ts`) read `getReactions()` synchronously before the warmer's async `getAll()` refresh completed — each of the 3 dispatches rendered the previous dispatch's snapshot, leaving the final DOM at 2/3 emojis.
+- **Fix**: (1) Move `setReactionsChatAPI(this as any)` into the ChatAPI constructor so the publish module is wired before any async path can overtake it. (2) Add `NostraReactionsLocal.getReactionsFresh(peerId, mid)` which awaits a store refresh before returning; use it in the `nostra_reactions_changed` render listener in `bubbles.ts`. Scope: 3 files, 27 LOC. `src/lib/nostra/chat-api.ts`, `src/lib/nostra/nostra-reactions-local.ts`, `src/components/chat/bubbles.ts`.
+- **Regression test**: `src/tests/fuzz/invariants/reactions.ts` — `INV-reaction-aggregated-render` (cheap tier) verifies all emojis from `reactMultipleEmoji.meta.emojis` are present in the sender bubble's `.reactions` after the postcondition settles. Vitest cases in `reactions.test.ts`.
+- **Artifacts**: [`docs/fuzz-reports/FIND-bbf8efa8/`](../fuzz-reports/FIND-bbf8efa8/)
 
 #### FIND-c0046153 — INV-bubble-chronological
 - **Status**: fixed in Phase 2b.2a
