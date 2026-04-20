@@ -9,7 +9,8 @@ import {
   POST_react_emoji_appears,
   POST_react_peer_sees_emoji,
   POST_remove_reaction_peer_disappears,
-  POST_react_multi_emoji_separate
+  POST_react_multi_emoji_separate,
+  POST_deleteWhileSending_consistent
 } from './messaging';
 
 export const POSTCONDITIONS: Record<string, Postcondition[]> = {
@@ -19,7 +20,8 @@ export const POSTCONDITIONS: Record<string, Postcondition[]> = {
   deleteRandomOwnBubble: [POST_delete_local_bubble_gone],
   reactToRandomBubble: [POST_react_emoji_appears, POST_react_peer_sees_emoji],
   removeReaction: [POST_remove_reaction_peer_disappears],
-  reactMultipleEmoji: [POST_react_multi_emoji_separate]
+  reactMultipleEmoji: [POST_react_multi_emoji_separate],
+  deleteWhileSending: [POST_deleteWhileSending_consistent]
 };
 
 export async function runPostconditions(

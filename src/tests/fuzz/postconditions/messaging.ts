@@ -200,6 +200,36 @@ export const POST_remove_reaction_peer_disappears: Postcondition = {
   }
 };
 
+export const POST_deleteWhileSending_consistent: Postcondition = {
+  id: 'POST_deleteWhileSending_consistent',
+  async check(ctx: FuzzContext, action: Action): Promise<InvariantResult> {
+    if(action.skipped) return {ok: true};
+    const text: string = action.meta?.text || '';
+    if(!text) return {ok: true};
+    // Poll up to 3s; outcome must be symmetric: both sides see the msg, or neither does.
+    const deadline = Date.now() + 3000;
+    while(Date.now() < deadline) {
+      const states: Record<string, boolean> = {};
+      for(const id of ['userA', 'userB'] as const) {
+        const user: any = ctx.users[id];
+        states[id] = await user.page.evaluate((needle: string) => {
+          const bubbles = Array.from(document.querySelectorAll('.bubbles-inner .bubble[data-mid]'));
+          return bubbles.some((b) => (b.textContent || '').includes(needle));
+        }, text);
+      }
+      if(states.userA === states.userB) return {ok: true};
+      await ctx.users.userA.page.waitForTimeout(250);
+    }
+    // Final read
+    const sender = ctx.users[action.args.user as 'userA' | 'userB'];
+    const peer = ctx.users[action.args.user === 'userA' ? 'userB' : 'userA'];
+    const senderHas = await sender.page.evaluate((n: string) => Array.from(document.querySelectorAll('.bubbles-inner .bubble[data-mid]')).some((b) => (b.textContent || '').includes(n)), text);
+    const peerHas = await peer.page.evaluate((n: string) => Array.from(document.querySelectorAll('.bubbles-inner .bubble[data-mid]')).some((b) => (b.textContent || '').includes(n)), text);
+    if(senderHas === peerHas) return {ok: true};
+    return {ok: false, message: `asymmetric deleteWhileSending outcome: sender=${senderHas}, peer=${peerHas} for text "${text}"`, evidence: {senderHas, peerHas, text}};
+  }
+};
+
 export const POST_react_multi_emoji_separate: Postcondition = {
   id: 'POST_react_multi_emoji_separate',
   async check(ctx: FuzzContext, action: Action) {
