@@ -205,8 +205,11 @@ export class ChatReactionsMenu {
       this.availableReactions = availableReactions;
       this.freeCustomEmoji = new Set(
         this.availableReactions
-        .map((availableReaction) => availableReaction.select_animation.id)
-        .concat(reactions.map((reaction) => this.reactionToDocId(reaction)))
+        // Nostra mode: catalog entries may have no lottie docs (select_animation
+        // undefined), so optional-chain the id access and filter nullish ids.
+        .map((availableReaction) => availableReaction.select_animation?.id)
+        .filter(Boolean)
+        .concat(reactions.map((reaction) => this.reactionToDocId(reaction)).filter(Boolean))
       );
     }
 
@@ -322,8 +325,11 @@ export class ChatReactionsMenu {
     if(reaction._ === 'reactionPaid') return PAID_REACTION_EMOJI_DOCID;
     let docId = (reaction as Reaction.reactionCustomEmoji).document_id;
     if(!docId) {
+      // Nostra mode: availableReaction may be missing (catalog filtered), or
+      // present without lottie docs. Either case yields an undefined docId —
+      // callers (`filter(Boolean)` on the Set construction) must tolerate it.
       const availableReaction = this.availableReactions.find((_reaction) => _reaction.reaction === (reaction as Reaction.reactionEmoji).emoticon);
-      docId = availableReaction.select_animation.id;
+      docId = availableReaction?.select_animation?.id;
     }
 
     return docId;
@@ -577,7 +583,7 @@ export class ChatReactionsMenu {
       });
 
       loadPromises.push(promise);
-    } else if(!canUseAnimations || !availableReaction) {
+    } else if(!canUseAnimations || !availableReaction || !availableReaction.appear_animation) {
       delete options.needFadeIn;
       delete options.withThumb;
 
@@ -593,17 +599,26 @@ export class ChatReactionsMenu {
 
       let doc = availableReaction?.static_icon, delay = false;
       if(!doc) {
-        const result = await this.managers.acknowledged.appEmojiManager.getCustomEmojiDocument((reaction as Reaction.reactionCustomEmoji).document_id);
-        if(result.cached) {
-          doc = await result.result;
+        // Nostra mode: plain emoji reactions (reactionEmoji) have no custom
+        // emoji document_id, and the catalog entries have no static_icon
+        // either. Render the emoji character directly as text — the menu
+        // button still receives clicks via the reactionsMap wiring above.
+        if(reaction._ === 'reactionEmoji') {
+          appearWrapper.textContent = (reaction as Reaction.reactionEmoji).emoticon;
+          appearWrapper.classList.add('reaction-text-emoji');
         } else {
-          delete options.loadPromises;
-          delay = true;
-          result.result.then((_doc) => (doc = _doc, wrap()));
+          const result = await this.managers.acknowledged.appEmojiManager.getCustomEmojiDocument((reaction as Reaction.reactionCustomEmoji).document_id);
+          if(result.cached) {
+            doc = await result.result;
+          } else {
+            delete options.loadPromises;
+            delay = true;
+            result.result.then((_doc) => (doc = _doc, wrap()));
+          }
         }
       }
 
-      if(!delay) {
+      if(!delay && doc) {
         wrap();
       }
     } else {

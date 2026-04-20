@@ -622,7 +622,22 @@ export class ApiManager extends ApiManagerMethods {
     'messages.getStickers': {_: 'messages.stickers', hash: 0, stickers: []},
     'messages.getAllStickers': {_: 'messages.allStickers', hash: 0, sets: []},
     'messages.getEmojiKeywordsDifference': {_: 'emojiKeywordsDifference', lang_code: 'en', from_version: 0, version: 1, keywords: []},
-    'messages.getAvailableReactions': {_: 'messages.availableReactions', hash: 0, reactions: []},
+    // Nostra mode: the sticker/lottie catalog doesn't exist P2P-side, so the
+    // `static_icon`/`appear_animation`/`select_animation`/etc. Document fields
+    // are intentionally undefined. `reactionsMenu.ts` + `reaction.ts` have
+    // guards to fall back to plain emoji text rendering when the docs are
+    // missing. Populating `reaction` + `title` gives the UI enough metadata
+    // to show the picker and wire clicks through to the NIP-25 send path.
+    'messages.getAvailableReactions': {_: 'messages.availableReactions', hash: 0, reactions: [
+      {_: 'availableReaction', pFlags: {}, reaction: '\u{1F44D}', title: '\u{1F44D}', static_icon: undefined, appear_animation: undefined, select_animation: undefined, activate_animation: undefined, effect_animation: undefined, around_animation: undefined, center_icon: undefined},
+      {_: 'availableReaction', pFlags: {}, reaction: '\u2764\uFE0F', title: '\u2764\uFE0F', static_icon: undefined, appear_animation: undefined, select_animation: undefined, activate_animation: undefined, effect_animation: undefined, around_animation: undefined, center_icon: undefined},
+      {_: 'availableReaction', pFlags: {}, reaction: '\u{1F602}', title: '\u{1F602}', static_icon: undefined, appear_animation: undefined, select_animation: undefined, activate_animation: undefined, effect_animation: undefined, around_animation: undefined, center_icon: undefined},
+      {_: 'availableReaction', pFlags: {}, reaction: '\u{1F525}', title: '\u{1F525}', static_icon: undefined, appear_animation: undefined, select_animation: undefined, activate_animation: undefined, effect_animation: undefined, around_animation: undefined, center_icon: undefined},
+      {_: 'availableReaction', pFlags: {}, reaction: '\u{1F389}', title: '\u{1F389}', static_icon: undefined, appear_animation: undefined, select_animation: undefined, activate_animation: undefined, effect_animation: undefined, around_animation: undefined, center_icon: undefined},
+      {_: 'availableReaction', pFlags: {}, reaction: '\u{1F622}', title: '\u{1F622}', static_icon: undefined, appear_animation: undefined, select_animation: undefined, activate_animation: undefined, effect_animation: undefined, around_animation: undefined, center_icon: undefined},
+      {_: 'availableReaction', pFlags: {}, reaction: '\u{1F621}', title: '\u{1F621}', static_icon: undefined, appear_animation: undefined, select_animation: undefined, activate_animation: undefined, effect_animation: undefined, around_animation: undefined, center_icon: undefined},
+      {_: 'availableReaction', pFlags: {}, reaction: '\u{1F914}', title: '\u{1F914}', static_icon: undefined, appear_animation: undefined, select_animation: undefined, activate_animation: undefined, effect_animation: undefined, around_animation: undefined, center_icon: undefined}
+    ]},
     // Found by fuzzer (FIND-5c45981a): chat-open fires getMessageReactionsList +
     // getAvailableEffects + getPeerSettings, all of which crashed downstream
     // processResult calls on the `{pFlags:{}}` fallback. Ship properly-shaped
@@ -632,7 +647,19 @@ export class ApiManager extends ApiManagerMethods {
     'messages.getPeerSettings': {_: 'messages.peerSettings', settings: {_: 'peerSettings', pFlags: {}}, chats: [], users: []},
     'messages.getEmojiKeywords': {_: 'emojiKeywordsDifference', lang_code: 'en', from_version: 0, version: 1, keywords: []},
     'messages.getEmojiStickers': {_: 'messages.allStickers', hash: 0, sets: []},
-    'messages.getTopReactions': {_: 'messages.reactions', hash: 0, reactions: []},
+    // Nostra mode: peer reactions menu is rendered from getTopReactions, so
+    // it MUST mirror the getAvailableReactions catalog — else the picker
+    // renders 0 entries even when the catalog is populated.
+    'messages.getTopReactions': {_: 'messages.reactions', hash: 0, reactions: [
+      {_: 'reactionEmoji', emoticon: '\u{1F44D}'},
+      {_: 'reactionEmoji', emoticon: '\u2764\uFE0F'},
+      {_: 'reactionEmoji', emoticon: '\u{1F602}'},
+      {_: 'reactionEmoji', emoticon: '\u{1F525}'},
+      {_: 'reactionEmoji', emoticon: '\u{1F389}'},
+      {_: 'reactionEmoji', emoticon: '\u{1F622}'},
+      {_: 'reactionEmoji', emoticon: '\u{1F621}'},
+      {_: 'reactionEmoji', emoticon: '\u{1F914}'}
+    ]},
     'messages.getRecentReactions': {_: 'messages.reactions', hash: 0, reactions: []},
     'messages.getPaidReactionPrivacy': {_: 'updates', updates: [{_: 'updatePaidReactionPrivacy', private: false}], users: [], chats: [], date: 0, seq: 0},
     'messages.getCustomEmojiDocuments': [],
