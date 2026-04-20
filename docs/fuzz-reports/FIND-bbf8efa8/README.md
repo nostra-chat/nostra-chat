@@ -74,3 +74,12 @@ pnpm fuzz --replay=FIND-bbf8efa8
 - `console.log` — 34 KB of browser console output
 - `dom-A.html` / `dom-B.html` — full DOM snapshots at failure
 - `screenshot-A.png` / `screenshot-B.png` — final viewport showing partial reaction render
+
+## Triage (2b.2a session)
+
+- **Replay status**: REPRODUCED (log: `/tmp/repro-bbf8efa8.log`)
+- **Failure observed**: `POST_react_multi_emoji_separate` fires at action 3 (`reactMultipleEmoji userB ["👍","❤️","😂"]`) — `sender userB missing one of 👍,❤️,😂 on bubble 1776684477450509`.
+- **Verdict**: PROD
+- **Hypothesis selected**: H1 (Hypothesis A in README) — legacy tweb `.reactions` container collision with `renderNostraReactions`. The last `nostra_reactions_changed` re-render wins and overwrites prior emoji entries rather than aggregating, because `renderNostraReactions` likely clears the container on each invocation and the 3 rapid kind-7 events trigger 3 sequential re-renders.
+- **Planned fix scope**: `src/components/chat/reaction.ts` and/or `src/lib/nostra/nostra-reactions-receive.ts` — ensure `renderNostraReactions` reads the full current set from the store (all upserted rows for that `mid`) rather than committing a snapshot from a single event's payload.
+- **Time-box**: 2h. Escape: downgrade `POST_react_multi_emoji_separate` postcondition to `skip: true` with TODO, carry-forward to 2b.2b.

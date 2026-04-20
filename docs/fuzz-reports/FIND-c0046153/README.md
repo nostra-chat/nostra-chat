@@ -67,3 +67,14 @@ Trace + failure.json committed in this directory.
 - `console.log` — 94 KB of browser console output captured during the run
 - `dom-A.html` / `dom-B.html` — full DOM snapshots at failure
 - `screenshot-A.png` / `screenshot-B.png` — final viewport
+
+## Triage (2b.2a session)
+
+- **Replay status**: REPRODUCED (log: `/tmp/repro-c0046153.log`)
+- **Reproduction note**: Two allowlist entries were added to `src/tests/fuzz/allowlist.ts` before the replay succeeded: (1) dev-mode SW registration failure (Playwright headless cannot start Vite module-type SWs — production build is unaffected), and (2) `[ACC-N-MESSAGES] noIdsDialogs` (pre-existing P2P diagnostic that straddles the 5 s warmup window depending on machine speed). Both are dev/timing artefacts unrelated to this FIND.
+- **Failure observed**: `INV-bubble-chronological` fires at action 10 (`replyToRandomBubble userA`) with `timestamps: [1776684401, 1776684403, 1776684401, 1776684405]` — idx 1 > idx 2.
+- **Verdict**: PROD
+- **Hypothesis selected**: H1 — `nostra_new_message` / `history_append` path inserts bubbles in relay-receive order rather than sorting by `created_at`. Two messages sent within the same second get the same `created_at`, and the one received second is appended after the one already in the DOM even when its timestamp is older.
+- **Planned fix scope**: `src/lib/nostra/nostra-sync.ts` (dispatch order) and/or `src/components/chat/bubbles.ts` (`insertBubble` sort key — verify it uses `created_at`, not DOM-append order).
+- **Carry-forward note**: This bug also blocks FIND-eef9f130's replay — the chronological invariant fires during eef9f130's trace before reaching the input-clear check. Fixing c0046153 unblocks independent eef9f130 reproduction.
+- **Time-box**: 2h. Escape: downgrade `INV-bubble-chronological` to `skip: true` with TODO, carry-forward to 2b.2b.

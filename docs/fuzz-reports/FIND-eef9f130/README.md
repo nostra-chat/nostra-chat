@@ -86,3 +86,12 @@ pnpm fuzz --replay=FIND-eef9f130
 - `console.log` — browser console output
 - `dom-A.html` / `dom-B.html` — DOM snapshots showing input retaining "hello"
 - `screenshot-A.png` / `screenshot-B.png` — viewport
+
+## Triage (2b.2a session)
+
+- **Replay status**: NOT INDEPENDENTLY REPRODUCED — replay intercepted by FIND-c0046153 (log: `/tmp/repro-eef9f130.log`)
+- **Reproduction note**: The 8-action trace includes interleaved userA/userB sends (actions 1-3), which trigger `INV-bubble-chronological` at action 3 (`deleteRandomOwnBubble` skipped check point) before the replay reaches action 8 (`sendText "hello"` — the actual POST-sendText-input-cleared trigger). The chronological bug (FIND-c0046153) masks this FIND's reproduction. Fixing c0046153 first is a prerequisite for independent eef9f130 replay.
+- **Verdict**: TBD at M5 triage (decided via manual sanity in Task 4, after FIND-c0046153 is fixed in Task 2). Original finding is valid per Phase 2b.1 capture; this session cannot independently confirm.
+- **Hypothesis selected**: HARNESS (default) — `keyboard.insertText` composition sequence bypasses tweb's input-clear handler on the 3rd send after a chat-switch. Confirmed hypothesis (PROD vs HARNESS) deferred to Task 4 manual investigation once c0046153 is fixed and replay reaches action 8.
+- **Planned fix scope**: `src/tests/fuzz/actions/messaging.ts` (HARNESS branch — switch to `page.fill`) OR `src/components/chat/input.ts` (PROD branch — clear on `compositionend` + Enter).
+- **Time-box**: 2h (after c0046153 fix). Escape: downgrade `POST-sendText-input-cleared` postcondition to `skip: true` with TODO, carry-forward to 2b.2b.
