@@ -13,9 +13,19 @@
   background: #000; padding: 16px; border-radius: 8px; margin-top: 8px;
   font-family: ui-monospace, monospace; font-size: 12px; overflow-x: auto;
 }
-.todoList { text-align: left; font-size: 14px; margin-top: 24px; li { margin: 4px 0; } }
+.todoList {
+  text-align: left; font-size: 14px; margin-top: 24px;
+  li { margin: 4px 0; }
+  a { color: #fcd34d; text-decoration: underline; overflow-wrap: anywhere; }
+}
+.copyButton {
+  margin-top: 24px; margin-right: 8px; padding: 10px 20px; background: transparent;
+  color: #fcd34d; border: 1px solid #fcd34d; border-radius: 8px; font-size: 14px; cursor: pointer;
+  &:hover { background: rgba(252, 211, 77, 0.1); }
+  &:focus { outline: 2px solid #fbbf24; outline-offset: 2px; }
+}
 .closeButton {
-  margin-top: 32px; padding: 12px 32px; background: #dc2626; color: #fff;
+  margin-top: 24px; padding: 12px 32px; background: #dc2626; color: #fff;
   border: none; border-radius: 8px; font-size: 16px; cursor: pointer;
   &:focus { outline: 2px solid #fbbf24; outline-offset: 2px; }
 }

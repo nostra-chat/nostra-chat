@@ -11,31 +11,33 @@ import Button from '@components/button';
 import {attachClickEvent} from '@helpers/dom/clickEvent';
 import {toast} from '@components/toast';
 import confirmationPopup from '@components/confirmationPopup';
+import I18n from '@lib/langPack';
 import {runNetworkChecks} from '@lib/update';
 import {
   getUpdateStateSnapshot,
   resetBaseline,
   type UpdateStateSnapshot
 } from '@lib/update/update-baseline';
+import {MANIFEST_SOURCES} from '@lib/update/manifest-verifier';
 
 function formatRelativeTime(tsMs: number): string {
   const diff = Date.now() - tsMs;
   const sec = Math.floor(diff / 1000);
-  if(sec < 60) return 'just now';
+  if(sec < 60) return I18n.format('Update.RelativeTime.JustNow', true);
   const min = Math.floor(sec / 60);
-  if(min < 60) return `${min}m ago`;
+  if(min < 60) return I18n.format('Update.RelativeTime.MinutesAgo', true, [min]);
   const hr = Math.floor(min / 60);
-  if(hr < 24) return `${hr}h ago`;
+  if(hr < 24) return I18n.format('Update.RelativeTime.HoursAgo', true, [hr]);
   const d = Math.floor(hr / 24);
-  return `${d}d ago`;
+  return I18n.format('Update.RelativeTime.DaysAgo', true, [d]);
 }
 
 function verdictLabel(verdict: string): string {
-  if(verdict === 'verified') return '\u2705 Verified across all sources';
-  if(verdict === 'verified-partial') return '\u26a0\ufe0f Partially verified';
-  if(verdict === 'conflict') return '\u274c Conflict detected';
-  if(verdict === 'insufficient') return '\u2139\ufe0f Insufficient sources';
-  if(verdict === 'offline') return '\ud83d\udce1 Offline — could not check';
+  if(verdict === 'verified') return I18n.format('Update.Verdict.Verified', true);
+  if(verdict === 'verified-partial') return I18n.format('Update.Verdict.VerifiedPartial', true);
+  if(verdict === 'conflict') return I18n.format('Update.Verdict.Conflict', true);
+  if(verdict === 'insufficient') return I18n.format('Update.Verdict.Insufficient', true);
+  if(verdict === 'offline') return I18n.format('Update.Verdict.Offline', true);
   return verdict;
 }
 
@@ -45,121 +47,128 @@ function shortenUrl(url: string | null, keepTail = 28): string {
   return '…' + url.slice(-keepTail);
 }
 
-const HOW_IT_WORKS_DESCRIPTION =
-  'On every launch Nostra.chat verifies that the loaded code matches what was installed. ' +
-  'This protects you from compromised CDNs, man-in-the-middle attacks, and unauthorized updates.\n\n' +
-  'Three automatic checks:\n' +
-  '1) Service Worker URL — must match the one saved at first install.\n' +
-  '2) No unexpected Service Worker queued for installation.\n' +
-  '3) Manifest compared across three independent sources (CDN, IPFS, GitHub).\n\n' +
-  'If you see the "possible compromise detected" alert: always verify from the official site before proceeding. ' +
-  'If you just changed device, cleared the cache, or reinstalled manually it may be a false positive, ' +
-  'and "Reset baseline" adopts the current state as the new trusted point.\n\n' +
-  'Do not reset if you suspect an active attack — in that case sign out and log in from the official site.';
-
-const RESET_CONFIRM_DESCRIPTION =
-  'This clears the stored trusted state (installed version, Service Worker URL, last integrity check). ' +
-  'On the next launch the currently-running bundle will be captured as the new trusted state, and the app will reload.\n\n' +
-  'Only use this if you are sure the currently-loaded code is legitimate.';
-
 export default class AppUpdateSettingsTab extends SliderSuperTab {
   public async init() {
     this.container.classList.add('update-settings');
-    this.setTitle('App Updates' as any);
+    this.setTitle('Update.Tab.Title');
 
     const snap: UpdateStateSnapshot = await getUpdateStateSnapshot();
 
     // ── Installed ────────────────────────────────────────────────────────
-    const infoSection = new SettingSection({name: 'Installed' as any});
+    const infoSection = new SettingSection({name: 'Update.Section.Installed'});
 
     const versionRow = new Row({
-      title: 'Current version' as any,
-      subtitle: (snap.installedVersion || 'unknown') as any,
+      titleLangKey: 'Update.Row.CurrentVersion',
+      subtitle: snap.installedVersion || I18n.format('Update.Value.Unknown', true),
       clickable: false
     });
     infoSection.content.append(versionRow.container);
 
     const swUrlRow = new Row({
-      title: 'Installed Service Worker URL' as any,
-      subtitle: shortenUrl(snap.installedSwUrl) as any,
+      titleLangKey: 'Update.Row.InstalledSwUrl',
+      subtitle: shortenUrl(snap.installedSwUrl),
       clickable: true
     });
     attachClickEvent(swUrlRow.container, () => {
-      toast((snap.installedSwUrl || 'not set') as any);
+      toast(snap.installedSwUrl || I18n.format('Update.Value.NotSet', true));
     }, {listenerSetter: this.listenerSetter});
     infoSection.content.append(swUrlRow.container);
 
     const activeRow = new Row({
-      title: 'Active Service Worker' as any,
-      subtitle: shortenUrl(snap.activeScriptUrl) as any,
+      titleLangKey: 'Update.Row.ActiveSw',
+      subtitle: shortenUrl(snap.activeScriptUrl),
       clickable: !!snap.activeScriptUrl
     });
     if(snap.activeScriptUrl) {
       attachClickEvent(activeRow.container, () => {
-        toast(snap.activeScriptUrl! as any);
+        toast(snap.activeScriptUrl!);
       }, {listenerSetter: this.listenerSetter});
     }
     infoSection.content.append(activeRow.container);
 
     // ── Integrity ────────────────────────────────────────────────────────
-    const integritySection = new SettingSection({name: 'Integrity' as any});
+    const integritySection = new SettingSection({name: 'Update.Section.Integrity'});
 
     const lastCheckText = snap.lastIntegrityCheck && snap.lastIntegrityCheck > 0 ?
       formatRelativeTime(snap.lastIntegrityCheck) :
-      'Never';
+      I18n.format('Update.Value.Never', true);
     const lastCheckRow = new Row({
-      title: 'Last check' as any,
-      subtitle: lastCheckText as any,
+      titleLangKey: 'Update.Row.LastCheck',
+      subtitle: lastCheckText,
       clickable: false
     });
     integritySection.content.append(lastCheckRow.container);
 
     const hasDetails = !!snap.lastIntegrityDetails?.length;
     const integrityRow = new Row({
-      title: 'Integrity status' as any,
-      subtitle: (snap.lastIntegrityResult ? verdictLabel(snap.lastIntegrityResult) : 'Not checked yet') as any,
+      titleLangKey: 'Update.Row.IntegrityStatus',
+      subtitle: snap.lastIntegrityResult ? verdictLabel(snap.lastIntegrityResult) : I18n.format('Update.Value.NotCheckedYet', true),
       clickable: hasDetails
     });
     if(hasDetails) {
       attachClickEvent(integrityRow.container, () => {
-        const lines = snap.lastIntegrityDetails!.map((s) => {
+        const urlByName = new Map(MANIFEST_SOURCES.map((s) => [s.name, s.url]));
+        const container = document.createElement('div');
+        container.style.cssText = 'display:flex;flex-direction:column;gap:0.5rem;text-align:left';
+        for(const s of snap.lastIntegrityDetails!) {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap';
           const icon = s.status === 'ok' ? '\u2705' : s.status === 'error' ? '\u274c' : '\u26a0\ufe0f';
-          return `${icon} ${s.name}: ${s.status}${s.version ? ' v' + s.version : ''}${s.error ? ' — ' + s.error : ''}`;
-        });
-        toast(lines.join('\n') as any);
+          const label = document.createElement('span');
+          label.textContent = `${icon} ${s.name}: ${s.status}${s.version ? ' v' + s.version : ''}${s.error ? ' — ' + s.error : ''}`;
+          label.style.cssText = 'flex:1;min-width:0;word-break:break-word';
+          row.appendChild(label);
+          const url = urlByName.get(s.name);
+          if(url) {
+            const link = document.createElement('a');
+            link.href = url;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.textContent = I18n.format('Update.Sources.OpenInTab', true);
+            link.style.cssText = 'color:var(--primary-color);text-decoration:underline;font-size:0.875rem;flex-shrink:0';
+            row.appendChild(link);
+          }
+          container.appendChild(row);
+        }
+        confirmationPopup({
+          titleLangKey: 'Update.Sources.Title',
+          description: container,
+          button: {text: document.createTextNode(I18n.format('Update.Action.OK', true))}
+        }).catch(() => { /* user closed */ });
       }, {listenerSetter: this.listenerSetter});
     }
     integritySection.content.append(integrityRow.container);
 
     const waitingRow = new Row({
-      title: 'Waiting Service Worker' as any,
-      subtitle: (snap.waitingScriptUrl ? shortenUrl(snap.waitingScriptUrl) : 'none') as any,
+      titleLangKey: 'Update.Row.WaitingSw',
+      subtitle: snap.waitingScriptUrl ? shortenUrl(snap.waitingScriptUrl) : I18n.format('Update.Value.None', true),
       clickable: !!snap.waitingScriptUrl
     });
     if(snap.waitingScriptUrl) {
       attachClickEvent(waitingRow.container, () => {
-        toast(snap.waitingScriptUrl! as any);
+        toast(snap.waitingScriptUrl!);
       }, {listenerSetter: this.listenerSetter});
     }
     integritySection.content.append(waitingRow.container);
 
     const pendingRow = new Row({
-      title: 'Pending update finalization' as any,
-      subtitle: (snap.pendingFinalization ?
-        (snap.pendingManifest ? `Yes — v${snap.pendingManifest.version}` : 'Yes') :
-        'No') as any,
+      titleLangKey: 'Update.Row.PendingFinalization',
+      subtitle: snap.pendingFinalization ?
+        (snap.pendingManifest ? I18n.format('Update.Value.PendingYesWithVersion', true, [snap.pendingManifest.version]) : I18n.format('Update.Value.Yes', true)) :
+        I18n.format('Update.Value.No', true),
       clickable: false
     });
     integritySection.content.append(pendingRow.container);
 
     // ── Actions ──────────────────────────────────────────────────────────
-    const actionsSection = new SettingSection({name: 'Actions' as any});
+    const actionsSection = new SettingSection({name: 'Update.Section.Actions'});
 
+    const checkBtnLabel = I18n.format('Update.Action.CheckForUpdates', true);
     const checkBtn = Button('btn-primary btn-color-primary');
-    checkBtn.textContent = 'Check for updates';
+    checkBtn.textContent = checkBtnLabel;
     attachClickEvent(checkBtn, async() => {
       checkBtn.disabled = true;
-      checkBtn.textContent = 'Checking…';
+      checkBtn.textContent = I18n.format('Update.Action.Checking', true);
       try {
         await runNetworkChecks({force: true});
         const latest = await getUpdateStateSnapshot();
@@ -169,26 +178,26 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
         if(latest.lastIntegrityResult) {
           integrityRow.subtitle.textContent = verdictLabel(latest.lastIntegrityResult);
         }
-        toast('Check complete' as any);
+        toast(I18n.format('Update.Action.CheckComplete', true));
       } catch(err) {
-        toast(('Check failed: ' + (err instanceof Error ? err.message : String(err))) as any);
+        toast(I18n.format('Update.Action.CheckFailed', true, [err instanceof Error ? err.message : String(err)]));
       } finally {
         checkBtn.disabled = false;
-        checkBtn.textContent = 'Check for updates';
+        checkBtn.textContent = checkBtnLabel;
       }
     }, {listenerSetter: this.listenerSetter});
     actionsSection.content.append(checkBtn);
 
     const resetBtn = Button('btn-primary btn-color-primary danger');
-    resetBtn.textContent = 'Reset baseline';
+    resetBtn.textContent = I18n.format('Update.Action.ResetBaseline', true);
     resetBtn.style.marginTop = '0.5rem';
     attachClickEvent(resetBtn, async() => {
       try {
         await confirmationPopup({
-          title: 'Reset baseline',
-          descriptionRaw: RESET_CONFIRM_DESCRIPTION,
+          titleLangKey: 'Update.Action.ResetBaseline',
+          descriptionLangKey: 'Update.Reset.Description',
           button: {
-            text: document.createTextNode('Reset and reload'),
+            text: document.createTextNode(I18n.format('Update.Action.ResetAndReload', true)),
             isDanger: true
           }
         });
@@ -201,16 +210,16 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
     actionsSection.content.append(resetBtn);
 
     // ── About this protection ───────────────────────────────────────────
-    const helpSection = new SettingSection({name: 'About this protection' as any});
+    const helpSection = new SettingSection({name: 'Update.Section.About'});
     const helpRow = new Row({
-      title: 'How it works' as any,
-      subtitle: 'Why this safeguard exists and when to reset' as any,
+      titleLangKey: 'Update.Row.HowItWorks',
+      subtitleLangKey: 'Update.Row.HowItWorks.Subtitle',
       icon: 'info',
       clickable: () => {
         confirmationPopup({
-          title: 'Update protection',
-          descriptionRaw: HOW_IT_WORKS_DESCRIPTION,
-          button: {text: document.createTextNode('OK')}
+          titleLangKey: 'Update.Confirm.ProtectionTitle',
+          descriptionLangKey: 'Update.HowItWorks.Description',
+          button: {text: document.createTextNode(I18n.format('Update.Action.OK', true))}
         }).catch(() => { /* user closed */ });
       },
       listenerSetter: this.listenerSetter

@@ -2,8 +2,10 @@ import {createSignal, onCleanup, Show} from 'solid-js';
 import {render} from 'solid-js/web';
 import PopupElement from '@components/popups';
 import rootScope from '@lib/rootScope';
+import I18n from '@lib/langPack';
 import type {Manifest, IntegrityResult, UpdateFlowState} from '@lib/update';
 import {getFlowState, startUpdate} from '@lib/update';
+import {skipVersion} from '@lib/update/update-popup-controller';
 import styles from './index.module.scss';
 
 function renderChangelog(md: string): string {
@@ -48,9 +50,9 @@ export default class UpdateAvailablePopup extends PopupElement {
       };
       const badgeText = () => {
         const ok = self.integrity.sources.filter((s) => s.status === 'ok');
-        if(self.integrity.verdict === 'verified') return `\u2705 Verificato da ${ok.length} sorgenti: ${ok.map((s) => s.name).join(', ')}`;
-        if(self.integrity.verdict === 'verified-partial') return `\u26a0\ufe0f Verificato parzialmente (${ok.length} di ${self.integrity.sources.length})`;
-        if(self.integrity.verdict === 'conflict') return '\u274c Incoerenza rilevata tra sorgenti';
+        if(self.integrity.verdict === 'verified') return I18n.format('Update.Badge.Verified', true, [ok.length, ok.map((s) => s.name).join(', ')]);
+        if(self.integrity.verdict === 'verified-partial') return I18n.format('Update.Badge.VerifiedPartial', true, [ok.length, self.integrity.sources.length]);
+        if(self.integrity.verdict === 'conflict') return I18n.format('Update.Badge.Conflict', true);
         return '';
       };
       const isDownloading = () => state().kind === 'downloading';
@@ -62,19 +64,19 @@ export default class UpdateAvailablePopup extends PopupElement {
       const showButtons = () => state().kind === 'idle' || state().kind === 'available';
       return (
         <div class={styles.popup}>
-          <h2 class={styles.title}>Aggiornamento disponibile</h2>
-          <p class={styles.version}>versione {self.manifest.version}</p>
+          <h2 class={styles.title}>{I18n.format('Update.Popup.Title', true)}</h2>
+          <p class={styles.version}>{I18n.format('Update.Popup.Version', true, [self.manifest.version])}</p>
           <div class={`${styles.integrityBadge} ${badgeClass()}`}>{badgeText()}</div>
           <div class={styles.divider} />
-          <h3>Novità in questa versione</h3>
+          <h3>{I18n.format('Update.Popup.Changelog', true)}</h3>
           <div class={styles.changelogContainer} innerHTML={renderChangelog(self.manifest.changelog)} />
           <Show when={isDownloading()}>
             <div class={styles.progressBar} style={{'--progress': progressPct() + '%'} as any} />
-            <p style={{'text-align': 'center'}}>Scaricamento in corso…</p>
+            <p style={{'text-align': 'center'}}>{I18n.format('Update.Popup.Downloading', true)}</p>
           </Show>
           <Show when={showButtons()}>
             <div class={styles.buttons}>
-              <button onClick={() => self.hide()}>Più tardi</button>
+              <button onClick={() => { skipVersion(self.manifest.version); self.hide(); }}>{I18n.format('Update.Popup.Later', true)}</button>
               <button
                 disabled={self.integrity.verdict === 'conflict'}
                 onClick={() => {
@@ -82,7 +84,7 @@ export default class UpdateAvailablePopup extends PopupElement {
                     console.error('[UPDATE] flow failed', err);
                   });
                 }}
-              >Aggiorna ora</button>
+              >{I18n.format('Update.Popup.Now', true)}</button>
             </div>
           </Show>
         </div>

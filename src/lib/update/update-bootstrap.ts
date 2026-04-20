@@ -94,6 +94,15 @@ export async function updateBootstrap(opts: BootstrapOptions = {}): Promise<void
 
   const installedVersion = localStorage.getItem(LS.installedVersion);
 
+  // Coherence check: the version recorded at first install should match the
+  // bundle version currently running. A drift means the baseline was reset
+  // mid-deploy, or localStorage was edited externally. Warn-only — Step 1a
+  // already catches SW URL swaps, this is just observability for version
+  // drift scenarios that bypass SW (e.g. rebuild without SW hash change).
+  if(installedVersion && installedVersion !== BUILD_VERSION) {
+    console.warn('[UPDATE] version drift:', {installed: installedVersion, bundle: BUILD_VERSION});
+  }
+
   // Step 0: first install. Store the URL the *currently running bundle* declares,
   // not `reg.active.scriptURL` — on a pre-Phase-A upgrade the old SW is still
   // active while the new (Phase-A) SW sits in `waiting`. Capturing the active
