@@ -3,6 +3,7 @@ import * as fc from 'fast-check';
 import type {ActionSpec, Action} from '../types';
 import {sendText, replyToRandomBubble, editRandomOwnBubble, deleteRandomOwnBubble, reactToRandomBubble, removeReaction, reactMultipleEmoji} from './messaging';
 import {openRandomChat, scrollHistoryUp, waitForPropagation} from './navigation';
+import {reloadPage, deleteWhileSending} from './lifecycle';
 
 export const ACTION_REGISTRY: ActionSpec[] = [
   sendText,
@@ -14,7 +15,9 @@ export const ACTION_REGISTRY: ActionSpec[] = [
   reactMultipleEmoji,
   openRandomChat,
   scrollHistoryUp,
-  waitForPropagation
+  waitForPropagation,
+  reloadPage,
+  deleteWhileSending
 ];
 
 export const ACTIONS_BY_NAME: Record<string, ActionSpec> = Object.fromEntries(
