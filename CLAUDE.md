@@ -145,8 +145,6 @@ solid-js/store  → src/vendor/solid/store
 | `src/lib/apiManagerProxy.ts` | Main-thread proxy to Worker managers |
 | `docs/ARCHITECTURE.md` | Deep architecture notes (Tor, Vitest/E2E quirks, profile sync, Phase A) |
 | `docs/RELEASE.md` | Release pipeline reference |
-| `docs/CHECKLIST_v2.md` | P2P feature status, bug reports, verification commands |
-| `docs/RALPH_PROMPT_v2.md` | Automated bug fixing prompt for ralph-loop |
 
 ## What NOT to Do
 
@@ -294,6 +292,3 @@ Profile scope (editName/editBio/uploadAvatar/setNip05 + Blossom mock + cross-pee
 - `history_append` is a one-shot event that only fires when the chat is open with an active `bubbles.ts` listener. For messages arriving while the chat is closed, use a pending-messages queue and flush on `appImManager.addEventListener('peer_changed')` with retry delays (500ms, 1500ms, 3000ms) to wait for `loadedAll.bottom=true`.
 - When auto-adding an unknown sender as a contact from `handleRelayMessage`, also inject the User object into `apiManagerProxy.mirrors.peers[peerId]` + call `reconcilePeer` + `appUsersManager.injectP2PUser` — otherwise the chat list title shows but preview text fails to render.
 - For new dialogs from unknown senders, `dialogs_multiupdate` must be dispatched TWICE: first dispatch adds the dialog via `sortedList.add()` (returns early, skips `setLastMessageN`), second dispatch hits the "existing dialog" branch which renders the preview text. A single dispatch shows the peer title but no message preview.
-
-### Ralph Loop Integration
-- `docs/RALPH_PROMPT_v2.md` — master prompt for automated bug fixing. `docs/CHECKLIST_v2.md` — single source of truth for P2P feature status, bugs, verification commands. Completion uses `<promise>TAG</promise>` exact match.
