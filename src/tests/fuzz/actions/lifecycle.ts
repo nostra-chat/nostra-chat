@@ -51,6 +51,18 @@ export const reloadPage: ActionSpec = {
     const raceWindowMs = action.args.raceWindowMs ?? 80;
 
     if(action.args.mode === 'during-pending-send') {
+      // Ensure a chat is open so the send actually fires.
+      await user.page.evaluate((pid: number) => {
+        (window as any).appImManager?.setPeer?.({peerId: pid});
+      }, user.remotePeerId);
+      await user.page.waitForTimeout(200);
+      // Verify chat is actually open before firing the send.
+      const chatReady = await user.page.evaluate(() => !!(window as any).appImManager?.chat?.peerId);
+      if(!chatReady) {
+        action.skipped = true;
+        action.meta = {mode: action.args.mode, raceWindowMs, reason: 'no chat available'};
+        return action;
+      }
       // Fire a send without awaiting. Use the existing sendText plumbing via
       // appMessagesManager so the pending send exercises the real pipeline.
       await user.page.evaluate(({t}: any) => {
@@ -66,8 +78,10 @@ export const reloadPage: ActionSpec = {
       await user.page.reload({waitUntil: 'load', timeout: 15000});
       user.reloadTimes.push(Date.now());
     } catch(err: any) {
+      const errMsg = String(err?.message || err);
+      user.consoleLog.push(`[reloadPage] reload failed: ${errMsg}`);
       action.skipped = true;
-      action.meta = {mode: action.args.mode, raceWindowMs, reloadError: String(err?.message || err)};
+      action.meta = {mode: action.args.mode, raceWindowMs, reloadError: errMsg};
       return action;
     }
 
@@ -115,12 +129,22 @@ export const deleteWhileSending: ActionSpec = {
 
     await sender.page.waitForTimeout(raceWindowMs);
 
-    // Look for the temp mid in the mirror.
+    // Look for the temp mid in the DOM or mirror.
+    // P2P temp mids are integer base+1 (per CLAUDE.md generateTempMessageId rule),
+    // same magnitude as real mids (~1.78e15). The DOM .is-sending bubble is the
+    // most reliable detection. Fall back to fractional mirror scan for MTProto-legacy.
     const tempMid = await sender.page.evaluate((pid: number) => {
+      // Primary: in-flight send bubble carries .is-sending class before mid rename.
+      const sending = document.querySelector('.bubbles-inner .bubble.is-sending[data-mid], .bubbles-inner .bubble.is-outgoing[data-mid]') as HTMLElement | null;
+      if(sending) {
+        const m = Number(sending.dataset.mid);
+        return Number.isNaN(m) ? null : m;
+      }
+      // Fallback for MTProto-legacy: fractional mids in the mirror (e.g. 0.0001).
       const proxy: any = (window as any).apiManagerProxy;
       const hist = proxy?.mirrors?.messages?.[`${pid}_history`] || {};
-      const mids = Object.keys(hist).map(Number).filter((m) => !Number.isNaN(m) && m < 1);
-      return mids.length ? Math.max(...mids) : null;
+      const fractional = Object.keys(hist).map(Number).filter((m) => !Number.isNaN(m) && m % 1 !== 0);
+      return fractional.length ? Math.max(...fractional) : null;
     }, peerId);
 
     if(tempMid != null) {
