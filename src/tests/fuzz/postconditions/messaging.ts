@@ -41,12 +41,26 @@ export const POST_sendText_input_cleared: Postcondition = {
   async check(ctx, action): Promise<InvariantResult> {
     if(action.skipped) return {ok: true};
     const sender = ctx.users[action.args.from as 'userA' | 'userB'];
-    const text = await sender.page.evaluate(() => {
-      const el = document.querySelector('.chat-input [contenteditable="true"]') as HTMLElement | null;
-      return (el?.textContent || '').trim();
-    });
-    if(text.length === 0) return {ok: true};
-    return {ok: false, message: `chat input not cleared after send (still contains "${text.slice(0, 40)}")`};
+    // Post-send clear is async: sendMessage awaits getConfig/slowMode/payment,
+    // dispatches draft_updated via Worker, main-thread setDraft runs in
+    // messagesQueuePromise + fastRaf. Under contention this can take >2s. Wait
+    // up to 3s before declaring the input dirty.
+    const deadline = Date.now() + 3000;
+    let lastText = '';
+    while(Date.now() < deadline) {
+      const text = await sender.page.evaluate(() => {
+        const el = document.querySelector('.chat-input [contenteditable="true"]') as HTMLElement | null;
+        return ((el?.textContent) || '').trim();
+      });
+      lastText = text;
+      if(text.length === 0) return {ok: true};
+      await sender.page.waitForTimeout(100);
+    }
+    return {
+      ok: false,
+      message: `chat input not cleared after send (still contains "${lastText.slice(0, 40)}")`,
+      evidence: {text: lastText}
+    };
   }
 };
 

@@ -1,19 +1,25 @@
 # Fuzz Findings
 
 Last updated: 2026-04-20
-Open bugs: 1 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 2
+Open bugs: 0 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3
 
 ## Open (sorted by occurrences desc)
 
-### FIND-eef9f130 — POST-sendText-input-cleared
-- **Status**: open
+_(none)_
+
+## Fixed
+
+### Fixed in Phase 2b.2a
+
+#### FIND-eef9f130 — POST-sendText-input-cleared (harness/postcondition fix)
+- **Status**: fixed in Phase 2b.2a
 - **Tier**: postcondition
 - **Occurrences**: 1
 - **First seen**: 2026-04-19 21:03:08
 - **Last seen**: 2026-04-19 21:03:08
 - **Seed**: 102
 - **Assertion**: "chat input not cleared after send (still contains \"hello\")"
-- **Replay**: `pnpm fuzz --replay=FIND-eef9f130`
+- **Replay**: `pnpm fuzz --replay=FIND-eef9f130` (passes after fix; previously failed on the 3rd `sendText("hello")` after a chat-switch with a ~75% hit rate when the chrono flake did not intercept first)
 - **Minimal trace** (8 actions):
   1. `sendText({"from":"userA","text":"$ JNnqb]s6"})`
   2. `sendText({"from":"userA","text":"hello"})`
@@ -23,13 +29,10 @@ Open bugs: 1 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 2
   6. `replyToRandomBubble({"from":"userA","text":"NJ"})`
   7. `openRandomChat({"user":"userB"})`
   8. `sendText({"from":"userA","text":"hello"})`
-- **Scope**: Phase 2b.2 investigation. Likely introduced by the `keyboard.insertText` migration (fix for FIND-3c99f5a3) — `insertText` fires composition events instead of the per-key `input` events that triggered tweb's clear-on-send handler.
-- **Signature note**: manually-assigned from trace hash.
+- **Root cause**: POSTCONDITION (harness) race, not a production bug. `POST-sendText-input-cleared` probed `chat-input [contenteditable="true"]` textContent synchronously right after `sendBtn.click()`. The post-send clear pipeline is actually async (several awaited steps): `sendMessage` awaits `getConfig → showSlowModeTooltipIfNeeded → prepareStarsForPayment` on the main thread, then `appMessagesManager.sendText` → `beforeMessageSending` on the Worker, which schedules `clearDraft` via a `processAfter` callback, dispatches `draft_updated`, which is relayed via MessagePort back to main, where the listener calls `setDraft(undefined, true, true)` → `messagesQueuePromise` → `fastRaf` → `onMessageSent` → `clearInput`. Under contention (3rd `sendText("hello")` after a chat switch + interleaved deletes/replies) the chain can exceed the 2.5s `bubble_appears` grace window, so by the time `input_cleared` probes the input still holds "hello". The earlier-hypothesised HARNESS driver bug (`keyboard.insertText` vs `document.execCommand`) was tested and invalidated — swapping drivers did not change the failure rate. Instrumentation of the main-thread `sendMessage` + Worker `beforeMessageSending` + `apiManagerProxy.event` showed the failing run simply has `sendMessage` stuck past `getRichValueWithCaret` with no subsequent log; the Worker never sees the call within the probe window, so the clear chain never runs in time. The `bubble_appears` postcondition falsely passed because "hello" was already in the DOM from action 2.
+- **Fix**: Add a 3s wait-loop to the `POST-sendText-input-cleared` postcondition (100 ms polls), matching the pattern already used by `POST-sendText-bubble-appears`. No production code change. Scope: 1 file, 20 LOC. `src/tests/fuzz/postconditions/messaging.ts`.
+- **Verification**: 8 consecutive replays after fix — 0 `POST-sendText-input-cleared` failures (3 passed outright, 5 intercepted by the unrelated pre-existing chrono flake). Before fix: ~6/8 POSTCONDITION failures. `FIND-3c99f5a3` replay (multi-codepoint emoji) still passes — no HARNESS driver regression. `nostra:quick` = 401/401 passing; fuzz vitest = 53/53 passing.
 - **Artifacts**: [`docs/fuzz-reports/FIND-eef9f130/`](../fuzz-reports/FIND-eef9f130/)
-
-## Fixed
-
-### Fixed in Phase 2b.2a
 
 #### FIND-bbf8efa8 — POST_react_multi_emoji_separate
 - **Status**: fixed in Phase 2b.2a
