@@ -190,7 +190,8 @@ export default defineConfig({
     // cssCodeSplit: true
   },
   worker: {
-    format: 'es'
+    format: 'es',
+    plugins: () => [solidPlugin()]
   },
   css: {
     devSourcemap: true,
