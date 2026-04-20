@@ -893,6 +893,17 @@ $btn-menu-z-index: 4;
         width: 100%;
         height: 100%;
       }
+
+      // Nostra mode: emoji reactions render as plain text when no lottie
+      // sticker is available from the catalog stub.
+      .btn-menu-reactions-reaction-appear.reaction-text-emoji {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        line-height: 1;
+        user-select: none;
+      }
     }
 
     &-more {
