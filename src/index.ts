@@ -403,6 +403,10 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
   // Dev builds skip this: Vite HMR rewrites the SW each session, the manifest
   // URLs point to production origins, and there's no "release" to verify.
   if(import.meta.env.PROD && 'serviceWorker' in navigator) {
+    // Register popup listeners BEFORE bootstrap — dispatchEventSingle fires
+    // synchronously and events emitted by updateBootstrap (integrity_check_completed,
+    // update_available) are lost if the controller hasn't imported its listeners yet.
+    await import('@lib/update/update-popup-controller');
     try {
       await updateBootstrap();
     } catch(err) {
@@ -413,7 +417,6 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
       }
       throw err;
     }
-    import('@lib/update/update-popup-controller');
   }
 
   await checkLastActiveAccountFromTMe();
