@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import {describe, it, expect, vi} from 'vitest';
-import {reactionDedupe, noKind7SelfEchoDrop, reactionAuthorCheck} from './reactions';
+import {reactionDedupe, noKind7SelfEchoDrop, reactionAuthorCheck, reactionAggregatedRender} from './reactions';
 
 function mkCtx(rowsByUser: Record<'userA' | 'userB', any[]>): any {
   const mk = (rows: any[]) => ({
@@ -79,5 +79,34 @@ describe('INV-reaction-author-check', () => {
     });
     const r = await reactionAuthorCheck.check(ctx);
     expect(r.ok).toBe(true);
+  });
+});
+
+describe('INV-reaction-aggregated-render — FIND-bbf8efa8 regression', () => {
+  it('passes when all emojis render', async () => {
+    const action = {name: 'reactMultipleEmoji', args: {user: 'userA'}, meta: {emojis: ['👍', '❤️', '😂'], targetMid: '999'}};
+    const user = {
+      id: 'userA' as const,
+      context: null as any,
+      page: {evaluate: vi.fn(async () => '👍❤️😂')} as any,
+      displayName: 'A', npub: '', remotePeerId: 0, consoleLog: [] as string[], reloadTimes: [Date.now()]
+    };
+    const ctx = {users: {userA: user, userB: user}, relay: null as any, snapshots: new Map(), actionIndex: 0};
+    const r = await reactionAggregatedRender.check(ctx, action);
+    expect(r.ok).toBe(true);
+  });
+
+  it('fails when one emoji is missing', async () => {
+    const action = {name: 'reactMultipleEmoji', args: {user: 'userA'}, meta: {emojis: ['👍', '❤️', '😂'], targetMid: '999'}};
+    const user = {
+      id: 'userA' as const,
+      context: null as any,
+      page: {evaluate: vi.fn(async () => '👍😂')} as any,
+      displayName: 'A', npub: '', remotePeerId: 0, consoleLog: [] as string[], reloadTimes: [Date.now()]
+    };
+    const ctx = {users: {userA: user, userB: user}, relay: null as any, snapshots: new Map(), actionIndex: 0};
+    const r = await reactionAggregatedRender.check(ctx, action);
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('❤️');
   });
 });

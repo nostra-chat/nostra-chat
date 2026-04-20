@@ -112,3 +112,29 @@ export const reactionRemoveKind: Invariant = {
     return {ok: true};
   }
 };
+
+/**
+ * After reactMultipleEmoji with N distinct emojis on one mid, the sender's
+ * own bubble must render all N emojis in .reactions once the store settles.
+ * Regression for FIND-bbf8efa8.
+ */
+export const reactionAggregatedRender: Invariant = {
+  id: 'INV-reaction-aggregated-render',
+  tier: 'cheap',
+  async check(ctx: FuzzContext, action?: any): Promise<InvariantResult> {
+    if(!action || action.name !== 'reactMultipleEmoji' || action.skipped) return {ok: true};
+    const emojis: string[] = action.meta?.emojis || [];
+    const mid = action.meta?.targetMid;
+    const user = ctx.users[action.args.user as 'userA' | 'userB'];
+    if(!emojis.length || !mid) return {ok: true};
+    // One final read, not a polling window — this invariant runs AFTER the
+    // postcondition (which polls), so the store has already settled.
+    const rendered = await user.page.evaluate((m: string) => {
+      const el = document.querySelector(`.bubbles-inner .bubble[data-mid="${m}"] .reactions`);
+      return el ? (el.textContent || '') : '';
+    }, String(mid));
+    const missing = emojis.filter((em) => !rendered.includes(em));
+    if(missing.length === 0) return {ok: true};
+    return {ok: false, message: `aggregated reactions missing ${missing.join(',')} on mid=${mid}`, evidence: {rendered, expected: emojis, missing}};
+  }
+};

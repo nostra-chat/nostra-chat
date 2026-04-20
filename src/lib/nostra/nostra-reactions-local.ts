@@ -48,9 +48,29 @@ class NostraReactionsLocal {
     });
   }
 
+  /**
+   * Sync read from the in-memory cache. Fast but may lag by one dispatch
+   * if called from a `nostra_reactions_changed` listener registered before
+   * the cache-warmer. Prefer {@link getReactionsFresh} in event handlers.
+   */
   getReactions(peerId: number, mid: number): string[] {
     const set = this.cache.get(key(peerId, mid));
     return set ? Array.from(set) : [];
+  }
+
+  /**
+   * Fresh read directly from the store, bypassing the cache race.
+   *
+   * The cache-warmer listener in this shim and the render listener in
+   * bubbles.ts both subscribe to `nostra_reactions_changed`. Since the
+   * render listener is registered first (bubbles mounts before the shim is
+   * lazy-imported), it historically read a stale cache on multi-emoji
+   * bursts and left one emoji un-rendered (FIND-bbf8efa8). Callers that
+   * need the post-commit snapshot should use this method instead.
+   */
+  async getReactionsFresh(peerId: number, mid: number): Promise<string[]> {
+    await this.refreshCache(peerId, mid);
+    return this.getReactions(peerId, mid);
   }
 
   clear(): void {

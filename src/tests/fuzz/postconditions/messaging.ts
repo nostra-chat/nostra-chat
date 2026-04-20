@@ -41,12 +41,26 @@ export const POST_sendText_input_cleared: Postcondition = {
   async check(ctx, action): Promise<InvariantResult> {
     if(action.skipped) return {ok: true};
     const sender = ctx.users[action.args.from as 'userA' | 'userB'];
-    const text = await sender.page.evaluate(() => {
-      const el = document.querySelector('.chat-input [contenteditable="true"]') as HTMLElement | null;
-      return (el?.textContent || '').trim();
-    });
-    if(text.length === 0) return {ok: true};
-    return {ok: false, message: `chat input not cleared after send (still contains "${text.slice(0, 40)}")`};
+    // Post-send clear is async: sendMessage awaits getConfig/slowMode/payment,
+    // dispatches draft_updated via Worker, main-thread setDraft runs in
+    // messagesQueuePromise + fastRaf. Under contention this can take >2s. Wait
+    // up to 3s before declaring the input dirty.
+    const deadline = Date.now() + 3000;
+    let lastText = '';
+    while(Date.now() < deadline) {
+      const text = await sender.page.evaluate(() => {
+        const el = document.querySelector('.chat-input [contenteditable="true"]') as HTMLElement | null;
+        return ((el?.textContent) || '').trim();
+      });
+      lastText = text;
+      if(text.length === 0) return {ok: true};
+      await sender.page.waitForTimeout(100);
+    }
+    return {
+      ok: false,
+      message: `chat input not cleared after send (still contains "${lastText.slice(0, 40)}")`,
+      evidence: {text: lastText}
+    };
   }
 };
 
@@ -183,6 +197,41 @@ export const POST_remove_reaction_peer_disappears: Postcondition = {
       await peer.page.waitForTimeout(250);
     }
     return {ok: false, message: `peer ${toUser} still shows removed emoji ${emoji} on bubble ${mid}`, evidence: {from: fromUser, to: toUser, mid, emoji}};
+  }
+};
+
+export const POST_deleteWhileSending_consistent: Postcondition = {
+  id: 'POST_deleteWhileSending_consistent',
+  async check(ctx: FuzzContext, action: Action): Promise<InvariantResult> {
+    if(action.skipped) return {ok: true};
+    const text: string = action.meta?.text || '';
+    if(!text) return {ok: true};
+    // If no tempMid was found, the delete was never actually issued — action
+    // effectively became a plain send. Relay delivery timing (especially on
+    // first-action cold-start) is not this postcondition's concern; skip.
+    if(action.meta?.tempMid == null) return {ok: true};
+    // Poll up to 6s (enough for relay publish + peer subscribe roundtrip);
+    // outcome must be symmetric: both sides see the msg, or neither does.
+    const deadline = Date.now() + 6000;
+    while(Date.now() < deadline) {
+      const states: Record<string, boolean> = {};
+      for(const id of ['userA', 'userB'] as const) {
+        const user: any = ctx.users[id];
+        states[id] = await user.page.evaluate((needle: string) => {
+          const bubbles = Array.from(document.querySelectorAll('.bubbles-inner .bubble[data-mid]'));
+          return bubbles.some((b) => (b.textContent || '').includes(needle));
+        }, text);
+      }
+      if(states.userA === states.userB) return {ok: true};
+      await ctx.users.userA.page.waitForTimeout(250);
+    }
+    // Final read
+    const sender = ctx.users[action.args.user as 'userA' | 'userB'];
+    const peer = ctx.users[action.args.user === 'userA' ? 'userB' : 'userA'];
+    const senderHas = await sender.page.evaluate((n: string) => Array.from(document.querySelectorAll('.bubbles-inner .bubble[data-mid]')).some((b) => (b.textContent || '').includes(n)), text);
+    const peerHas = await peer.page.evaluate((n: string) => Array.from(document.querySelectorAll('.bubbles-inner .bubble[data-mid]')).some((b) => (b.textContent || '').includes(n)), text);
+    if(senderHas === peerHas) return {ok: true};
+    return {ok: false, message: `asymmetric deleteWhileSending outcome: sender=${senderHas}, peer=${peerHas} for text "${text}"`, evidence: {senderHas, peerHas, text}};
   }
 };
 

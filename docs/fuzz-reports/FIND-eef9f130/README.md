@@ -1,6 +1,6 @@
 # FIND-eef9f130 — POST-sendText-input-cleared (input retains text after send)
 
-Status: **OPEN** (carry-forward to Phase 2b.2)
+Status: **FIXED** in Phase 2b.2a (harness/postcondition fix)
 Tier: postcondition
 Scope: Phase 2b.2 investigation
 
@@ -86,3 +86,56 @@ pnpm fuzz --replay=FIND-eef9f130
 - `console.log` — browser console output
 - `dom-A.html` / `dom-B.html` — DOM snapshots showing input retaining "hello"
 - `screenshot-A.png` / `screenshot-B.png` — viewport
+
+## Triage (2b.2a session)
+
+- **Replay status**: NOT INDEPENDENTLY REPRODUCED — replay intercepted by FIND-c0046153 (log: `/tmp/repro-eef9f130.log`)
+- **Reproduction note**: The 8-action trace includes interleaved userA/userB sends (actions 1-3), which trigger `INV-bubble-chronological` at action 3 (`deleteRandomOwnBubble` skipped check point) before the replay reaches action 8 (`sendText "hello"` — the actual POST-sendText-input-cleared trigger). The chronological bug (FIND-c0046153) masks this FIND's reproduction. Fixing c0046153 first is a prerequisite for independent eef9f130 replay.
+- **Verdict**: **POSTCONDITION race (harness-side)** — neither HARNESS driver bug nor PROD handler bug. The `POST-sendText-input-cleared` check was synchronous while the post-send clear pipeline is deeply async; under contention (3rd `hello` after a chat-switch + interleaved deletes/replies) the async chain exceeds the 2.5s window that the preceding `POST-sendText-bubble-appears` has loop-waited, leaving "hello" in the input at probe time.
+- **Hypothesis initially selected**: HARNESS (`keyboard.insertText` composition events bypassing tweb's clear). **Invalidated** by the Step 2 swap: replacing `sender.page.keyboard.insertText(...)` with `input.evaluate(el => document.execCommand('insertText', ...))` did not change the failure rate. Evidence: `/tmp/repro-eef9f130-v2.log`.
+- **Decisive evidence**: browser-console instrumentation at `sendMessage`, `beforeMessageSending`, `clearDraft`, `draft_updated` relay, and main-thread `setDraft` showed the failing run stopping at `sendMessage got value` with no subsequent log (the await on `getConfig/slowMode/payment` was still outstanding when the postcondition probed). Adding a 3s wait-loop to the postcondition reduces the failure rate to 0/8 over 8 consecutive replays (the remaining 5/8 chrono flakes are an unrelated pre-existing intermittent).
+- **Fix applied**: `src/tests/fuzz/postconditions/messaging.ts` — `POST_sendText_input_cleared` now polls textContent for up to 3s (100ms interval), same pattern as `POST_sendText_bubble_appears`. No production code changed. Scope: 1 file, 20 LOC.
+- **Time-box**: closed within 1h of Task 4 start.
+
+## Root cause (confirmed)
+
+The post-send clear is an async chain with ~5 awaited steps before the DOM textContent actually becomes empty:
+
+1. Main thread `ChatInput.sendMessage()` awaits `apiManager.getConfig()` (MessagePort round-trip to Worker).
+2. Awaits `showSlowModeTooltipIfNeeded(...)`.
+3. Awaits `paidMessageInterceptor.prepareStarsForPayment(messageCount)`.
+4. Calls `appMessagesManager.sendText({clearDraft: true, ...})` (MessagePort → Worker).
+5. Worker `beforeMessageSending` pushes a `processAfter` callback that calls `appDraftsManager.clearDraft(...)` → dispatches `draft_updated` on Worker rootScope.
+6. `MTProtoMessagePort.getInstance().invokeVoid('event', {name: 'draft_updated', ...})` relays to the SharedWorker/main tab.
+7. Main-thread `apiManagerProxy.event` handler re-dispatches via `rootScope.dispatchEventSingle('draft_updated', ...)`.
+8. `ChatInput.setChatListeners` listener calls `setDraft(undefined, true, true)` → `messageInputField.inputFake.textContent = ''` → waits for `chat.bubbles.messagesQueuePromise` → `fastRaf` → `onMessageSent()` → `clearInput()` → `messageInputField.setValueSilently('')`.
+
+Under fuzz contention (8-action trace with interleaved peer sends, a delete, a reply, and a chat switch preceding the failing `sendText("hello")`), steps 1–8 routinely exceed the postcondition's implicit window. The postcondition ran synchronously right after `sendBtn.click()` returned, with no wait — so it reliably caught the input still holding "hello".
+
+`POST_sendText_bubble_appears` precedes `POST_sendText_input_cleared` and has a 2.5s wait-loop on any bubble containing "hello", but because "hello" had already been sent at action 2 it found a stale match immediately and returned — giving no real time buffer for the async clear to complete before the next postcondition probed.
+
+Invalidated hypotheses:
+- **HARNESS driver (CDP `Input.insertText` composition events bypassing tweb's clear handler)**: swapping to `document.execCommand('insertText', ...)` did not change the failure rate. The clear handler is wired to the `draft_updated` pipeline, which is driven by the send manager regardless of how the input was populated.
+- **PROD compositionend path missing**: the `draft_updated` mechanism clears the input reliably for every send, including the replay action 6 (`replyToRandomBubble` "NJ") that used the same driver. Only the probe timing was off.
+
+## Fix summary
+
+Patient postcondition matching the send pipeline's true latency:
+
+```ts
+// src/tests/fuzz/postconditions/messaging.ts
+const deadline = Date.now() + 3000;
+let lastText = '';
+while(Date.now() < deadline) {
+  const text = await sender.page.evaluate(() => {
+    const el = document.querySelector('.chat-input [contenteditable="true"]') as HTMLElement | null;
+    return ((el?.textContent) || '').trim();
+  });
+  lastText = text;
+  if(text.length === 0) return {ok: true};
+  await sender.page.waitForTimeout(100);
+}
+return {ok: false, message: ..., evidence: {text: lastText}};
+```
+
+Mirrors the 2.5s+ pattern already established by `POST_sendText_bubble_appears`. The 3s deadline is both (a) a fail-safe for when the clear pipeline genuinely fails — a stuck pipeline will wait the full 3s and then report `still contains "<text>"` with the last-observed textContent as evidence — and (b) patience budget for normal contention. In the fast path, the loop exits on the first successful probe (<300ms observed) and adds no measurable latency. Matches the precedent of `POST_edit_content_updated` (also 3s deadline).

@@ -7,7 +7,8 @@ import {avatarDomMatchesCache} from './avatar';
 import {mirrorsIdbCoherent, peersComplete, storedMessageIdentityComplete} from './state';
 import {offlineQueuePurged} from './queue';
 import {noNip04, idbSeedEncrypted, editPreservesMidTimestamp, editAuthorCheck, virtualPeerIdStable} from './regression';
-import {reactionDedupe, noKind7SelfEchoDrop, reactionBilateral, reactionAuthorCheck, reactionRemoveKind} from './reactions';
+import {reactionDedupe, noKind7SelfEchoDrop, reactionBilateral, reactionAuthorCheck, reactionRemoveKind, reactionAggregatedRender} from './reactions';
+import {historyRehydratesIdentical, offlineQueuePersistence, noDupAfterDeleteRace, noOrphanTempMidPostReload} from './lifecycle';
 
 export const ALL_INVARIANTS: Invariant[] = [
   consoleClean,
@@ -15,11 +16,13 @@ export const ALL_INVARIANTS: Invariant[] = [
   bubbleChronological,
   noAutoPin,
   sentBubbleVisibleAfterSend,
+  noDupAfterDeleteRace,
   deliveryUiMatchesTracker,
   avatarDomMatchesCache,
   // Cheap — reactions
   reactionDedupe,
   noKind7SelfEchoDrop,
+  reactionAggregatedRender,
   // Medium tier
   mirrorsIdbCoherent,
   storedMessageIdentityComplete,
@@ -27,6 +30,9 @@ export const ALL_INVARIANTS: Invariant[] = [
   deliveryTrackerNoOrphans,
   offlineQueuePurged,
   reactionBilateral,
+  historyRehydratesIdentical,
+  offlineQueuePersistence,
+  noOrphanTempMidPostReload,
   // Regression tier
   noNip04,
   idbSeedEncrypted,

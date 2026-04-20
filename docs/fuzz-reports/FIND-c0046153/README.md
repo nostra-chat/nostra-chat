@@ -1,6 +1,6 @@
 # FIND-c0046153 — INV-bubble-chronological (out-of-order DOM insert)
 
-Status: **OPEN** (carry-forward to Phase 2b.2)
+Status: **FIXED** in Phase 2b.2a
 Tier: cheap
 Scope: Phase 2b.2 investigation
 
@@ -67,3 +67,26 @@ Trace + failure.json committed in this directory.
 - `console.log` — 94 KB of browser console output captured during the run
 - `dom-A.html` / `dom-B.html` — full DOM snapshots at failure
 - `screenshot-A.png` / `screenshot-B.png` — final viewport
+
+## Triage (2b.2a session)
+
+- **Replay status**: REPRODUCED (log: `/tmp/repro-c0046153.log`)
+- **Reproduction note**: Two allowlist entries were added to `src/tests/fuzz/allowlist.ts` before the replay succeeded: (1) dev-mode SW registration failure (Playwright headless cannot start Vite module-type SWs — production build is unaffected), and (2) `[ACC-N-MESSAGES] noIdsDialogs` (pre-existing P2P diagnostic that straddles the 5 s warmup window depending on machine speed). Both are dev/timing artefacts unrelated to this FIND.
+- **Failure observed**: `INV-bubble-chronological` fires at action 10 (`replyToRandomBubble userA`) with `timestamps: [1776684401, 1776684403, 1776684401, 1776684405]` — idx 1 > idx 2.
+- **Verdict**: PROD
+- **Hypothesis selected**: H1 — `nostra_new_message` / `history_append` path inserts bubbles in relay-receive order rather than sorting by `created_at`. Two messages sent within the same second get the same `created_at`, and the one received second is appended after the one already in the DOM even when its timestamp is older.
+- **Planned fix scope**: `src/lib/nostra/nostra-sync.ts` (dispatch order) and/or `src/components/chat/bubbles.ts` (`insertBubble` sort key — verify it uses `created_at`, not DOM-append order).
+- **Carry-forward note**: This bug also blocks FIND-eef9f130's replay — the chronological invariant fires during eef9f130's trace before reaching the input-clear check. Fixing c0046153 unblocks independent eef9f130 reproduction.
+- **Time-box**: 2h. Escape: downgrade `INV-bubble-chronological` to `skip: true` with TODO, carry-forward to 2b.2b.
+
+## Root cause (confirmed)
+
+`BubbleGroups.sortItemsKey` was hardcoded to `'mid'` for all non-Scheduled chats (`bubbleGroups.ts:374`). For P2P peers the Worker's `generateTempMessageId` returns `topMessage + 1` when `topMessage >= 2^50` (see `appMessagesIdsManager.ts:23-24` / FIND-cfd24d69 fix) — which encodes the PREVIOUS peer's second, NOT the current wall-clock second. A bubble initially rendered with such a tempMid places itself in `itemsArr` at the position implied by that stale timestamp prefix; the subsequent `message_sent` tempMid → realMid swap in `bubbles.ts` only updates `bubble.dataset.mid` (line 790), never `GroupItem.mid` or `itemsArr`. Result: when a peer's later wall-clock message arrives with a correctly-encoded (smaller-prefix) mid, it sorts AFTER the own bubble even though its timestamp is earlier — `[T, T+2, T, T+4]` in DOM.
+
+Chrono instrumentation on a reproducing run confirmed `bubbleFound: false` at every `message_sent` dispatch (the bubble was rendered under `fullMid(realMid)` via VMT's `injectOutgoingBubble`, never under `fullMid(tempId)`), so no in-place reposition hook in `message_sent` could reach it.
+
+## Fix summary
+
+Switch `sortItemsKey`/`sortGroupsKey` from `'mid'` to `'timestamp'`/`'lastTimestamp'` for P2P chats (`peerId >= 1e15`), mirroring the existing `ChatType.Scheduled` behaviour. `message.date` is the invariant source of truth for DOM chronology regardless of how mids are assigned. Scope: one file (`src/components/chat/bubbleGroups.ts`), 11 LOC including comment. MTProto-legacy peers are unaffected. The underlying `generateTempMessageId` encoding (which produces tempMids with stale second-prefixes) remains unchanged — a future hardening pass could encode wall-clock seconds directly for P2P tempMids to close this gap permanently.
+
+**Scope note:** The 9/9 pass rate applies to FIND-c0046153's specific trace. A distinct contention variant surfaced under higher-concurrency traces (see FIND-chrono-v2 in `docs/FUZZ-FINDINGS.md`) remains open for 2b.2b — same-second same-user race not addressed by this sort-key fix.

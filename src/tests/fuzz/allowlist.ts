@@ -72,7 +72,26 @@ export const CONSOLE_ALLOWLIST: readonly RegExp[] = [
   // a diagnostic about resource hints, not a runtime bug. Phase 2a runs
   // targeted port 8090 where the preload was absent; Phase 2b.1 on 8080
   // surfaces it and it consistently aborts fuzz replay at action 1.
-  /preloaded using link preload but not used within a few seconds/
+  /preloaded using link preload but not used within a few seconds/,
+
+  // Dev-mode ServiceWorker registration fails because Vite's dev server
+  // serves sw.ts as a module worker, but Playwright's headless Chromium
+  // cannot start module-type SW scripts. This is a Vite/Playwright dev
+  // limitation, not a production bug. Production builds serve a compiled
+  // sw.js that registers fine.
+  /SW registration failed.*ServiceWorker cannot be started/,
+  /Failed to register a ServiceWorker.*ServiceWorker cannot be started/,
+
+  // `appMessagesManager.noIdsDialogs` is a pre-existing diagnostic that fires
+  // via `this.log.error(...)` → `console.error(...)` when a P2P dialog
+  // object arrives without a top-message ID during `saveApiDialogs`. This is
+  // a known limitation of the Virtual MTProto bridge (the bridge returns
+  // dialogs with synthetic topMessage objects, but the getDialogs pager
+  // occasionally receives a dialog before the message index is warm). It is
+  // not a regression introduced by any Phase 2b change; it predates the
+  // fuzzer and fires within the first few seconds of boot during P2P contact
+  // exchange. Allowlisted so it doesn't mask the actual FIND under test.
+  /\[ACC-\d+-MESSAGES\] noIdsDialogs\b/
 ];
 
 /**
