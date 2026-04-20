@@ -87,4 +87,4 @@ Chrono instrumentation on a reproducing run confirmed `bubbleFound: false` at ev
 
 ## Fix summary
 
-Switch `sortItemsKey`/`sortGroupsKey` from `'mid'` to `'timestamp'`/`'lastTimestamp'` for P2P chats (`peerId >= 1e15`), mirroring the existing `ChatType.Scheduled` behaviour. `message.date` is the invariant source of truth for DOM chronology regardless of how mids are assigned. Scope: one file (`src/components/chat/bubbleGroups.ts`), 11 LOC including comment. MTProto-legacy peers are unaffected.
+Switch `sortItemsKey`/`sortGroupsKey` from `'mid'` to `'timestamp'`/`'lastTimestamp'` for P2P chats (`peerId >= 1e15`), mirroring the existing `ChatType.Scheduled` behaviour. `message.date` is the invariant source of truth for DOM chronology regardless of how mids are assigned. Scope: one file (`src/components/chat/bubbleGroups.ts`), 11 LOC including comment. MTProto-legacy peers are unaffected. The underlying `generateTempMessageId` encoding (which produces tempMids with stale second-prefixes) remains unchanged — a future hardening pass could encode wall-clock seconds directly for P2P tempMids to close this gap permanently.

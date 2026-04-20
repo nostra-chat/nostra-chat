@@ -382,6 +382,9 @@ export default class BubbleGroups {
       const isP2P = Number(chat.peerId) >= 1e15;
       this.sortItemsKey = chat.type === ChatType.Scheduled || isP2P ? 'timestamp' : 'mid';
       this.sortGroupsKey = chat.type === ChatType.Scheduled || isP2P ? 'lastTimestamp' : 'lastMid';
+      // [Nostra.chat] sortGroupItemsKey stays 'groupMid' even for P2P — within-group
+      // same-sender ordering is less critical than cross-group chronology (the FIND-c0046153
+      // case was cross-sender, different groups). Matches the disabled Scheduled precedent.
       this.sortGroupItemsKey = /* chat.type === 'scheduled' ? 'timestamp' :  */'groupMid';
     }
   }
