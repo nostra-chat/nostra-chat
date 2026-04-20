@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/nostra-chat/nostra-chat/compare/v0.9.1...v0.10.0) (2026-04-20)
+
+
+### Features
+
+* **update:** user-driven version control improvements ([96cc7a2](https://github.com/nostra-chat/nostra-chat/commit/96cc7a2cfb4bab1a8147f083ee82136008439aed))
+
 ## [0.9.1](https://github.com/nostra-chat/nostra-chat/compare/v0.9.0...v0.9.1) (2026-04-20)
 
 
