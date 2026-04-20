@@ -1,32 +1,9 @@
 # Fuzz Findings
 
-Last updated: 2026-04-19 21:45:00
-Open bugs: 3 · Fixed: 5+2 (in Phase 2b.1)
+Last updated: 2026-04-20
+Open bugs: 2 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 1
 
 ## Open (sorted by occurrences desc)
-
-### FIND-c0046153 — INV-bubble-chronological
-- **Status**: open
-- **Tier**: cheap
-- **Occurrences**: 1
-- **First seen**: 2026-04-19 20:59:13
-- **Last seen**: 2026-04-19 20:59:13
-- **Seed**: 48
-- **Assertion**: "bubbles not chronological: idx 1=1776632351 > idx 2=1776632349"
-- **Replay**: `pnpm fuzz --replay=FIND-c0046153`
-- **Minimal trace** (10 actions):
-  1. `sendText({"from":"userB","text":"y "})`
-  2. `sendText({"from":"userB","text":"<"})`
-  3. `reactToRandomBubble({"user":"userA","fromTarget":"own","emoji":"👍"})`
-  4. `deleteRandomOwnBubble({"user":"userB"})`
-  5. `removeReaction({"user":"userA"})`
-  6. `sendText({"from":"userA","text":"&"})`
-  7. `sendText({"from":"userB","text":"/"})`
-  8. `replyToRandomBubble({"from":"userB","text":"<Ja.hZ9Hv\"_R"})`
-  9. `sendText({"from":"userB","text":"p$"})`
-  10. `replyToRandomBubble({"from":"userA","text":"&ref$#i"})`
-- **Scope**: Phase 2b.2 investigation. Likely cause: out-of-order delivery where peer's `sendText` arrives with a later `created_at` than sender's own, and DOM insert uses arrival order instead of timestamp order.
-- **Artifacts**: [`docs/fuzz-reports/FIND-c0046153/`](../fuzz-reports/FIND-c0046153/)
 
 ### FIND-bbf8efa8 — POST_react_multi_emoji_separate
 - **Status**: open
@@ -68,6 +45,33 @@ Open bugs: 3 · Fixed: 5+2 (in Phase 2b.1)
 - **Artifacts**: [`docs/fuzz-reports/FIND-eef9f130/`](../fuzz-reports/FIND-eef9f130/)
 
 ## Fixed
+
+### Fixed in Phase 2b.2a
+
+#### FIND-c0046153 — INV-bubble-chronological
+- **Status**: fixed in Phase 2b.2a
+- **Tier**: cheap
+- **Occurrences**: 1
+- **First seen**: 2026-04-19 20:59:13
+- **Last seen**: 2026-04-19 20:59:13
+- **Seed**: 48
+- **Assertion**: "bubbles not chronological: idx 1=1776632351 > idx 2=1776632349"
+- **Replay**: `pnpm fuzz --replay=FIND-c0046153` (9/9 runs pass after fix; previously reproduced ~40-50% of the time)
+- **Minimal trace** (10 actions):
+  1. `sendText({"from":"userB","text":"y "})`
+  2. `sendText({"from":"userB","text":"<"})`
+  3. `reactToRandomBubble({"user":"userA","fromTarget":"own","emoji":"👍"})`
+  4. `deleteRandomOwnBubble({"user":"userB"})`
+  5. `removeReaction({"user":"userA"})`
+  6. `sendText({"from":"userA","text":"&"})`
+  7. `sendText({"from":"userB","text":"/"})`
+  8. `replyToRandomBubble({"from":"userB","text":"<Ja.hZ9Hv\"_R"})`
+  9. `sendText({"from":"userB","text":"p$"})`
+  10. `replyToRandomBubble({"from":"userA","text":"&ref$#i"})`
+- **Root cause**: `BubbleGroups.sortItemsKey` was hardcoded to `'mid'` for non-Scheduled chats. For P2P peers, `generateTempMessageId` returns `topMessage + 1` when `topMessage >= 2^50` (FIND-cfd24d69 fix), encoding the PREVIOUS peer's second not the current one; the `message_sent` tempMid → realMid swap only updates `bubble.dataset.mid`, never `GroupItem.mid`/`itemsArr`, so DOM order reflects the stale tempMid sort.
+- **Fix**: Commit this patch — switch `sortItemsKey`/`sortGroupsKey` to `'timestamp'`/`'lastTimestamp'` for P2P chats (`peerId >= 1e15`), mirroring `ChatType.Scheduled` behaviour. Scope: 1 file, 11 LOC. `src/components/chat/bubbleGroups.ts`.
+- **Regression test**: `src/tests/fuzz/invariants/bubbles.test.ts` — `INV-bubble-chronological — FIND-c0046153 regression` (verifies the invariant detects the exact failing timestamp sequence).
+- **Artifacts**: [`docs/fuzz-reports/FIND-c0046153/`](../fuzz-reports/FIND-c0046153/)
 
 ### Fixed in Phase 2b.1
 

@@ -59,6 +59,22 @@ describe('INV-bubble-chronological', () => {
   });
 });
 
+describe('INV-bubble-chronological — FIND-c0046153 regression', () => {
+  it('fails when a late-arriving peer message is appended out of order', async () => {
+    // Replicates the failing sequence from FIND-c0046153:
+    // timestamps: [1776632349, 1776632351, 1776632349, 1776632353]
+    const r = await bubbleChronological.check(ctx(userWithBubbles([
+      {mid: '100', timestamp: 1776632349},
+      {mid: '101', timestamp: 1776632351},
+      {mid: '102', timestamp: 1776632349},
+      {mid: '103', timestamp: 1776632353}
+    ])));
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('not chronological');
+    expect(r.evidence?.timestamps).toEqual([1776632349, 1776632351, 1776632349, 1776632353]);
+  });
+});
+
 describe('INV-no-auto-pin', () => {
   it('passes when no bubble is pinned', async () => {
     const r = await noAutoPin.check(ctx(userWithBubbles([{mid: '1', timestamp: 1}])));

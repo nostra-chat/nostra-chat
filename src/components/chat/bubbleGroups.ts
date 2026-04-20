@@ -371,8 +371,17 @@ export default class BubbleGroups {
 
   constructor(private chat: Chat) {
     if(chat.type !== ChatType.Search) {
-      this.sortItemsKey = chat.type === ChatType.Scheduled ? 'timestamp' : 'mid';
-      this.sortGroupsKey = chat.type === ChatType.Scheduled ? 'lastTimestamp' : 'lastMid';
+      // [Nostra.chat] FIND-c0046153: for P2P chats, sort by `timestamp`
+      // (message.date) instead of `mid`. The Worker's tempMid scheme
+      // (`generateTempMessageId` returns `topMessage + 1` for mids >= 2^50)
+      // can produce mids whose numeric prefix does NOT match the message's
+      // actual wall-clock second — so two bubbles rendered with such tempMids
+      // sort out of order relative to peer bubbles whose mids correctly
+      // encode `ts * 1e6 + hash`. Sorting by `message.date` is the invariant
+      // source of truth for DOM chronology, independent of mid assignment.
+      const isP2P = Number(chat.peerId) >= 1e15;
+      this.sortItemsKey = chat.type === ChatType.Scheduled || isP2P ? 'timestamp' : 'mid';
+      this.sortGroupsKey = chat.type === ChatType.Scheduled || isP2P ? 'lastTimestamp' : 'lastMid';
       this.sortGroupItemsKey = /* chat.type === 'scheduled' ? 'timestamp' :  */'groupMid';
     }
   }
