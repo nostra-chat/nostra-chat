@@ -46,21 +46,21 @@ function shortenUrl(url: string | null, keepTail = 28): string {
 }
 
 const HOW_IT_WORKS_DESCRIPTION =
-  'Ad ogni avvio Nostra.chat verifica che il codice caricato corrisponda a quello installato. ' +
-  'Questo protegge da CDN compromesse, attacchi MITM e aggiornamenti non autorizzati.\n\n' +
-  'Tre controlli automatici:\n' +
-  '1) URL del Service Worker — deve coincidere con quello salvato al primo install.\n' +
-  '2) Nessun Service Worker sospetto in coda di installazione.\n' +
-  '3) Manifest confrontato su tre fonti indipendenti (CDN, IPFS, GitHub).\n\n' +
-  'Se compare l\'alert "possibile compromissione rilevata": verifica sempre dal sito ufficiale prima di proseguire. ' +
-  'Se hai appena cambiato dispositivo, svuotato la cache o reinstallato manualmente può essere un falso positivo, ' +
-  'e "Reset baseline" adotta lo stato corrente come nuovo punto fidato.\n\n' +
-  'Non usare il reset se sospetti un attacco in corso — in quel caso disconnettiti e accedi dal sito ufficiale.';
+  'On every launch Nostra.chat verifies that the loaded code matches what was installed. ' +
+  'This protects you from compromised CDNs, man-in-the-middle attacks, and unauthorized updates.\n\n' +
+  'Three automatic checks:\n' +
+  '1) Service Worker URL — must match the one saved at first install.\n' +
+  '2) No unexpected Service Worker queued for installation.\n' +
+  '3) Manifest compared across three independent sources (CDN, IPFS, GitHub).\n\n' +
+  'If you see the "possible compromise detected" alert: always verify from the official site before proceeding. ' +
+  'If you just changed device, cleared the cache, or reinstalled manually it may be a false positive, ' +
+  'and "Reset baseline" adopts the current state as the new trusted point.\n\n' +
+  'Do not reset if you suspect an active attack — in that case sign out and log in from the official site.';
 
 const RESET_CONFIRM_DESCRIPTION =
-  'Questo cancella lo stato fidato salvato (versione installata, URL del Service Worker, ultimo check integrità). ' +
-  'Al prossimo avvio il bundle attualmente in esecuzione verrà catturato come nuovo stato fidato, e l\'app verrà ricaricata.\n\n' +
-  'Usalo solo se sei sicuro che il codice attualmente caricato sia legittimo.';
+  'This clears the stored trusted state (installed version, Service Worker URL, last integrity check). ' +
+  'On the next launch the currently-running bundle will be captured as the new trusted state, and the app will reload.\n\n' +
+  'Only use this if you are sure the currently-loaded code is legitimate.';
 
 export default class AppUpdateSettingsTab extends SliderSuperTab {
   public async init() {
@@ -204,11 +204,11 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
     const helpSection = new SettingSection({name: 'About this protection' as any});
     const helpRow = new Row({
       title: 'How it works' as any,
-      subtitle: 'Perché esiste e quando usare il reset' as any,
+      subtitle: 'Why this safeguard exists and when to reset' as any,
       icon: 'info',
       clickable: () => {
         confirmationPopup({
-          title: 'Protezione aggiornamenti',
+          title: 'Update protection',
           descriptionRaw: HOW_IT_WORKS_DESCRIPTION,
           button: {text: document.createTextNode('OK')}
         }).catch(() => { /* user closed */ });
