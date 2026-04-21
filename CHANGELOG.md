@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/nostra-chat/nostra-chat/compare/v0.11.0...v0.11.1) (2026-04-21)
+
+
+### Bug Fixes
+
+* **report-bug:** align button text and vertical centering in popup ([3b929fd](https://github.com/nostra-chat/nostra-chat/commit/3b929fd62653f2ea1058130f1829cbb05eb3494b))
+
 ## [0.11.0](https://github.com/nostra-chat/nostra-chat/compare/v0.10.1...v0.11.0) (2026-04-21)
 
 
