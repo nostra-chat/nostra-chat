@@ -427,7 +427,7 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
     void runProbeIfDue().catch((e) => console.warn('[update] probe failed', e));
 
     // Stash incoming pending updates for hamburger click
-    rootScope.addEventListener('update_available', ({manifest, signature}) => {
+    rootScope.addEventListener('update_available_signed', ({manifest, signature}) => {
       (window as any).__nostraPendingUpdate = {manifest, signature};
     });
 

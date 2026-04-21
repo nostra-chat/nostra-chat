@@ -42,7 +42,7 @@ export async function runProbeIfDue(force = false): Promise<void> {
   }
   const result = await probe(installedPubkey, active?.version);
   if(result.outcome === 'update-available' && result.manifest && !isSnoozed(result.manifest.version)) {
-    rootScope.dispatchEvent('update_available', {manifest: result.manifest, signature: result.signature || ''});
+    rootScope.dispatchEvent('update_available_signed', {manifest: result.manifest, signature: result.signature || ''});
   }
   if(result.outcome === 'update-available' && result.manifest) {
     const count = parseInt(localStorage.getItem(`${DECLINE_COUNT_KEY}.${result.manifest.version}`) || '0', 10);
@@ -59,3 +59,6 @@ export async function acceptUpdate(manifest: any, signature: string): Promise<{o
 export function declineUpdate(version: string): number {
   return recordDecline(version);
 }
+
+// Backward-compat alias for the legacy updateAvailable popup (pre-consent-gated design).
+export const skipVersion = declineUpdate;

@@ -8,7 +8,7 @@ beforeAll(() => {
 });
 
 async function makeSignedManifest(priv: Uint8Array, version = '0.13.0') {
-  const manifest = {schemaVersion: 2, version, gitSha: 'aaa', published: '2026-01-01', swUrl: './sw.js', signingKeyFingerprint: 'ed25519:x', securityRelease: false, securityRollback: false, bundleHashes: {}, changelog: '', alternateSources: {}, rotation: null};
+  const manifest: any = {schemaVersion: 2, version, gitSha: 'aaa', published: '2026-01-01', swUrl: './sw.js', signingKeyFingerprint: 'ed25519:x', securityRelease: false, securityRollback: false, bundleHashes: {}, changelog: '', alternateSources: {}, rotation: null};
   const bytes = new TextEncoder().encode(JSON.stringify(manifest));
   const sig = await ed.signAsync(bytes, priv);
   return {json: JSON.stringify(manifest), sig: bytesToBase64(sig)};

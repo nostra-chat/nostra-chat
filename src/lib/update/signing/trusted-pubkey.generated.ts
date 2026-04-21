@@ -1,4 +1,3 @@
-/* eslint-disable */
 // STUB — will be overwritten by src/scripts/build/gen-signing-key.ts
 // at the point a real release key is generated. Until then, tests
 // generate ephemeral keys.
