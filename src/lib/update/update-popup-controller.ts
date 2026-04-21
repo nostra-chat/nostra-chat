@@ -1,4 +1,5 @@
 import rootScope from '@lib/rootScope';
+import I18n from '@lib/langPack';
 import type {IntegrityResult, Manifest} from '@lib/update/types';
 
 const SKIP_LS_KEY = 'nostra.update.skippedVersion';
@@ -38,6 +39,15 @@ rootScope.addEventListener('update_available', async(manifest: Manifest) => {
   if(isVersionSkipped(manifest.version)) return;
   if(!_lastIntegrity) return;
   _shownForVersion = manifest.version;
+  // updateBootstrap() dispatches this event before index.ts calls
+  // getCacheLangPackAndApply(), so I18n.strings can be empty when the popup
+  // renders — which made I18n.format() leak raw keys like 'Update.Popup.Title'.
+  // Await the cache apply here so the popup at least sees the user's last
+  // applied pack; the popup itself also carries English fallbacks for the case
+  // where the cached pack predates these keys.
+  try {
+    await I18n.getCacheLangPackAndApply();
+  } catch{}
   const {default: UpdateAvailablePopup} = await import('@components/popups/updateAvailable');
   new UpdateAvailablePopup(manifest, _lastIntegrity).show();
 });

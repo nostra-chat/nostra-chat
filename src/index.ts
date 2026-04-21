@@ -417,6 +417,11 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
       }
       throw err;
     }
+  } else if(import.meta.env.DEV) {
+    // Local simulation hook: exposes window.__triggerUpdatePopup() so the update
+    // popup can be exercised in `pnpm start` without a mainnet deploy.
+    const {install} = await import('@lib/update/dev-trigger');
+    await install();
   }
 
   await checkLastActiveAccountFromTMe();
