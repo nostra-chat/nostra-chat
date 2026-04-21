@@ -12,6 +12,7 @@ export interface ProbeResult {
     | 'network-error'
     | 'parse-error';
   manifest?: any;
+  manifestText?: string;   // exact bytes the signature was computed over
   signature?: string;
   reason?: string;
 }
@@ -51,13 +52,14 @@ export async function probe(trustedPubkeyB64: string, activeVersion?: string): P
   const ok = await verifyDetachedSignature(manifestBytes, sigText.trim(), trustedPubkeyB64);
   if(!ok) return {outcome: 'invalid-signature'};
 
+  const sigTrimmed = sigText.trim();
   if(activeVersion && manifest.version === activeVersion) {
-    return {outcome: 'up-to-date', manifest, signature: sigText.trim()};
+    return {outcome: 'up-to-date', manifest, manifestText, signature: sigTrimmed};
   }
 
   if(activeVersion && cmpSemver(manifest.version, activeVersion) < 0 && !manifest.securityRollback) {
-    return {outcome: 'downgrade-rejected', manifest, reason: `New ${manifest.version} < active ${activeVersion}`};
+    return {outcome: 'downgrade-rejected', manifest, manifestText, reason: `New ${manifest.version} < active ${activeVersion}`};
   }
 
-  return {outcome: 'update-available', manifest, signature: sigText.trim()};
+  return {outcome: 'update-available', manifest, manifestText, signature: sigTrimmed};
 }

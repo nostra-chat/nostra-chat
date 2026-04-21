@@ -42,9 +42,12 @@ export async function handleUpdateApproved(
   manifest: Manifest,
   signatureB64: string,
   trustedPubkeyB64: string,
-  onProgress?: (done: number, total: number) => void
+  onProgress?: (done: number, total: number) => void,
+  manifestText?: string
 ): Promise<ApprovedResult> {
-  const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest));
+  // Verify signature over the ORIGINAL bytes fetched from the server, not over
+  // a re-serialized object (JSON.stringify key order differs from server output).
+  const manifestBytes = new TextEncoder().encode(manifestText ?? JSON.stringify(manifest));
   const sigOk = await verifyDetachedSignature(manifestBytes, signatureB64, trustedPubkeyB64);
   if(!sigOk) return {outcome: 'invalid-signature'};
 
@@ -65,7 +68,12 @@ export async function handleUpdateApproved(
   let done = 0;
   for(const [path, expectedHash] of entries) {
     try {
-      const res = await fetch(path, {cache: 'no-cache'});
+      // Manifest paths can contain URL-reserved characters. `#` is especially
+      // problematic — fetch treats it as a fragment separator and strips it.
+      // Pre-encode reserved chars before resolving against the SW location.
+      const encodedPath = path.replace(/#/g, '%23').replace(/\?/g, '%3F');
+      const url = new URL(encodedPath, self.location.href).href;
+      const res = await fetch(url, {cache: 'no-cache'});
       if(!res.ok) {
         await caches.delete(pendingName);
         return {outcome: 'network-error', chunk: path, reason: `HTTP ${res.status}`};

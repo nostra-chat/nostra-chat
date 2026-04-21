@@ -28,7 +28,9 @@ import {onBackgroundsFetch} from '@lib/serviceWorker/backgrounds';
 import {watchMtprotoOnDev} from '@lib/serviceWorker/watchMtprotoOnDev';
 import {watchCacheStoragesLifetime} from './clearOldCache';
 import {requestCacheStrict} from './cache';
-import {setActiveVersion, gcOrphans} from './shell-cache';
+import {setActiveVersion, gcOrphans, getActiveVersion} from './shell-cache';
+import {handleUpdateApproved} from './signed-update-sw';
+import {getBakedPubkey} from '@lib/update/signing/trusted-keys';
 
 // #if MTPROTO_SW
 // import '../mtproto/mtproto.worker';
@@ -418,16 +420,14 @@ ctx.addEventListener('message', async(event) => {
   if((event as any).data?.type !== 'UPDATE_APPROVED') return;
   const port = (event as any).ports[0] as MessagePort | undefined;
   try {
-    const {handleUpdateApproved} = await import('./signed-update-sw');
-    const {getActiveVersion} = await import('./shell-cache');
-    const {getBakedPubkey} = await import('@lib/update/signing/trusted-keys');
     const active = await getActiveVersion();
     const pubkey = active?.installedPubkey || getBakedPubkey();
     const res = await handleUpdateApproved(
       (event as any).data.manifest,
       (event as any).data.signature,
       pubkey,
-      (done: number, total: number) => port?.postMessage({type: 'UPDATE_PROGRESS', done, total})
+      (done: number, total: number) => port?.postMessage({type: 'UPDATE_PROGRESS', done, total}),
+      (event as any).data.manifestText
     );
     port?.postMessage({type: 'UPDATE_RESULT', outcome: res.outcome, reason: res.reason, chunk: res.chunk});
   } catch(e) {

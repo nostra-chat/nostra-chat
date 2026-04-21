@@ -422,12 +422,11 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
     const {ensureMigrated} = await import('@lib/update/update-bootstrap');
     await ensureMigrated();
 
-    // Register listeners BEFORE triggering probe — the probe dispatches
-    // update_available_signed synchronously if a new version is found, so the
-    // listener must be alive before runProbeIfDue() is called.
-    rootScope.addEventListener('update_available_signed', ({manifest, signature}) => {
-      (window as any).__nostraPendingUpdate = {manifest, signature};
-    });
+    // NOTE: the `update_available_signed` → window.__nostraPendingUpdate stash
+    // listener is registered as a module-load side effect inside
+    // update-popup-controller.ts (so it fires before runProbeIfDue on the same
+    // import). Do NOT register a second listener here — a duplicate without the
+    // manifestText field would overwrite and break the accept flow.
 
     // Staleness banner: persistent top banner after 7 consecutive declines
     rootScope.addEventListener('update_staleness_banner', async({version}) => {

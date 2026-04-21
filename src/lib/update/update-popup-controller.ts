@@ -18,8 +18,8 @@ function now() { return Date.now(); }
 // `src/index.ts` imports the controller. Registering HERE (not in index.ts) guarantees
 // the listener is alive BEFORE runProbeIfDue() is called on the same import cycle.
 if(typeof window !== 'undefined') {
-  rootScope.addEventListener('update_available_signed', ({manifest, signature}) => {
-    (window as any).__nostraPendingUpdate = {manifest, signature};
+  rootScope.addEventListener('update_available_signed', ({manifest, signature, manifestText}: any) => {
+    (window as any).__nostraPendingUpdate = {manifest, signature, manifestText};
   });
 }
 
@@ -52,7 +52,7 @@ export async function runProbeIfDue(force = false): Promise<void> {
   }
   const result = await probe(installedPubkey, active?.version);
   if(result.outcome === 'update-available' && result.manifest && !isSnoozed(result.manifest.version)) {
-    rootScope.dispatchEvent('update_available_signed', {manifest: result.manifest, signature: result.signature || ''});
+    rootScope.dispatchEvent('update_available_signed', {manifest: result.manifest, signature: result.signature || '', manifestText: result.manifestText || ''} as any);
   }
   if(result.outcome === 'update-available' && result.manifest) {
     const count = parseInt(localStorage.getItem(`${DECLINE_COUNT_KEY}.${result.manifest.version}`) || '0', 10);
@@ -62,8 +62,8 @@ export async function runProbeIfDue(force = false): Promise<void> {
   }
 }
 
-export async function acceptUpdate(manifest: any, signature: string): Promise<{ok: boolean; reason?: string}> {
-  return startUpdateSigned(manifest, signature);
+export async function acceptUpdate(manifest: any, signature: string, manifestText?: string): Promise<{ok: boolean; reason?: string}> {
+  return startUpdateSigned(manifest, signature, manifestText);
 }
 
 export function declineUpdate(version: string): number {
