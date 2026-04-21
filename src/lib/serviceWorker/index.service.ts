@@ -375,8 +375,14 @@ ctx.addEventListener('install', (event) => {
       // cache.addAll parallelizes 4000+ fetches which would time out if done serially.
       // Post-install hash verification happens in background (activate + periodic probe).
       await cache.addAll(paths);
-      (self as any).__INSTALL_VERSION = version;
-      (self as any).__INSTALL_FINGERPRINT = manifest.signingKeyFingerprint;
+      // Persist version+fingerprint directly here in install — activate handler
+      // cannot rely on self.__INSTALL_* globals because some browsers recycle
+      // the worker scope between install and activate.
+      try {
+        await setActiveVersion(version, manifest.signingKeyFingerprint || 'ed25519:unset');
+      } catch(err) {
+        console.error('[sw] setActiveVersion during install failed:', err);
+      }
       log('pre-cached full bundle for version', version, paths.length, 'files');
     } catch(e) {
       console.error('[sw] install failed:', e);
@@ -389,11 +395,11 @@ ctx.addEventListener('install', (event) => {
 ctx.addEventListener('activate', (event) => {
   log('activating', ctx);
   event.waitUntil((async() => {
-    const v = (self as any).__INSTALL_VERSION as string | undefined;
-    const fp = (self as any).__INSTALL_FINGERPRINT as string | undefined;
-    if(v && fp) {
-      await setActiveVersion(v, fp);
+    // setActiveVersion was called during install; activate just GCs orphan caches.
+    try {
       await gcOrphans();
+    } catch(err) {
+      console.error('[sw] gcOrphans failed:', err);
     }
     // NO clients.claim() — reload is handled by main thread via controllerchange listener.
   })());
