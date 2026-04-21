@@ -154,34 +154,47 @@ export default function showReportBugPopup(managers: AppManagers): void {
   const btnRow = document.createElement('div');
   btnRow.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-top:16px;';
 
-  const btnBaseStyle = 'padding:12px 16px;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:500;text-align:left;display:flex;flex-direction:column;gap:2px;';
+  const btnBaseStyle = 'width:100%;padding:12px 16px;border:none;border-radius:10px;cursor:pointer;font-size:14px;font-weight:500;text-align:left;display:flex;flex-direction:row;align-items:center;gap:12px;line-height:1.3;box-sizing:border-box;font-family:inherit;';
+  const iconStyle = 'flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;font-size:18px;line-height:1;';
+  const textBlockStyle = 'display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 auto;text-align:left;';
 
-  const githubBtn = document.createElement('button');
+  const makeOptionButton = (iconText: string, titleText: string, subText: string): {
+    btn: HTMLButtonElement;
+    titleEl: HTMLSpanElement;
+  } => {
+    const btn = document.createElement('button');
+    const icon = document.createElement('span');
+    icon.textContent = iconText;
+    icon.style.cssText = iconStyle;
+    const textBlock = document.createElement('span');
+    textBlock.style.cssText = textBlockStyle;
+    const titleEl = document.createElement('span');
+    titleEl.textContent = titleText;
+    titleEl.style.cssText = 'font-weight:600;';
+    const subEl = document.createElement('span');
+    subEl.textContent = subText;
+    subEl.style.cssText = 'font-size:11px;opacity:.85;';
+    textBlock.append(titleEl, subEl);
+    btn.append(icon, textBlock);
+    return {btn, titleEl};
+  };
+
+  const github = makeOptionButton('🌐', 'Open public GitHub issue', 'Requires a GitHub account. Visible to everyone.');
+  const githubBtn = github.btn;
+  const githubTitle = github.titleEl;
   githubBtn.classList.add('btn-primary', 'btn-color-primary');
   githubBtn.style.cssText = btnBaseStyle + 'color:#fff;';
-  const githubTitle = document.createElement('span');
-  githubTitle.textContent = '🌐  Open public GitHub issue';
-  githubTitle.style.cssText = 'font-weight:600;';
-  const githubSub = document.createElement('span');
-  githubSub.textContent = 'Requires a GitHub account. Visible to everyone.';
-  githubSub.style.cssText = 'font-size:11px;opacity:.85;';
-  githubBtn.append(githubTitle, githubSub);
 
-  const privateBtn = document.createElement('button');
+  const priv = makeOptionButton('🔒', 'Send private report to Nostra Dev', 'Uses your Nostra identity. End-to-end encrypted.');
+  const privateBtn = priv.btn;
+  const privateTitle = priv.titleEl;
   privateBtn.classList.add('btn-primary', 'btn-transparent');
   privateBtn.style.cssText = btnBaseStyle + 'border:1px solid var(--border-color);color:var(--primary-text-color);background:transparent;';
-  const privateTitle = document.createElement('span');
-  privateTitle.textContent = '🔒  Send private report to Nostra Dev';
-  privateTitle.style.cssText = 'font-weight:600;';
-  const privateSub = document.createElement('span');
-  privateSub.textContent = 'Uses your Nostra identity. End-to-end encrypted.';
-  privateSub.style.cssText = 'font-size:11px;opacity:.75;';
-  privateBtn.append(privateTitle, privateSub);
 
   const cancelBtn = document.createElement('button');
   cancelBtn.textContent = 'Cancel';
   cancelBtn.classList.add('btn-primary', 'btn-transparent');
-  cancelBtn.style.cssText = 'padding:8px 16px;border:none;border-radius:8px;cursor:pointer;font-size:14px;margin-top:4px;color:var(--secondary-text-color);';
+  cancelBtn.style.cssText = 'width:100%;padding:12px 16px;border:none;border-radius:10px;cursor:pointer;font-size:14px;font-weight:500;margin-top:4px;color:var(--secondary-text-color);background:transparent;display:flex;align-items:center;justify-content:center;line-height:1.3;box-sizing:border-box;font-family:inherit;';
   cancelBtn.addEventListener('click', () => overlay.remove());
 
   const validate = (): boolean => {
@@ -205,7 +218,7 @@ export default function showReportBugPopup(managers: AppManagers): void {
     if(!validate()) return;
     privateBtn.disabled = true;
     githubBtn.disabled = true;
-    privateTitle.textContent = '🔒  Sending…';
+    privateTitle.textContent = 'Sending…';
     try {
       await sendPrivateReport(managers, titleInput.value.trim(), descInput.value.trim());
       overlay.remove();
@@ -216,7 +229,7 @@ export default function showReportBugPopup(managers: AppManagers): void {
       errorEl.textContent = 'Failed to send. Try GitHub instead.';
       privateBtn.disabled = false;
       githubBtn.disabled = false;
-      privateTitle.textContent = '🔒  Send private report to Nostra Dev';
+      privateTitle.textContent = 'Send private report to Nostra Dev';
     }
   });
 
