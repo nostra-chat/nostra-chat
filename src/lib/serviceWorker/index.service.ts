@@ -27,6 +27,8 @@ import DeferredIsUsingPasscode from '@lib/passcode/deferredIsUsingPasscode';
 import {onBackgroundsFetch} from '@lib/serviceWorker/backgrounds';
 import {watchMtprotoOnDev} from '@lib/serviceWorker/watchMtprotoOnDev';
 import {watchCacheStoragesLifetime} from './clearOldCache';
+import {requestCacheStrict} from './cache';
+import {setActiveVersion, gcOrphans} from './shell-cache';
 
 // #if MTPROTO_SW
 // import '../mtproto/mtproto.worker';
@@ -267,7 +269,9 @@ const onFetch = (event: FetchEvent): void => {
   // Navigation requests and shell file extensions are served strictly from cache.
   // Network fallback is intentionally removed — a missing asset means cache corruption.
   // update-manifest.json and .sig are exceptions (probe must reach network).
-  if(import.meta.env.PROD) {
+  // NOTE: no import.meta.env.PROD guard here — Vite's worker build doesn't inject
+  // that flag into SW context, so the condition would always tree-shake to false.
+  {
     const _url = new URL(event.request.url);
     const isSameOrigin = _url.origin === location.origin;
     const isNavigation = event.request.mode === 'navigate';
@@ -276,10 +280,7 @@ const onFetch = (event: FetchEvent): void => {
       if(_url.pathname === '/update-manifest.json' || _url.pathname === '/update-manifest.json.sig') {
         // let network handle manifest probe requests
       } else {
-        return event.respondWith((async() => {
-          const {requestCacheStrict} = await import('./cache');
-          return requestCacheStrict(event);
-        })());
+        return event.respondWith(requestCacheStrict(event));
       }
     }
   }
@@ -391,7 +392,6 @@ ctx.addEventListener('activate', (event) => {
     const v = (self as any).__INSTALL_VERSION as string | undefined;
     const fp = (self as any).__INSTALL_FINGERPRINT as string | undefined;
     if(v && fp) {
-      const {setActiveVersion, gcOrphans} = await import('./shell-cache');
       await setActiveVersion(v, fp);
       await gcOrphans();
     }
