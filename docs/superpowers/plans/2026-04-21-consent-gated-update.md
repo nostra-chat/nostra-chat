@@ -10,6 +10,15 @@
 
 **Spec:** `docs/superpowers/specs/2026-04-21-consent-gated-update-design.md`
 
+**Library notes (@noble/ed25519 v3 — installed in worktree):**
+- `ed.hashes.sha512 = sha512` (NOT `ed.etc.sha512Sync = ...`)
+- `ed.utils.randomSecretKey()` (NOT `randomPrivateKey`)
+- `ed.getPublicKeyAsync(priv)`, `ed.signAsync(msg, priv)`, `ed.verifyAsync(sig, msg, pub)` unchanged
+- Import sha512 from `@noble/hashes/sha2.js` (NOT `@noble/hashes/sha512`)
+- Every file using `ed.*` must set `ed.hashes.sha512 = sha512` at module top before any call.
+
+**Lint gotcha:** `} catch{` (no space before `{`). Repo rule: no space after `catch` keyword.
+
 ---
 
 ## Preamble — Worktree setup
@@ -59,17 +68,17 @@ pnpm add @noble/ed25519
 import {writeFileSync, existsSync} from 'fs';
 import {join} from 'path';
 import * as ed from '@noble/ed25519';
-import {sha512} from '@noble/hashes/sha512';
+import {sha512} from '@noble/hashes/sha2.js';
 
 // Bridge sync hash impl for @noble/ed25519 v2 sync paths (optional; fine for keygen)
-ed.etc.sha512Sync = (...m: Uint8Array[]) => sha512(ed.etc.concatBytes(...m));
+ed.hashes.sha512 = sha512;
 
 function base64(buf: Uint8Array): string {
   return Buffer.from(buf).toString('base64');
 }
 
 async function main() {
-  const priv = ed.utils.randomPrivateKey();
+  const priv = ed.utils.randomSecretKey();
   const pub = await ed.getPublicKeyAsync(priv);
   const outDir = process.cwd();
   const privPath = join(outDir, 'signing-private.key');
@@ -140,16 +149,16 @@ git commit -m "feat(update): add Ed25519 signing key generation script"
 ```typescript
 import {describe, it, expect, beforeAll} from 'vitest';
 import * as ed from '@noble/ed25519';
-import {sha512} from '@noble/hashes/sha512';
+import {sha512} from '@noble/hashes/sha2.js';
 import {verifyDetachedSignature, fingerprintPubkey, base64ToBytes, bytesToBase64} from '@lib/update/signing/verify';
 
 beforeAll(() => {
-  ed.etc.sha512Sync = (...m: Uint8Array[]) => sha512(ed.etc.concatBytes(...m));
+  ed.hashes.sha512 = sha512;
 });
 
 describe('verifyDetachedSignature', () => {
   it('accepts a valid signature', async () => {
-    const priv = ed.utils.randomPrivateKey();
+    const priv = ed.utils.randomSecretKey();
     const pub = await ed.getPublicKeyAsync(priv);
     const msg = new TextEncoder().encode('{"version":"1.0.0"}');
     const sig = await ed.signAsync(msg, priv);
@@ -158,7 +167,7 @@ describe('verifyDetachedSignature', () => {
   });
 
   it('rejects a tampered message', async () => {
-    const priv = ed.utils.randomPrivateKey();
+    const priv = ed.utils.randomSecretKey();
     const pub = await ed.getPublicKeyAsync(priv);
     const msg = new TextEncoder().encode('{"version":"1.0.0"}');
     const tampered = new TextEncoder().encode('{"version":"9.9.9"}');
@@ -168,8 +177,8 @@ describe('verifyDetachedSignature', () => {
   });
 
   it('rejects a signature from a different key', async () => {
-    const priv1 = ed.utils.randomPrivateKey();
-    const priv2 = ed.utils.randomPrivateKey();
+    const priv1 = ed.utils.randomSecretKey();
+    const priv2 = ed.utils.randomSecretKey();
     const pub2 = await ed.getPublicKeyAsync(priv2);
     const msg = new TextEncoder().encode('data');
     const sig = await ed.signAsync(msg, priv1);
@@ -186,7 +195,7 @@ describe('verifyDetachedSignature', () => {
 
 describe('fingerprintPubkey', () => {
   it('produces a stable 16-char hex fingerprint prefixed with ed25519:', async () => {
-    const priv = ed.utils.randomPrivateKey();
+    const priv = ed.utils.randomSecretKey();
     const pub = await ed.getPublicKeyAsync(priv);
     const fp = fingerprintPubkey(bytesToBase64(pub));
     expect(fp).toMatch(/^ed25519:[0-9a-f]{16}$/);
@@ -206,9 +215,9 @@ Expected: fail with "Cannot find module '@lib/update/signing/verify'".
 
 ```typescript
 import * as ed from '@noble/ed25519';
-import {sha512} from '@noble/hashes/sha512';
+import {sha512} from '@noble/hashes/sha2.js';
 
-ed.etc.sha512Sync = (...m: Uint8Array[]) => sha512(ed.etc.concatBytes(...m));
+ed.hashes.sha512 = sha512;
 
 export function bytesToBase64(buf: Uint8Array): string {
   let s = '';
@@ -233,7 +242,7 @@ export async function verifyDetachedSignature(
     const pub = base64ToBytes(pubkeyB64);
     if(sig.length !== 64 || pub.length !== 32) return false;
     return await ed.verifyAsync(sig, message, pub);
-  } catch {
+  } catch{
     return false;
   }
 }
@@ -294,19 +303,19 @@ export const TRUSTED_PUBKEY_FINGERPRINT = 'ed25519:unset';
 ```typescript
 import {describe, it, expect, beforeAll} from 'vitest';
 import * as ed from '@noble/ed25519';
-import {sha512} from '@noble/hashes/sha512';
+import {sha512} from '@noble/hashes/sha2.js';
 import {verifyCrossCert, type RotationSpec} from '@lib/update/signing/trusted-keys';
 import {bytesToBase64} from '@lib/update/signing/verify';
 
 beforeAll(() => {
-  ed.etc.sha512Sync = (...m: Uint8Array[]) => sha512(ed.etc.concatBytes(...m));
+  ed.hashes.sha512 = sha512;
 });
 
 describe('verifyCrossCert', () => {
   it('accepts a valid cross-cert (new pubkey signed by old priv)', async () => {
-    const oldPriv = ed.utils.randomPrivateKey();
+    const oldPriv = ed.utils.randomSecretKey();
     const oldPub = await ed.getPublicKeyAsync(oldPriv);
-    const newPriv = ed.utils.randomPrivateKey();
+    const newPriv = ed.utils.randomSecretKey();
     const newPub = await ed.getPublicKeyAsync(newPriv);
     const sig = await ed.signAsync(newPub, oldPriv);
     const rot: RotationSpec = {
@@ -319,10 +328,10 @@ describe('verifyCrossCert', () => {
   });
 
   it('rejects a cross-cert signed by wrong key', async () => {
-    const oldPriv = ed.utils.randomPrivateKey();
+    const oldPriv = ed.utils.randomSecretKey();
     const oldPub = await ed.getPublicKeyAsync(oldPriv);
-    const evilPriv = ed.utils.randomPrivateKey();
-    const newPriv = ed.utils.randomPrivateKey();
+    const evilPriv = ed.utils.randomSecretKey();
+    const newPriv = ed.utils.randomSecretKey();
     const newPub = await ed.getPublicKeyAsync(newPriv);
     const sig = await ed.signAsync(newPub, evilPriv);
     const rot: RotationSpec = {
@@ -335,7 +344,7 @@ describe('verifyCrossCert', () => {
   });
 
   it('rejects malformed rotation spec', async () => {
-    const oldPriv = ed.utils.randomPrivateKey();
+    const oldPriv = ed.utils.randomSecretKey();
     const oldPub = await ed.getPublicKeyAsync(oldPriv);
     const rot: RotationSpec = {
       newPubkey: '!!!bad',
@@ -377,7 +386,7 @@ export async function verifyCrossCert(rot: RotationSpec, expectedOldPubkeyB64: s
     const newPubBytes = base64ToBytes(rot.newPubkey);
     if(newPubBytes.length !== 32) return false;
     return await verifyDetachedSignature(newPubBytes, rot.crossCertSig, expectedOldPubkeyB64);
-  } catch {
+  } catch{
     return false;
   }
 }
@@ -497,9 +506,9 @@ git commit -m "feat(update): extend manifest schema to v2 with signing fields"
 import {readFileSync, writeFileSync} from 'fs';
 import {join} from 'path';
 import * as ed from '@noble/ed25519';
-import {sha512} from '@noble/hashes/sha512';
+import {sha512} from '@noble/hashes/sha2.js';
 
-ed.etc.sha512Sync = (...m: Uint8Array[]) => sha512(ed.etc.concatBytes(...m));
+ed.hashes.sha512 = sha512;
 
 async function main() {
   const keyB64 = process.env.UPDATE_SIGNING_KEY;
@@ -578,11 +587,11 @@ git commit -m "feat(update): Ed25519 sign-manifest script + CI integration"
 ```typescript
 import {describe, it, expect, beforeAll, vi} from 'vitest';
 import * as ed from '@noble/ed25519';
-import {sha512} from '@noble/hashes/sha512';
+import {sha512} from '@noble/hashes/sha2.js';
 import {bytesToBase64} from '@lib/update/signing/verify';
 
 beforeAll(() => {
-  ed.etc.sha512Sync = (...m: Uint8Array[]) => sha512(ed.etc.concatBytes(...m));
+  ed.hashes.sha512 = sha512;
 });
 
 async function makeSignedManifest(priv: Uint8Array, version = '0.13.0') {
@@ -595,9 +604,9 @@ async function makeSignedManifest(priv: Uint8Array, version = '0.13.0') {
 describe('probe', () => {
   it('rejects manifest with invalid signature', async () => {
     const {probe} = await import('@lib/update/probe');
-    const priv = ed.utils.randomPrivateKey();
+    const priv = ed.utils.randomSecretKey();
     const pub = await ed.getPublicKeyAsync(priv);
-    const wrongPriv = ed.utils.randomPrivateKey();
+    const wrongPriv = ed.utils.randomSecretKey();
     const m = await makeSignedManifest(wrongPriv);
     global.fetch = vi.fn(async (url: string) => {
       if(url.endsWith('.sig')) return new Response(m.sig);
@@ -609,7 +618,7 @@ describe('probe', () => {
 
   it('accepts manifest with valid signature from baked pubkey', async () => {
     const {probe} = await import('@lib/update/probe');
-    const priv = ed.utils.randomPrivateKey();
+    const priv = ed.utils.randomSecretKey();
     const pub = await ed.getPublicKeyAsync(priv);
     const m = await makeSignedManifest(priv);
     global.fetch = vi.fn(async (url: string) => {
@@ -623,7 +632,7 @@ describe('probe', () => {
 
   it('returns outcome=up-to-date when version matches active', async () => {
     const {probe} = await import('@lib/update/probe');
-    const priv = ed.utils.randomPrivateKey();
+    const priv = ed.utils.randomSecretKey();
     const pub = await ed.getPublicKeyAsync(priv);
     const m = await makeSignedManifest(priv, '0.13.0');
     global.fetch = vi.fn(async (url: string) => {
@@ -636,7 +645,7 @@ describe('probe', () => {
 
   it('rejects downgrade (newVersion < activeVersion without securityRollback)', async () => {
     const {probe} = await import('@lib/update/probe');
-    const priv = ed.utils.randomPrivateKey();
+    const priv = ed.utils.randomSecretKey();
     const pub = await ed.getPublicKeyAsync(priv);
     const m = await makeSignedManifest(priv, '0.10.0');
     global.fetch = vi.fn(async (url: string) => {
@@ -1069,13 +1078,13 @@ git commit -m "feat(update): shell-cache with atomic swap + orphan GC"
 import {describe, it, expect, beforeAll, beforeEach, vi} from 'vitest';
 import 'fake-indexeddb/auto';
 import * as ed from '@noble/ed25519';
-import {sha512} from '@noble/hashes/sha512';
+import {sha512} from '@noble/hashes/sha2.js';
 import {bytesToBase64} from '@lib/update/signing/verify';
 import {handleUpdateApproved} from '@lib/serviceWorker/signed-update-sw';
 import {setActiveVersion, getActiveVersion} from '@lib/serviceWorker/shell-cache';
 
 beforeAll(() => {
-  ed.etc.sha512Sync = (...m: Uint8Array[]) => sha512(ed.etc.concatBytes(...m));
+  ed.hashes.sha512 = sha512;
 });
 
 const store = new Map<string, Map<string, Response>>();
@@ -1096,7 +1105,7 @@ async function sha256b64(bytes: Uint8Array): Promise<string> {
 
 describe('handleUpdateApproved', () => {
   it('downloads, verifies, and swaps atomically on all-match', async () => {
-    const priv = ed.utils.randomPrivateKey();
+    const priv = ed.utils.randomSecretKey();
     const pub = await ed.getPublicKeyAsync(priv);
     const indexHtml = new TextEncoder().encode('<html></html>');
     const swJs = new TextEncoder().encode('/* sw */');
@@ -1125,7 +1134,7 @@ describe('handleUpdateApproved', () => {
   });
 
   it('aborts on chunk hash mismatch', async () => {
-    const priv = ed.utils.randomPrivateKey();
+    const priv = ed.utils.randomSecretKey();
     const pub = await ed.getPublicKeyAsync(priv);
     const indexHtml = new TextEncoder().encode('<html></html>');
     const manifest: any = {schemaVersion: 2, version: '0.13.0', gitSha: 'x', published: '2026-01-01', swUrl: './sw.js', signingKeyFingerprint: 'ed25519:x', securityRelease: false, securityRollback: false, bundleHashes: {'./index.html': 'sha256-DEADBEEF'}, changelog: '', alternateSources: {}, rotation: null};
@@ -1140,9 +1149,9 @@ describe('handleUpdateApproved', () => {
   });
 
   it('rejects if signature is bad (defense in depth)', async () => {
-    const priv = ed.utils.randomPrivateKey();
+    const priv = ed.utils.randomSecretKey();
     const pub = await ed.getPublicKeyAsync(priv);
-    const wrongPriv = ed.utils.randomPrivateKey();
+    const wrongPriv = ed.utils.randomSecretKey();
     const manifest: any = {schemaVersion: 2, version: '0.13.0', gitSha: 'x', published: '2026-01-01', swUrl: './sw.js', signingKeyFingerprint: 'ed25519:x', securityRelease: false, securityRollback: false, bundleHashes: {}, changelog: '', alternateSources: {}, rotation: null};
     const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest));
     const sig = bytesToBase64(await ed.signAsync(manifestBytes, wrongPriv));
