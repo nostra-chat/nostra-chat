@@ -16,7 +16,8 @@ import {runNetworkChecks} from '@lib/update';
 import {
   getUpdateStateSnapshot,
   resetBaseline,
-  type UpdateStateSnapshot
+  type UpdateStateSnapshot,
+  type IntegritySourceDetail
 } from '@lib/update/update-baseline';
 import {MANIFEST_SOURCES} from '@lib/update/manifest-verifier';
 
@@ -41,10 +42,52 @@ function verdictLabel(verdict: string): string {
   return verdict;
 }
 
-function shortenUrl(url: string | null, keepTail = 28): string {
-  if(!url) return '—';
-  if(url.length <= keepTail + 3) return url;
-  return '…' + url.slice(-keepTail);
+function pickLatestVersion(snap: UpdateStateSnapshot): string | null {
+  if(snap.pendingManifest?.version) return snap.pendingManifest.version;
+  const okSource = snap.lastIntegrityDetails?.find((d) => d.status === 'ok' && d.version);
+  return okSource?.version ?? null;
+}
+
+function latestVersionSubtitle(snap: UpdateStateSnapshot): string {
+  const latest = pickLatestVersion(snap);
+  if(!latest) return I18n.format('Update.Value.NotCheckedYet', true);
+  if(snap.installedVersion && latest !== snap.installedVersion) {
+    return I18n.format('Update.Value.UpdateAvailable', true, [latest]);
+  }
+  return I18n.format('Update.Value.UpToDate', true, [latest]);
+}
+
+function buildIntegrityDetailsBlock(details: IntegritySourceDetail[]): HTMLDivElement {
+  const urlByName = new Map(MANIFEST_SOURCES.map((s) => [s.name, s.url]));
+  const block = document.createElement('div');
+  block.className = 'update-integrity-details';
+  block.style.cssText = 'display:flex;flex-direction:column;gap:0.375rem;padding:0.25rem 1.5rem 0.75rem 4.5rem;font-size:0.875rem';
+  for(const s of details) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap';
+    const icon = s.status === 'ok' ? '✅' : s.status === 'error' ? '❌' : '⚠️';
+    const label = document.createElement('span');
+    label.textContent = `${icon} ${s.name}: ${s.status}${s.version ? ' v' + s.version : ''}${s.error ? ' — ' + s.error : ''}`;
+    label.style.cssText = 'flex:1;min-width:0;word-break:break-word;color:var(--secondary-text-color)';
+    row.appendChild(label);
+    const url = urlByName.get(s.name);
+    if(url) {
+      const link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = I18n.format('Update.Sources.OpenInTab', true);
+      link.style.cssText = 'color:var(--primary-color);text-decoration:underline;flex-shrink:0';
+      row.appendChild(link);
+    }
+    block.appendChild(row);
+  }
+  return block;
+}
+
+function applyFullUrlStyle(row: Row): void {
+  row.subtitle.style.wordBreak = 'break-all';
+  row.subtitle.style.whiteSpace = 'normal';
 }
 
 export default class AppUpdateSettingsTab extends SliderSuperTab {
@@ -64,26 +107,27 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
     });
     infoSection.content.append(versionRow.container);
 
+    const latestVersionRow = new Row({
+      titleLangKey: 'Update.Row.LatestVersion',
+      subtitle: latestVersionSubtitle(snap),
+      clickable: false
+    });
+    infoSection.content.append(latestVersionRow.container);
+
     const swUrlRow = new Row({
       titleLangKey: 'Update.Row.InstalledSwUrl',
-      subtitle: shortenUrl(snap.installedSwUrl),
-      clickable: true
+      subtitle: snap.installedSwUrl || I18n.format('Update.Value.NotSet', true),
+      clickable: false
     });
-    attachClickEvent(swUrlRow.container, () => {
-      toast(snap.installedSwUrl || I18n.format('Update.Value.NotSet', true));
-    }, {listenerSetter: this.listenerSetter});
+    applyFullUrlStyle(swUrlRow);
     infoSection.content.append(swUrlRow.container);
 
     const activeRow = new Row({
       titleLangKey: 'Update.Row.ActiveSw',
-      subtitle: shortenUrl(snap.activeScriptUrl),
-      clickable: !!snap.activeScriptUrl
+      subtitle: snap.activeScriptUrl || I18n.format('Update.Value.NotSet', true),
+      clickable: false
     });
-    if(snap.activeScriptUrl) {
-      attachClickEvent(activeRow.container, () => {
-        toast(snap.activeScriptUrl!);
-      }, {listenerSetter: this.listenerSetter});
-    }
+    applyFullUrlStyle(activeRow);
     infoSection.content.append(activeRow.container);
 
     // ── Integrity ────────────────────────────────────────────────────────
@@ -99,56 +143,30 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
     });
     integritySection.content.append(lastCheckRow.container);
 
-    const hasDetails = !!snap.lastIntegrityDetails?.length;
     const integrityRow = new Row({
       titleLangKey: 'Update.Row.IntegrityStatus',
       subtitle: snap.lastIntegrityResult ? verdictLabel(snap.lastIntegrityResult) : I18n.format('Update.Value.NotCheckedYet', true),
-      clickable: hasDetails
+      clickable: false
     });
-    if(hasDetails) {
-      attachClickEvent(integrityRow.container, () => {
-        const urlByName = new Map(MANIFEST_SOURCES.map((s) => [s.name, s.url]));
-        const container = document.createElement('div');
-        container.style.cssText = 'display:flex;flex-direction:column;gap:0.5rem;text-align:left';
-        for(const s of snap.lastIntegrityDetails!) {
-          const row = document.createElement('div');
-          row.style.cssText = 'display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap';
-          const icon = s.status === 'ok' ? '\u2705' : s.status === 'error' ? '\u274c' : '\u26a0\ufe0f';
-          const label = document.createElement('span');
-          label.textContent = `${icon} ${s.name}: ${s.status}${s.version ? ' v' + s.version : ''}${s.error ? ' — ' + s.error : ''}`;
-          label.style.cssText = 'flex:1;min-width:0;word-break:break-word';
-          row.appendChild(label);
-          const url = urlByName.get(s.name);
-          if(url) {
-            const link = document.createElement('a');
-            link.href = url;
-            link.target = '_blank';
-            link.rel = 'noopener noreferrer';
-            link.textContent = I18n.format('Update.Sources.OpenInTab', true);
-            link.style.cssText = 'color:var(--primary-color);text-decoration:underline;font-size:0.875rem;flex-shrink:0';
-            row.appendChild(link);
-          }
-          container.appendChild(row);
-        }
-        confirmationPopup({
-          titleLangKey: 'Update.Sources.Title',
-          description: container,
-          button: {text: document.createTextNode(I18n.format('Update.Action.OK', true))}
-        }).catch(() => { /* user closed */ });
-      }, {listenerSetter: this.listenerSetter});
-    }
     integritySection.content.append(integrityRow.container);
+
+    let detailsBlock: HTMLDivElement | null = null;
+    const renderDetails = (details: IntegritySourceDetail[] | null) => {
+      detailsBlock?.remove();
+      detailsBlock = null;
+      if(details?.length) {
+        detailsBlock = buildIntegrityDetailsBlock(details);
+        integrityRow.container.after(detailsBlock);
+      }
+    };
+    renderDetails(snap.lastIntegrityDetails);
 
     const waitingRow = new Row({
       titleLangKey: 'Update.Row.WaitingSw',
-      subtitle: snap.waitingScriptUrl ? shortenUrl(snap.waitingScriptUrl) : I18n.format('Update.Value.None', true),
-      clickable: !!snap.waitingScriptUrl
+      subtitle: snap.waitingScriptUrl || I18n.format('Update.Value.None', true),
+      clickable: false
     });
-    if(snap.waitingScriptUrl) {
-      attachClickEvent(waitingRow.container, () => {
-        toast(snap.waitingScriptUrl!);
-      }, {listenerSetter: this.listenerSetter});
-    }
+    applyFullUrlStyle(waitingRow);
     integritySection.content.append(waitingRow.container);
 
     const pendingRow = new Row({
@@ -178,6 +196,8 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
         if(latest.lastIntegrityResult) {
           integrityRow.subtitle.textContent = verdictLabel(latest.lastIntegrityResult);
         }
+        latestVersionRow.subtitle.textContent = latestVersionSubtitle(latest);
+        renderDetails(latest.lastIntegrityDetails);
         toast(I18n.format('Update.Action.CheckComplete', true));
       } catch(err) {
         toast(I18n.format('Update.Action.CheckFailed', true, [err instanceof Error ? err.message : String(err)]));

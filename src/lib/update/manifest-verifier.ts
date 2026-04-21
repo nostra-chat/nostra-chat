@@ -8,7 +8,7 @@ interface ManifestSource {
 
 export const MANIFEST_SOURCES: ManifestSource[] = [
   {name: 'cdn', url: '/update-manifest.json'},
-  {name: 'github-release', url: 'https://github.com/nostra-chat/nostra-chat/releases/latest/download/update-manifest.json'},
+  {name: 'github-pages', url: 'https://nostra-chat.github.io/nostra-chat/update-manifest.json'},
   {name: 'ipfs', url: 'https://ipfs.nostra.chat/update-manifest.json'}
 ];
 
