@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/nostra-chat/nostra-chat/compare/v0.10.0...v0.10.1) (2026-04-21)
+
+
+### Bug Fixes
+
+* **i18n:** reload local lang pack in production when localVersion bumps ([abd8895](https://github.com/nostra-chat/nostra-chat/commit/abd889552458e1f3395e48c143a0cc24aa9883c3))
+
 ## [0.10.0](https://github.com/nostra-chat/nostra-chat/compare/v0.9.1...v0.10.0) (2026-04-20)
 
 
