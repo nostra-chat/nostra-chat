@@ -1,0 +1,14 @@
+.popup {
+  max-width: 32rem;
+  padding: 1.5rem;
+  background: var(--surface-color);
+  border-radius: 0.75rem;
+}
+.details { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; }
+.ok { color: var(--success-color); margin-left: 0.5rem; }
+.warn { color: var(--warning-color); }
+.error { color: var(--danger-color); margin: 1rem 0; }
+.changelog { margin: 1rem 0; }
+.changelog pre { white-space: pre-wrap; max-height: 10rem; overflow-y: auto; }
+.actions { display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1rem; }
+.primary { background: var(--primary-color); color: white; }
