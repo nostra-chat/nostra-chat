@@ -508,7 +508,13 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
   themeController.setThemeListener();
 
   // * fetch lang pack updates
-  if(langPack.localVersion !== App.langPackLocalVersion && IS_BETA) {
+  // Nostra.chat: MTProto is disabled, so `checkLangPackForUpdates` (which issues
+  // a Telegram-side langpack.getDifference) is a no-op. The IS_BETA guard on the
+  // localVersion check meant production clients never reloaded from local lang.ts
+  // after a bundle update — any new key added to lang.ts resolved to its raw key
+  // name (e.g. "Update.Popup.Title") until IDB was cleared. Drop the guard so a
+  // localVersion bump always reloads from local.
+  if(langPack.localVersion !== App.langPackLocalVersion) {
     I18n.getLangPackAndApply(langPack.lang_code);
   } else {
     checkLangPackForUpdates();
