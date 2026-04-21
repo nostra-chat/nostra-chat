@@ -5,7 +5,6 @@
  */
 
 import {logger, LogTypes} from '@lib/logger';
-import {requestCache} from '@lib/serviceWorker/cache';
 import onStreamFetch, {toggleStreamInUse} from '@lib/serviceWorker/stream';
 import {closeAllNotifications, fillPushObject, onPing, onShownNotification, resetPushAccounts} from '@lib/serviceWorker/push';
 import CacheStorageController from '@lib/files/cacheStorage';
@@ -264,27 +263,25 @@ watchCacheStoragesLifetime({
 watchMtprotoOnDev({connectedWindows, onWindowConnected});
 
 const onFetch = (event: FetchEvent): void => {
-  // Phase A: intercept navigation so the SW serves cached index.html.
-  // This prevents a compromised CDN from swapping /index.html to redirect
-  // the browser to attacker-controlled chunk URLs that bypass the trusted bundle.
-  if(
-    import.meta.env.PROD &&
-    (
-      event.request.mode === 'navigate' ||
-      /\/$|\.html?($|\?)/.test(event.request.url)
-    ) &&
-    new URL(event.request.url).origin === location.origin
-  ) {
-    return event.respondWith(requestCache(event));
-  }
-
-  if(
-    import.meta.env.PROD &&
-    !IS_SAFARI &&
-    event.request.url.indexOf(location.origin + '/') === 0 &&
-    event.request.url.match(/\.(js|css|jpe?g|json|wasm|png|mp3|svg|tgs|ico|woff2?|ttf|webmanifest?)(?:\?.*)?$/)
-  ) {
-    return event.respondWith(requestCache(event));
+  // Phase A (Task 11): CACHE-ONLY lockdown for all app-shell assets.
+  // Navigation requests and shell file extensions are served strictly from cache.
+  // Network fallback is intentionally removed — a missing asset means cache corruption.
+  // update-manifest.json and .sig are exceptions (probe must reach network).
+  if(import.meta.env.PROD) {
+    const _url = new URL(event.request.url);
+    const isSameOrigin = _url.origin === location.origin;
+    const isNavigation = event.request.mode === 'navigate';
+    const looksShell = _url.pathname === '/' || /\.(html?|js|css|wasm|json|svg|woff2?|ttf|webmanifest?|ico|png|jpe?g|mp3|tgs)(\?|$)/.test(_url.pathname);
+    if(isSameOrigin && (isNavigation || looksShell)) {
+      if(_url.pathname === '/update-manifest.json' || _url.pathname === '/update-manifest.json.sig') {
+        // let network handle manifest probe requests
+      } else {
+        return event.respondWith((async() => {
+          const {requestCacheStrict} = await import('./cache');
+          return requestCacheStrict(event);
+        })());
+      }
+    }
   }
 
   if(import.meta.env.DEV && event.request.url.match(/\.([jt]sx?|s?css)?($|\?)/)) {
