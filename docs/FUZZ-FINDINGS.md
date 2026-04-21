@@ -1,22 +1,9 @@
 # Fuzz Findings
 
 Last updated: 2026-04-20
-Open bugs: 0 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3 · Fixed in Phase 2b.2b: 3
+Open bugs: 1 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3 · Fixed in Phase 2b.2b: 3 · Fixed in Phase 2b.3: 1
 
 ## Open (sorted by occurrences desc)
-### FIND-4e18d35d — INV-reaction-bilateral
-- **Status**: open
-- **Tier**: medium
-- **Occurrences**: 3
-- **First seen**: 2026-04-21 09:29:29
-- **Last seen**: 2026-04-21 09:42:02
-- **Seed**: 43
-- **Assertion**: "reaction 😂 (aa468d4bfef629c792a86ed75f1781bdf5c6efadf52bd14920cdd8381239d8df) from B not propagated to A"
-- **Replay**: `pnpm fuzz --replay=FIND-4e18d35d`
-- **Minimal trace** (1 actions):
-  1. `reactViaUI({"user":"userB","emoji":"😂"})`
-- **Artifacts**: [`docs/fuzz-reports/FIND-4e18d35d/`](../fuzz-reports/FIND-4e18d35d/)
-
 ### FIND-57989db1 — INV-mirrors-idb-coherent
 - **Status**: open
 - **Tier**: medium
@@ -31,6 +18,22 @@ Open bugs: 0 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3 · Fixed i
 - **Artifacts**: [`docs/fuzz-reports/FIND-57989db1/`](../fuzz-reports/FIND-57989db1/)
 
 ## Fixed
+
+### Fixed in Phase 2b.3
+
+#### FIND-4e18d35d — INV-reaction-bilateral (reactions on own messages not propagated to peer)
+- **Status**: fixed in Phase 2b.3
+- **Tier**: medium
+- **Occurrences**: 3 (across two baseline emit attempts at seed=43)
+- **First seen**: 2026-04-21 09:29:29
+- **Last seen**: 2026-04-21 09:42:02
+- **Seed**: 43
+- **Assertion**: `"reaction 😂 (aa468d4b…) from B not propagated to A"`
+- **Minimal trace** (1 action): `reactViaUI({"user":"userB","emoji":"😂"})` (also triggered by `reactToRandomBubble` with `fromTarget: 'own'`)
+- **Root cause**: architectural, not a 2b.2b regression. `nostra-reactions-publish.ts` emitted kind-7 events with a single `p` tag — the target author — per NIP-25 canonical. When the reactor and target author are the same (B reacting to B's own message), the p-tag was `B`. The peer A's relay subscription `#p: [A]` does not match, so the event was never delivered to A. The architecture never supported bilateral propagation for reactions on own messages; the feature claim in Phase 2b.1 ("NIP-25 reactions RX bilateral") was only exercised in the narrow case of reacting to the peer's message.
+- **Fix**: `nostra-reactions-publish.ts` now looks up the conversation peer's pubkey via `virtualPeersDB.getPubkey(targetPeerId)` and, when distinct from the target author, adds a second `['p', peerPubkey]` tag to both kind-7 and kind-5 events. Multiple `p` tags are permitted by NIP-25/NIP-09. `nostra-reactions-receive.ts::onKind7` now checks **any** `p` tag against `ownPubkey` (using `pTags.some(...)`) instead of only the first — events with the target author as the first p-tag but own pubkey as a subsequent tag are now accepted. Scope: 2 production files, ~20 LOC.
+- **Regression tests**: `src/tests/nostra/nostra-reactions-publish.test.ts` adds three cases — (1) `publish()` adds peer pubkey as extra p-tag when reacting to own message, (2) `publish()` does not duplicate the p-tag when targetAuthor === peer, (3) `unpublish()` (kind-5) tags the peer pubkey too. `src/tests/nostra/nostra-reactions-receive.test.ts` adds one case — `onKind7` accepts events where ownPk matches a non-first p-tag.
+- **Artifacts**: [`docs/fuzz-reports/FIND-4e18d35d/`](../fuzz-reports/FIND-4e18d35d/)
 
 ### Fixed in Phase 2b.2b
 
