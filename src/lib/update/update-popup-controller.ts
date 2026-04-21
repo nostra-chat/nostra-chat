@@ -1,53 +1,61 @@
 import rootScope from '@lib/rootScope';
-import I18n from '@lib/langPack';
-import type {IntegrityResult, Manifest} from '@lib/update/types';
+import {probe} from './probe';
+import {getActiveVersion} from '@lib/serviceWorker/shell-cache';
+import {getBakedPubkey} from './signing/trusted-keys';
+import {startUpdateSigned} from './update-flow';
 
-const SKIP_LS_KEY = 'nostra.update.skippedVersion';
-const SKIP_TTL_MS = 24 * 60 * 60 * 1000; // 24h — re-prompt next day
+const SNOOZE_VERSION_KEY = 'nostra.update.snoozedVersion';
+const SNOOZE_UNTIL_KEY = 'nostra.update.snoozedUntil';
+const DECLINE_COUNT_KEY = 'nostra.update.declineCount';
+const LAST_PROBE_KEY = 'nostra.update.lastProbe';
+const PROBE_THROTTLE_MS = 12 * 60 * 60 * 1000;
+const DECLINE_THRESHOLD_FOR_STALENESS = 7;
 
-let _lastIntegrity: IntegrityResult | undefined;
-let _shownForVersion: string | undefined;
+function now() { return Date.now(); }
 
-function isVersionSkipped(version: string): boolean {
-  try {
-    const raw = localStorage.getItem(SKIP_LS_KEY);
-    if(!raw) return false;
-    const parsed = JSON.parse(raw) as {version: string; skippedAt: number};
-    if(parsed.version !== version) return false;
-    if(Date.now() - parsed.skippedAt > SKIP_TTL_MS) {
-      localStorage.removeItem(SKIP_LS_KEY);
-      return false;
+function isSnoozed(version: string): boolean {
+  const snoozedVersion = localStorage.getItem(SNOOZE_VERSION_KEY);
+  const snoozedUntil = parseInt(localStorage.getItem(SNOOZE_UNTIL_KEY) || '0', 10);
+  return snoozedVersion === version && snoozedUntil > now();
+}
+
+function recordDecline(version: string): number {
+  const key = `${DECLINE_COUNT_KEY}.${version}`;
+  const count = parseInt(localStorage.getItem(key) || '0', 10) + 1;
+  localStorage.setItem(key, String(count));
+  localStorage.setItem(SNOOZE_VERSION_KEY, version);
+  localStorage.setItem(SNOOZE_UNTIL_KEY, String(now() + 24 * 60 * 60 * 1000));
+  return count;
+}
+
+export async function runProbeIfDue(force = false): Promise<void> {
+  if(!force) {
+    const last = parseInt(localStorage.getItem(LAST_PROBE_KEY) || '0', 10);
+    if(now() - last < PROBE_THROTTLE_MS) return;
+  }
+  localStorage.setItem(LAST_PROBE_KEY, String(now()));
+  const active = await getActiveVersion();
+  const installedPubkey = active?.installedPubkey || getBakedPubkey();
+  if(!installedPubkey || installedPubkey.length === 0) {
+    console.warn('[update] no trusted pubkey baked — probe skipped');
+    return;
+  }
+  const result = await probe(installedPubkey, active?.version);
+  if(result.outcome === 'update-available' && result.manifest && !isSnoozed(result.manifest.version)) {
+    rootScope.dispatchEvent('update_available', {manifest: result.manifest, signature: result.signature || ''});
+  }
+  if(result.outcome === 'update-available' && result.manifest) {
+    const count = parseInt(localStorage.getItem(`${DECLINE_COUNT_KEY}.${result.manifest.version}`) || '0', 10);
+    if(count >= DECLINE_THRESHOLD_FOR_STALENESS) {
+      rootScope.dispatchEvent('update_staleness_banner', {version: result.manifest.version});
     }
-    return true;
-  } catch{
-    return false;
   }
 }
 
-export function skipVersion(version: string): void {
-  try {
-    localStorage.setItem(SKIP_LS_KEY, JSON.stringify({version, skippedAt: Date.now()}));
-  } catch{}
+export async function acceptUpdate(manifest: any, signature: string): Promise<{ok: boolean; reason?: string}> {
+  return startUpdateSigned(manifest, signature);
 }
 
-rootScope.addEventListener('update_integrity_check_completed', (result) => {
-  _lastIntegrity = result;
-});
-
-rootScope.addEventListener('update_available', async(manifest: Manifest) => {
-  if(_shownForVersion === manifest.version) return;
-  if(isVersionSkipped(manifest.version)) return;
-  if(!_lastIntegrity) return;
-  _shownForVersion = manifest.version;
-  // updateBootstrap() dispatches this event before index.ts calls
-  // getCacheLangPackAndApply(), so I18n.strings can be empty when the popup
-  // renders — which made I18n.format() leak raw keys like 'Update.Popup.Title'.
-  // Await the cache apply here so the popup at least sees the user's last
-  // applied pack; the popup itself also carries English fallbacks for the case
-  // where the cached pack predates these keys.
-  try {
-    await I18n.getCacheLangPackAndApply();
-  } catch{}
-  const {default: UpdateAvailablePopup} = await import('@components/popups/updateAvailable');
-  new UpdateAvailablePopup(manifest, _lastIntegrity).show();
-});
+export function declineUpdate(version: string): number {
+  return recordDecline(version);
+}
