@@ -8,6 +8,7 @@
  */
 import rootScope from '@lib/rootScope';
 import {nostraReactionsStore} from './nostra-reactions-store';
+import {getPubkey as getPeerPubkeyByPeerId} from './virtual-peers-db';
 
 export interface PublishArgs {
   targetEventId: string;
@@ -31,13 +32,26 @@ export function setChatAPI(c: ChatAPILike) {
 class NostraReactionsPublish {
   async publish(args: PublishArgs): Promise<string> {
     if(!chatAPI) throw new Error('[nostra-reactions-publish] ChatAPI not wired — call setChatAPI first');
+    // Build p-tags:
+    //   1. targetAuthor — NIP-25 canonical (author of the reacted-to event).
+    //   2. peerPubkey — the OTHER party of this 1-1 P2P conversation, added when
+    //      distinct from targetAuthor so the peer's `#p: [peerPk]` relay
+    //      subscription delivers this event. Without this tag, reactions on
+    //      OWN messages (targetAuthor === ownId) would filter out at the peer's
+    //      relay subscription and never propagate. NIP-25 permits additional
+    //      `p` tags beyond the reacted-to author.
+    const peerPubkey = await getPeerPubkeyByPeerId(args.targetPeerId).catch((): string | null => null);
+    const tags: string[][] = [
+      ['e', args.targetEventId],
+      ['p', args.targetAuthor]
+    ];
+    if(peerPubkey && peerPubkey !== args.targetAuthor) {
+      tags.push(['p', peerPubkey]);
+    }
     const unsigned = {
       kind: 7,
       created_at: Math.floor(Date.now() / 1000),
-      tags: [
-        ['e', args.targetEventId],
-        ['p', args.targetAuthor]
-      ],
+      tags,
       content: args.emoji
     };
     const signed = await chatAPI.publishEvent(unsigned);
@@ -65,12 +79,21 @@ class NostraReactionsPublish {
     const row = rows.find((r) => r.reactionEventId === reactionEventId);
     if(!row) return;
     // `p` tag with own pubkey makes the kind-5 delete pass our own
-    // `#p: [ownPubkey]` subscription filter (so we see self-echo). NIP-09
-    // allows additional tags beyond the target `e`.
+    // `#p: [ownPubkey]` subscription filter (so we see self-echo).
+    // Also p-tag the conversation peer (when distinct) so their
+    // `#p: [peerPk]` subscription delivers the delete for symmetry with
+    // the kind-7 publish path — otherwise a removeReaction on an own-
+    // message reaction would be invisible to the peer. NIP-09 permits
+    // additional tags beyond the target `e`.
+    const peerPubkey = await getPeerPubkeyByPeerId(row.targetPeerId).catch((): string | null => null);
+    const tags: string[][] = [['e', reactionEventId], ['p', chatAPI.ownId]];
+    if(peerPubkey && peerPubkey !== chatAPI.ownId) {
+      tags.push(['p', peerPubkey]);
+    }
     const unsigned = {
       kind: 5,
       created_at: Math.floor(Date.now() / 1000),
-      tags: [['e', reactionEventId], ['p', chatAPI.ownId]],
+      tags,
       content: ''
     };
     await chatAPI.publishEvent(unsigned);

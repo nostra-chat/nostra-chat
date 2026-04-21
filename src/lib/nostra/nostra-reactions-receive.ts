@@ -44,9 +44,14 @@ class NostraReactionsReceive {
 
   async onKind7(event: NostrEventLite): Promise<void> {
     const eTag = event.tags.find((t) => t[0] === 'e');
-    const pTag = event.tags.find((t) => t[0] === 'p');
-    if(!eTag || !pTag) return; // malformed
-    if(this.ownPubkey && pTag[1] !== this.ownPubkey) return; // not for me
+    const pTags = event.tags.filter((t) => t[0] === 'p');
+    if(!eTag || pTags.length === 0) return; // malformed
+    // Accept when ANY `p` tag matches ownPubkey. The publish path adds both
+    // the target author AND the conversation peer (when distinct) so that
+    // reactions on own messages reach the peer's `#p: [peerPk]` subscription.
+    // Checking only the first p-tag would drop those events since the first
+    // p-tag is the target author (= reactor's own pubkey, not the peer's).
+    if(this.ownPubkey && !pTags.some((t) => t[1] === this.ownPubkey)) return; // not for me
     const targetEventId = eTag[1];
     const target = this.resolver ? await this.resolver(targetEventId) : undefined;
     if(!target) {

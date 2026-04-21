@@ -96,4 +96,22 @@ describe('nostra-reactions-receive', () => {
     });
     expect((await store.getByTarget('evtC'))).toHaveLength(1);
   });
+
+  // Regression for FIND-4e18d35d. When the reactor tags BOTH their own pubkey
+  // (target author) AND the conversation peer, the peer's onKind7 must accept
+  // the event because the peer's pubkey appears SOMEWHERE in the p-tag list —
+  // it is not necessarily the first p-tag.
+  it('onKind7 accepts event when ownPk matches a non-first p-tag', async() => {
+    messageStoreMock.set('evtD', {mid: 40, peerId: 1e16});
+    await recv.onKind7({
+      id: 'r7', kind: 7, pubkey: 'peerpk', created_at: 300,
+      // peerpk reacted to their OWN message — targetAuthor (first p) is peerpk;
+      // ownpk appears as the SECOND p-tag for bilateral propagation.
+      tags: [['e', 'evtD'], ['p', 'peerpk'], ['p', 'ownpk']],
+      content: '😂'
+    });
+    const rows = await store.getByTarget('evtD');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].emoji).toBe('😂');
+  });
 });
