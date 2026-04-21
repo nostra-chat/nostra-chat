@@ -5,7 +5,7 @@
  */
 
 import {logger, LogTypes} from '@lib/logger';
-import {CACHE_ASSETS_NAME, requestCache} from '@lib/serviceWorker/cache';
+import {requestCache} from '@lib/serviceWorker/cache';
 import onStreamFetch, {toggleStreamInUse} from '@lib/serviceWorker/stream';
 import {closeAllNotifications, fillPushObject, onPing, onShownNotification, resetPushAccounts} from '@lib/serviceWorker/push';
 import CacheStorageController from '@lib/files/cacheStorage';
@@ -364,11 +364,34 @@ ctx.addEventListener('install', (event) => {
   log('installing');
   event.waitUntil((async() => {
     try {
-      const cache = await ctx.caches.open(CACHE_ASSETS_NAME);
-      await cache.addAll(['./', './index.html']);
-      log('pre-cached navigation entry');
-    } catch(err) {
-      log.warn('failed to pre-cache index.html', err);
+      const manifestRes = await fetch('/update-manifest.json', {cache: 'no-cache'});
+      if(!manifestRes.ok) throw new Error(`manifest fetch ${manifestRes.status}`);
+      const manifest = await manifestRes.json();
+      const version = manifest.version as string;
+      const bundleHashes = manifest.bundleHashes as Record<string, string>;
+      const cacheName = `shell-v${version}`;
+      const cache = await caches.open(cacheName);
+      const paths = Object.keys(bundleHashes);
+      for(const p of paths) {
+        const res = await fetch(p, {cache: 'no-cache'});
+        if(!res.ok) throw new Error(`install fetch ${p}: HTTP ${res.status}`);
+        const ab = await res.arrayBuffer();
+        const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(ab));
+        let hex = '';
+        for(const b of new Uint8Array(digest)) hex += b.toString(16).padStart(2, '0');
+        const actual = 'sha256-' + hex;
+        if(actual !== bundleHashes[p]) {
+          await caches.delete(cacheName);
+          throw new Error(`install hash mismatch: ${p}`);
+        }
+        await cache.put(p, new Response(ab));
+      }
+      (self as any).__INSTALL_VERSION = version;
+      (self as any).__INSTALL_FINGERPRINT = manifest.signingKeyFingerprint;
+      log('pre-cached full bundle for version', version);
+    } catch(e) {
+      console.error('[sw] install failed:', e);
+      throw e;
     }
     // NO skipWaiting() — new SW stays in waiting until user consent via main-thread SKIP_WAITING message.
   })());
@@ -377,10 +400,13 @@ ctx.addEventListener('install', (event) => {
 ctx.addEventListener('activate', (event) => {
   log('activating', ctx);
   event.waitUntil((async() => {
-    // Clear old asset cache — reached either on explicit user consent (normal Phase A flow)
-    // or on the one-time silent migration from pre-Phase A SW (spec: "migration strategy").
-    await ctx.caches.delete(CACHE_ASSETS_NAME);
-    log('cleared assets cache');
+    const v = (self as any).__INSTALL_VERSION as string | undefined;
+    const fp = (self as any).__INSTALL_FINGERPRINT as string | undefined;
+    if(v && fp) {
+      const {setActiveVersion, gcOrphans} = await import('./shell-cache');
+      await setActiveVersion(v, fp);
+      await gcOrphans();
+    }
     // NO clients.claim() — reload is handled by main thread via controllerchange listener.
   })());
 });
