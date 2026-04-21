@@ -10,6 +10,7 @@ import {MyMessage} from '@appManagers/appMessagesManager';
 import type Chat from '@components/chat/chat';
 import indexOfAndSplice from '@helpers/array/indexOfAndSplice';
 import insertInDescendSortedArray from '@helpers/array/insertInDescendSortedArray';
+import insertSomethingWithTiebreak from '@helpers/array/insertSomethingWithTiebreak';
 import positionElementByIndex from '@helpers/dom/positionElementByIndex';
 import {Message, ReplyMarkup} from '@layer';
 import {NULL_PEER_ID, REPLIES_PEER_ID, VERIFICATION_CODES_BOT_ID} from '@appManagers/constants';
@@ -368,6 +369,7 @@ export default class BubbleGroups {
   private sortGroupsKey: Extract<keyof BubbleGroup, 'lastMid' | 'lastTimestamp'>;
   public sortGroupItemsKey: Extract<keyof GroupItem, 'groupMid' | 'timestamp'>;
   public reverse: boolean; // * used for search
+  private _isP2P: boolean = false;
 
   constructor(private chat: Chat) {
     if(chat.type !== ChatType.Search) {
@@ -380,6 +382,7 @@ export default class BubbleGroups {
       // encode `ts * 1e6 + hash`. Sorting by `message.date` is the invariant
       // source of truth for DOM chronology, independent of mid assignment.
       const isP2P = Number(chat.peerId) >= 1e15;
+      this._isP2P = isP2P;
       this.sortItemsKey = chat.type === ChatType.Scheduled || isP2P ? 'timestamp' : 'mid';
       this.sortGroupsKey = chat.type === ChatType.Scheduled || isP2P ? 'lastTimestamp' : 'lastMid';
       // [Nostra.chat] sortGroupItemsKey stays 'groupMid' even for P2P — within-group
@@ -655,7 +658,23 @@ export default class BubbleGroups {
   }
 
   insertItemToArray(item: GroupItem, array: GroupItem[]) {
-    return insertSomething(array, item, this.sortItemsKey, this.reverse = item.reverse);
+    return this.insertGroupItem(array, item);
+  }
+
+  // [Nostra.chat] FIND-chrono-v2: for P2P chats use a (timestamp, mid) two-key sort to
+  // disambiguate same-second ties deterministically. Non-P2P (Telegram MTProto) chats
+  // keep the single-key `mid`-based `insertSomething` path unchanged.
+  private insertGroupItem(arr: GroupItem[], item: GroupItem): number {
+    if(this._isP2P) {
+      return insertSomethingWithTiebreak<GroupItem>(
+        arr,
+        item,
+        'timestamp',
+        'mid',
+        this.reverse = item.reverse
+      );
+    }
+    return insertSomething(arr, item, this.sortItemsKey, this.reverse = item.reverse);
   }
 
   insertGroup(group: BubbleGroup) {

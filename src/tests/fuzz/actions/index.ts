@@ -4,6 +4,11 @@ import type {ActionSpec, Action} from '../types';
 import {sendText, replyToRandomBubble, editRandomOwnBubble, deleteRandomOwnBubble, reactToRandomBubble, removeReaction, reactMultipleEmoji} from './messaging';
 import {openRandomChat, scrollHistoryUp, waitForPropagation} from './navigation';
 import {reloadPage, deleteWhileSending} from './lifecycle';
+// reactViaUI disabled in 2b.2b — surfaced FIND-4e18d35d (bilateral reaction RX from UI
+// path does not propagate to peer). Carried forward to Phase 2b.3 per §4 decision #3
+// (max 1 fix wave per task, else carry-forward). Action code + invariant remain shipped.
+// import {reactViaUI} from './reactions';
+import {editNameAction, editBioAction, uploadAvatarAction, setNip05Action} from './profile';
 
 export const ACTION_REGISTRY: ActionSpec[] = [
   sendText,
@@ -11,13 +16,18 @@ export const ACTION_REGISTRY: ActionSpec[] = [
   editRandomOwnBubble,
   deleteRandomOwnBubble,
   reactToRandomBubble,
+  // reactViaUI, // disabled — see comment above
   removeReaction,
   reactMultipleEmoji,
   openRandomChat,
   scrollHistoryUp,
   waitForPropagation,
   reloadPage,
-  deleteWhileSending
+  deleteWhileSending,
+  editNameAction,
+  editBioAction,
+  uploadAvatarAction,
+  setNip05Action
 ];
 
 export const ACTIONS_BY_NAME: Record<string, ActionSpec> = Object.fromEntries(

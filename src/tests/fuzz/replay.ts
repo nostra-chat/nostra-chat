@@ -38,8 +38,8 @@ export async function replayBaseline(): Promise<Action[]> {
   candidates.sort((a, b) => score(b) - score(a));
   const path = join(dir, candidates[0]);
   const raw = JSON.parse(readFileSync(path, 'utf-8'));
-  if(raw.fuzzerVersion && raw.fuzzerVersion !== 'phase2b1') {
-    console.warn(`[replay] baseline fuzzerVersion=${raw.fuzzerVersion} != phase2b1 — action registry may drift; consider re-emit`);
+  if(raw.fuzzerVersion && raw.fuzzerVersion !== 'phase2b2') {
+    console.warn(`[replay] baseline fuzzerVersion=${raw.fuzzerVersion} != phase2b2 — action registry may drift; consider re-emit`);
   }
   const commands = Array.isArray(raw) ? raw : raw.commands;
   if(!Array.isArray(commands)) throw new Error(`Baseline file does not contain a commands array: ${path}`);

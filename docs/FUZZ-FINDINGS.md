@@ -1,49 +1,74 @@
 # Fuzz Findings
 
 Last updated: 2026-04-20
-Open bugs: 3 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3
+Open bugs: 0 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3 · Fixed in Phase 2b.2b: 3
 
 ## Open (sorted by occurrences desc)
+### FIND-4e18d35d — INV-reaction-bilateral
+- **Status**: open
+- **Tier**: medium
+- **Occurrences**: 3
+- **First seen**: 2026-04-21 09:29:29
+- **Last seen**: 2026-04-21 09:42:02
+- **Seed**: 43
+- **Assertion**: "reaction 😂 (aa468d4bfef629c792a86ed75f1781bdf5c6efadf52bd14920cdd8381239d8df) from B not propagated to A"
+- **Replay**: `pnpm fuzz --replay=FIND-4e18d35d`
+- **Minimal trace** (1 actions):
+  1. `reactViaUI({"user":"userB","emoji":"😂"})`
+- **Artifacts**: [`docs/fuzz-reports/FIND-4e18d35d/`](../fuzz-reports/FIND-4e18d35d/)
 
-### FIND-cold-deleteWhileSending — POST_deleteWhileSending_consistent (cold-start relay delivery)
-
-**Status:** OPEN (carry-forward to Phase 2b.2b)
-**Tier:** postcondition
-**First observed:** 2026-04-20 during Task 7 smoke fuzz on seed=42
-**Assertion:** `asymmetric deleteWhileSending outcome: sender=true, peer=false` on first smoke-run action. Partial mitigation applied (skip-if-tempMid-null + 6s poll window) did not fully close the race.
-
-**Reproduction:** first-action occurrence on fresh harness boot; likely to recur when `deleteWhileSending` happens before relay subscription has fully stabilized.
-**Hypothesis:** the send bubble renders on sender (optimistic DOM inject), but the relay publish + peer subscribe roundtrip has not completed within the 6s window after harness boot. Second run consistently passes once warmed up. Not a production bug — harness warmup issue.
-**Fix direction:** add a harness warmup guard (skip postcondition for first N actions, or wait for a known "relay subscribed" signal before declaring the fuzz sequence started).
-**Owner:** Phase 2b.2b.
-**Blocks:** `baseline-seed42-v2b1.json` emit (this is one of 2 reasons the emit deferred).
-
-### FIND-cold-reactPeerSeesEmoji — POST_react_peer_sees_emoji (cold-start reaction delivery)
-
-**Status:** OPEN (carry-forward to Phase 2b.2b)
-**Tier:** postcondition
-**First observed:** 2026-04-20 during Task 7 smoke fuzz on seed=42
-**Assertion:** `peer userB never saw emoji 🔥 on bubble <mid>` on action 4 of a cold-started sequence.
-
-**Reproduction:** seed=42 fuzz run, `reactToRandomBubble({user:'userA', fromTarget:'peer', emoji:'🔥'})` fires before peer's kind-7 subscription has received the event.
-**Hypothesis:** identical cold-start issue to FIND-cold-deleteWhileSending — the peer's relay subscription for `kinds: [1059, 7, 5]` has not propagated the kind-7 by the postcondition's 3s poll deadline. Not a production bug — pre-existing Phase 2a postcondition that becomes observable when fuzz reaches reaction actions before relay stabilizes.
-**Fix direction:** same harness warmup guard as FIND-cold-deleteWhileSending.
-**Owner:** Phase 2b.2b.
-**Blocks:** `baseline-seed42-v2b1.json` emit (second of 2 reasons).
-
-### FIND-chrono-v2 — INV-bubble-chronological (same-second tempMid race)
-
-**Status:** OPEN (carry-forward to Phase 2b.2b)
-**Tier:** cheap
-**First observed:** 2026-04-20 during Task 4 investigation of FIND-eef9f130
-**Assertion:** `INV-bubble-chronological` fires on ~60% of `FIND-eef9f130` replays even AFTER Task 2's `bubbleGroups` sort-key fix (which covered FIND-c0046153's specific trace at 9/9). The residual flake is a DIFFERENT race: same-second same-user interleaved send where the `is-sending` placeholder bubble has `tempMid = topMessage + 1` based on the previous topMessage, but a concurrent peer-incoming bubble arrives with the same `timestampSec`. Task 2's switch to `'timestamp'` sort key resolves same-second ties by insertion order (non-deterministic), exposing a new variant.
-
-**Reproduction:** `pnpm fuzz --replay=FIND-eef9f130` — ~60% of runs.
-**Relationship to FIND-c0046153:** Distinct. c0046153's trace passes 9/9. This is a contention variant surfaced by eef9f130's higher-concurrency sequence.
-**Hypothesis:** fix either (a) add `mid` as tiebreaker after `timestamp` in the P2P sort (straightforward), or (b) root-cause fix `generateTempMessageId` to encode wall-clock seconds (deeper).
-**Owner:** Phase 2b.2b.
+### FIND-57989db1 — INV-mirrors-idb-coherent
+- **Status**: open
+- **Tier**: medium
+- **Occurrences**: 1
+- **First seen**: 2026-04-21 09:37:50
+- **Last seen**: 2026-04-21 09:37:50
+- **Seed**: 43
+- **Assertion**: "mirror mids not in idb on userB: 1776764255324505"
+- **Replay**: `pnpm fuzz --replay=FIND-57989db1`
+- **Minimal trace** (1 actions):
+  1. `replyToRandomBubble({"from":"userB","text":".5"})`
+- **Artifacts**: [`docs/fuzz-reports/FIND-57989db1/`](../fuzz-reports/FIND-57989db1/)
 
 ## Fixed
+
+### Fixed in Phase 2b.2b
+
+#### FIND-chrono-v2 — INV-bubble-chronological (same-second tempMid race)
+- **Status**: fixed in Phase 2b.2b
+- **Tier**: cheap
+- **Occurrences**: ~60% of `FIND-eef9f130` replays
+- **First seen**: 2026-04-20 during Task 4 investigation of FIND-eef9f130
+- **Last seen**: 2026-04-20
+- **Assertion**: `INV-bubble-chronological` fires on a same-second same-user interleaved send where the `is-sending` placeholder bubble has `tempMid = topMessage + 1` and a concurrent peer-incoming bubble arrives with the same `timestampSec`. Phase 2b.2a's switch to `'timestamp'` sort key resolved FIND-c0046153 but left same-second ties subject to non-deterministic insertion order, exposing this variant.
+- **Root cause**: single-key `insertSomething(array, item, 'timestamp', reverse)` collapsed to insertion order when two P2P items shared the same wall-clock second — `mid` was ignored as a tiebreaker, so distinct mids interleaved unpredictably in the DOM.
+- **Fix**: added `insertSomethingWithTiebreak<T>(to, what, primaryKey, secondaryKey, reverse)` alongside `insertSomething` in `src/components/chat/bubbleGroups.ts`. New private method `insertGroupItem(arr, item)` dispatches to the two-key variant when `_isP2P=true` (set in the constructor from `Number(chat.peerId) >= 1e15`), using `(timestamp, mid)` both descending. Non-P2P chats retain the single-key `insertSomething` path unchanged. Callsite `insertItemToArray` now delegates to `insertGroupItem`.
+- **Relationship to FIND-c0046153**: distinct. c0046153's trace passes 9/9 with 2b.2a's fix. This is a contention variant surfaced by eef9f130's higher-concurrency sequence.
+- **Regression coverage**: `src/tests/fuzz/invariants/bubbles.test.ts` — new `INV-bubble-chronological — FIND-chrono-v2 regression` suite with 2 comparator-level tests (deterministic descending mid ordering across same-second ties + stability across 20 shuffled runs).
+
+#### FIND-cold-deleteWhileSending — POST_deleteWhileSending_consistent (cold-start relay delivery)
+- **Status**: fixed in Phase 2b.2b
+- **Tier**: postcondition
+- **Occurrences**: 1
+- **First seen**: 2026-04-20
+- **Last seen**: 2026-04-20
+- **Seed**: 42
+- **Assertion**: `asymmetric deleteWhileSending outcome: sender=true, peer=false` on first smoke-run action.
+- **Root cause**: first fuzz action raced a not-yet-fully-warm relay subscription for kinds 1059/7/5. The sender's optimistic bubble rendered, but the relay publish + peer subscribe roundtrip had not completed within the postcondition's poll window. Partial 2b.2a mitigations (skip-if-tempMid-null + 6s poll) did not fully close the race.
+- **Fix**: Deterministic multi-kind warmup handshake in `bootHarness` after `linkContacts`. `warmupHandshake` exercises kinds 1059 (text send), 7 (react), and 5 (delete) bidirectionally and awaits DOM confirmation at each step (15s each) before returning control to the fuzzer. Scope: 1 file, ~165 LOC. `src/tests/fuzz/harness.ts`.
+- **Regression coverage**: live smoke `pnpm fuzz --duration=60s --seed=42` must emit the four `[harness] warmup: step N ack` log lines before the first fuzz action executes. Deferred to post-`pnpm start` environment.
+
+#### FIND-cold-reactPeerSeesEmoji — POST_react_peer_sees_emoji (cold-start reaction delivery)
+- **Status**: fixed in Phase 2b.2b
+- **Tier**: postcondition
+- **Occurrences**: 1
+- **First seen**: 2026-04-20
+- **Last seen**: 2026-04-20
+- **Seed**: 42
+- **Assertion**: `peer userB never saw emoji 🔥 on bubble <mid>` on action 4 of a cold-started sequence.
+- **Root cause**: identical cold-start class as `FIND-cold-deleteWhileSending`. Peer's relay subscription for kind-7 had not propagated by the postcondition's 3s poll deadline when the first reaction action fired.
+- **Fix**: Same `warmupHandshake` in `bootHarness` — step 2 is the bidirectional react (B reacts to A's warmup text, A awaits the reaction in their DOM), guaranteeing the kind-7 roundtrip is fully warm before any fuzz action runs.
+- **Regression coverage**: same as above.
 
 ### Fixed in Phase 2b.2a
 

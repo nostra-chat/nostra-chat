@@ -260,8 +260,9 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 
 - `pnpm fuzz --duration=2h` — overnight run
 - `pnpm fuzz --replay=FIND-<sig>` — deterministic replay of a finding
-- `pnpm fuzz --replay-baseline` — 30s regression check (baseline deferred to 2b.2b; no file currently committed)
+- `pnpm fuzz --replay-baseline` — 30s regression check (baseline `baseline-seed42-v2b2.json` pending live emit — see `docs/VERIFICATION_2B2B.md`)
 - `pnpm fuzz --headed --slowmo=200` — watch the fuzzer in a real browser
+- `pnpm fuzz` runs preserve `docs/FUZZ-FINDINGS.md` curation automatically (T1 of 2b.2b). No `git restore` workaround needed.
 - Spec Phase 1: `docs/superpowers/specs/2026-04-17-bug-fuzzer-design.md`
 - Spec Phase 2a: `docs/superpowers/specs/2026-04-18-bug-fuzzer-phase-2a-design.md`
 
@@ -281,9 +282,9 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 
 **Baseline v2b1 emit deferred to 2b.2b** — two cold-start postcondition flakes surfaced during the 2b.2a smoke pass and block the `findings === 0` emit gate: `POST_deleteWhileSending_consistent` (boot-time relay-delivery race; partially mitigated via tempMid-null skip + 6s poll window but still flaky on seed=42 first-action) and `POST_react_peer_sees_emoji` (peer-side reception race on first reaction action after boot). Both are cold-start issues that need warmup guards (skip first N actions after harness boot) — not production bugs. Logged in `docs/FUZZ-FINDINGS.md` as carry-forward. Until baseline is emitted in 2b.2b, `--replay-baseline` has no file to load.
 
-Carry-forward open FIND (`FIND-chrono-v2`) — `INV-bubble-chronological` flake on high-concurrency traces, same-second same-user tempMid race distinct from c0046153. Also carry-forward to 2b.2b.
+Carry-forward open FIND (`FIND-chrono-v2`) — `INV-bubble-chronological` flake on high-concurrency traces, same-second same-user tempMid race distinct from c0046153. Closed in 2b.2b via `mid` tiebreaker in `src/helpers/array/insertSomethingWithTiebreak.ts`.
 
-Profile scope (editName/editBio/uploadAvatar/setNip05 + Blossom mock + cross-peer kind-0 propagation + baseline v2b2 emit) moves to **Phase 2b.2b**. Groups moves to **Phase 2b.3**.
+**Phase 2b.2b closed** reporter clobber bug (curated Fixed sections preserved automatically via parse-merge), cold-start races (`FIND-cold-deleteWhileSending`, `FIND-cold-reactPeerSeesEmoji`) via multi-kind deterministic warmup in `bootHarness`, same-second tempMid race (`FIND-chrono-v2`) via `mid` tiebreaker, added UI-driven `reactViaUI` action + `INV-reactions-picker-nonempty` (would have caught PR #47 empty-stub bug), profile scope (editName/editBio/uploadAvatar/setNip05 + Blossom mock + 3 invariants + 3 postconditions). Baseline `baseline-seed42-v2b2.json` emit pending user live run — see `docs/VERIFICATION_2B2B.md`. Groups scope moves to **Phase 2b.3**.
 
 ### Bubble Rendering
 - Kind 0 profile must be PUBLISHED during onboarding (not just saved locally) for other users to fetch it.

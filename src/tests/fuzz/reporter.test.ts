@@ -1,5 +1,13 @@
 import {describe, it, expect} from 'vitest';
-import {computeSignature, parseFindingsMarkdown, renderFindingsMarkdown} from './reporter';
+import {
+  computeSignature,
+  parseFindingsMarkdown,
+  renderFindingsMarkdown,
+  splitFindingsZones,
+  mergeFindings,
+  writeFindingsMarkdownPure
+} from './reporter';
+import type {IncomingFinding} from './reporter';
 import type {ReportEntry} from './types';
 
 describe('signature', () => {
@@ -54,6 +62,179 @@ describe('signature', () => {
     expect(fire).toBe(thumbs);
     expect(fire).toBe(think);
     expect(fire).toBe(tempFire);
+  });
+});
+
+describe('splitFindingsZones', () => {
+  it('splits prelude / open / postlude on curated markdown', () => {
+    const md = [
+      '# Fuzz Findings',
+      '',
+      'Last updated: 2026-04-20',
+      'Open bugs: 1 · Fixed: 1',
+      '',
+      '## Open (sorted by occurrences desc)',
+      '',
+      '### FIND-aaaaaaaa — INV-foo',
+      '- **Status**: open',
+      '- **Tier**: cheap',
+      '- **Occurrences**: 2',
+      '- **First seen**: 2026-04-19 12:00:00',
+      '- **Last seen**: 2026-04-19 13:00:00',
+      '- **Seed**: 42',
+      '- **Assertion**: "boom"',
+      '- **Replay**: `pnpm fuzz --replay=FIND-aaaaaaaa`',
+      '- **Minimal trace** (1 actions):',
+      '  1. `sendText({"from":"userA","text":"hi"})`',
+      '- **Artifacts**: [`docs/fuzz-reports/FIND-aaaaaaaa/`](../fuzz-reports/FIND-aaaaaaaa/)',
+      '',
+      '## Fixed',
+      '',
+      '### Fixed in Phase 2b.2a',
+      '',
+      '#### FIND-bbbbbbbb — INV-bar',
+      '- **Status**: fixed in Phase 2b.2a',
+      '- narrative here that must survive',
+      ''
+    ].join('\n');
+    const {prelude, openEntries, postlude} = splitFindingsZones(md);
+    expect(prelude).toContain('# Fuzz Findings');
+    expect(prelude).toContain('## Open (sorted by occurrences desc)');
+    expect(openEntries.length).toBe(1);
+    expect(openEntries[0].signature).toBe('aaaaaaaa');
+    expect(postlude).toContain('## Fixed');
+    expect(postlude).toContain('### Fixed in Phase 2b.2a');
+    expect(postlude).toContain('narrative here that must survive');
+  });
+
+  it('empty string returns default prelude + empty open + empty postlude', () => {
+    const {prelude, openEntries, postlude} = splitFindingsZones('');
+    expect(prelude.length).toBeGreaterThan(0);
+    expect(openEntries.length).toBe(0);
+    expect(postlude).toBe('');
+  });
+
+  it('file with no Fixed section returns empty postlude', () => {
+    const md = [
+      '# Fuzz Findings',
+      '',
+      '## Open (sorted by occurrences desc)',
+      '',
+      '### FIND-aaaaaaaa — INV-x',
+      '- **Status**: open',
+      '- **Tier**: cheap',
+      '- **Occurrences**: 1',
+      '- **First seen**: 2026-04-19 12:00:00',
+      '- **Last seen**: 2026-04-19 12:00:00',
+      '- **Seed**: 42',
+      '- **Assertion**: "x"',
+      '',
+      ''
+    ].join('\n');
+    const {openEntries, postlude} = splitFindingsZones(md);
+    expect(openEntries.length).toBe(1);
+    expect(postlude).toBe('');
+  });
+});
+
+describe('mergeFindings', () => {
+  const now = '2026-04-20 10:00:00';
+  const baseEntry = (sig: string, occ: number): ReportEntry => ({
+    signature: sig,
+    invariantId: 'INV-x',
+    tier: 'cheap',
+    assertion: 'boom',
+    occurrences: occ,
+    firstSeen: '2026-04-19 12:00:00',
+    lastSeen: '2026-04-19 12:00:00',
+    seed: 42,
+    minimalTrace: [],
+    status: 'open'
+  });
+
+  it('bumps occurrences for existing signature', () => {
+    const existing = [baseEntry('aaaaaaaa', 3)];
+    const merged = mergeFindings(existing, [{signature: 'aaaaaaaa', invariantId: 'INV-x', tier: 'cheap', assertion: 'boom', seed: 42, minimalTrace: []}], new Set<string>(), now);
+    expect(merged.length).toBe(1);
+    expect(merged[0].occurrences).toBe(4);
+    expect(merged[0].lastSeen).toBe(now);
+    expect(merged[0].firstSeen).toBe('2026-04-19 12:00:00');
+  });
+
+  it('appends new signature', () => {
+    const existing = [baseEntry('aaaaaaaa', 1)];
+    const merged = mergeFindings(existing, [{signature: 'bbbbbbbb', invariantId: 'INV-y', tier: 'cheap', assertion: 'other', seed: 42, minimalTrace: []}], new Set<string>(), now);
+    expect(merged.length).toBe(2);
+    expect(merged.find((e) => e.signature === 'bbbbbbbb')!.firstSeen).toBe(now);
+    expect(merged.find((e) => e.signature === 'bbbbbbbb')!.occurrences).toBe(1);
+  });
+
+  it('skips signature already in Fixed set', () => {
+    const existing: ReportEntry[] = [];
+    const fixed = new Set<string>(['cccccccc']);
+    const merged = mergeFindings(existing, [{signature: 'cccccccc', invariantId: 'INV-z', tier: 'cheap', assertion: 'should-skip', seed: 42, minimalTrace: []}], fixed, now);
+    expect(merged.length).toBe(0);
+  });
+});
+
+describe('writeFindingsMarkdownPure (end-to-end string transform)', () => {
+  it('preserves Fixed subsection byte-for-byte when adding a new Open finding', () => {
+    const existing = [
+      '# Fuzz Findings',
+      '',
+      '## Open (sorted by occurrences desc)',
+      '',
+      '## Fixed',
+      '',
+      '### Fixed in Phase 2b.2a',
+      '',
+      '#### FIND-aaaaaaaa — INV-foo',
+      '- **Status**: fixed in Phase 2b.2a',
+      '- Long narrative explaining the fix that MUST survive.',
+      '  - Multi-line bullet.',
+      ''
+    ].join('\n');
+    const incoming: IncomingFinding = {
+      signature: 'cccccccc',
+      invariantId: 'INV-new',
+      tier: 'cheap',
+      assertion: 'new bug',
+      seed: 99,
+      minimalTrace: [{name: 'sendText', args: {from: 'userA', text: 'z'}}]
+    };
+    const result = writeFindingsMarkdownPure(existing, [incoming], '2026-04-20 10:00:00');
+    expect(result).toContain('### Fixed in Phase 2b.2a');
+    expect(result).toContain('Long narrative explaining the fix that MUST survive.');
+    expect(result).toContain('#### FIND-aaaaaaaa');
+    expect(result).toContain('### FIND-cccccccc — INV-new');
+  });
+
+  it('does not re-add finding whose signature is in Fixed', () => {
+    const existing = [
+      '# Fuzz Findings',
+      '',
+      '## Open (sorted by occurrences desc)',
+      '',
+      '## Fixed',
+      '',
+      '### Fixed in Phase 2b.2a',
+      '',
+      '#### FIND-cccccccc — INV-old',
+      ''
+    ].join('\n');
+    const incoming: IncomingFinding = {
+      signature: 'cccccccc',
+      invariantId: 'INV-old',
+      tier: 'cheap',
+      assertion: 'recurring',
+      seed: 99,
+      minimalTrace: []
+    };
+    const result = writeFindingsMarkdownPure(existing, [incoming], '2026-04-20 10:00:00');
+    const openStart = result.indexOf('## Open');
+    const fixedStart = result.indexOf('## Fixed');
+    const openSection = result.slice(openStart, fixedStart);
+    expect(openSection).not.toContain('### FIND-cccccccc');
   });
 });
 
