@@ -102,7 +102,19 @@ export function nip44Decrypt(ciphertext: string, conversationKey: Uint8Array): s
 
 /**
  * Wrap a text message as NIP-17 gift-wrap events for recipient AND sender (self-send).
- * Returns an array of kind 1059 events ready for relay publishing.
+ * Returns the kind 1059 events and the canonical rumor id.
+ *
+ * The rumor id is the SHA-256 hash of the canonical rumor (kind 14, unsigned)
+ * as defined by NIP-01. It is the SAME on sender and receiver after unwrap,
+ * which is why it is the authoritative key for kind-7 reactions, kind-5
+ * deletions, and kind-25 receipts — all of which must carry a 64-hex `e` tag.
+ *
+ * Bug #3 (FIND-4e18d35d): the sender used to save its own-message rows keyed
+ * by the app-level message id (chat-XXX-N), which diverged from the receiver
+ * side keyed by rumor id. That broke reaction delivery because the sender-side
+ * e-tag was not 64 hex and strfry rejected it (NIP-01 fixed-size rule). Callers
+ * on the sender side must now save their row with `eventId = rumorId` so both
+ * ends converge on the same identity.
  *
  * Uses manual rumor → seal → gift-wrap pipeline instead of nostr-tools/nip17
  * `wrapManyEvents` because that function generates incorrect `#p` tags
@@ -113,21 +125,23 @@ export function nip44Decrypt(ciphertext: string, conversationKey: Uint8Array): s
  * @param recipientPubHex - Recipient's hex public key
  * @param content - Message text content
  * @param replyTo - Optional reply reference {eventId, relayUrl?}
- * @returns Array of kind 1059 events (one per recipient + one for sender)
+ * @returns `{wraps, rumorId}` — two kind 1059 events (recipient + self) and the 64-hex rumor id
  */
 export function wrapNip17Message(
   senderSk: Uint8Array,
   recipientPubHex: string,
   content: string,
   replyTo?: {eventId: string; relayUrl?: string}
-): NTNostrEvent[] {
+): {wraps: NTNostrEvent[]; rumorId: string} {
   const senderPubHex = getPublicKey(senderSk);
   const tags: string[][] = [['p', recipientPubHex]];
   if(replyTo) {
     tags.push(['e', replyTo.eventId, replyTo.relayUrl || '', 'reply']);
   }
 
-  // Create rumor (kind 14, unsigned)
+  // Create rumor (kind 14, unsigned). `createRumor` populates `.id` via
+  // `getEventHash` — we propagate that id to callers so sender-side stores
+  // can key by the SAME id the receiver will see after unwrap.
   const rumor = createRumor(content, senderSk, tags);
 
   // Create seal + gift-wrap for recipient
@@ -138,7 +152,10 @@ export function wrapNip17Message(
   const selfSeal = createSeal(rumor, senderSk, senderPubHex);
   const selfWrap = createGiftWrap(selfSeal, senderPubHex);
 
-  return [recipientWrap, selfWrap] as unknown as NTNostrEvent[];
+  return {
+    wraps: [recipientWrap, selfWrap] as unknown as NTNostrEvent[],
+    rumorId: rumor.id
+  };
 }
 
 /**

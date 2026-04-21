@@ -26,6 +26,20 @@ export interface RelayConfig {
 export interface PublishResult {
   successes: string[];
   failures: {url: string; error: string}[];
+  /**
+   * 64-char hex rumor id of the NIP-17 payload that was published. Same value
+   * on sender and receiver, so it is the authoritative key for cross-peer
+   * lookups (kind-7 `e` tag, kind-5 deletion target, kind-25 receipt target).
+   *
+   * Present only for `publish()` / `publishEdit()`. Absent for `publishRawEvent()`
+   * (generic pre-signed payloads without a rumor) and for the legacy
+   * `storeMessage` fallback.
+   *
+   * Callers on the sender side should save the outgoing row with
+   * `eventId = rumorId` and `appMessageId = <local chat-XXX-N id>` — see
+   * Bug #3 (FIND-4e18d35d) for the divergence this aligns.
+   */
+  rumorId?: string;
 }
 
 export interface RelayPoolOptions {
@@ -246,6 +260,7 @@ export class NostrRelayPool {
 
     // Wrap once, publish to all relays (avoids wrapping N times for N relays)
     let wraps: NostrEvent[];
+    let rumorId: string | undefined;
     try {
       if(!this.privateKeyBytes) {
         // Fallback: use storeMessage on individual relays (they wrap internally)
@@ -264,7 +279,9 @@ export class NostrRelayPool {
         return {successes, failures};
       }
 
-      wraps = wrapNip17Message(this.privateKeyBytes, recipientPubkey, plaintext) as unknown as NostrEvent[];
+      const wrapped = wrapNip17Message(this.privateKeyBytes, recipientPubkey, plaintext);
+      wraps = wrapped.wraps as unknown as NostrEvent[];
+      rumorId = wrapped.rumorId;
     } catch(err) {
       return {
         successes: [],
@@ -288,7 +305,7 @@ export class NostrRelayPool {
     });
 
     await Promise.all(promises);
-    return {successes, failures};
+    return {successes, failures, rumorId};
   }
 
   /**

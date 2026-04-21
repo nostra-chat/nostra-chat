@@ -330,7 +330,7 @@ export class NostrRelay {
 
     try {
       // Create NIP-17 gift-wrap events (recipient + self-send)
-      const wraps = wrapNip17Message(this.privateKey, recipientPubkey, plaintext);
+      const {wraps} = wrapNip17Message(this.privateKey, recipientPubkey, plaintext);
 
       // Publish ALL wraps to relay (self-send + recipient)
       for(const wrap of wraps) {
@@ -882,6 +882,21 @@ export class NostrRelay {
         case 'NOTICE': {
           const [, notice] = message as [string, string];
           this.log('[NostrRelay] relay notice:', notice);
+          break;
+        }
+        case 'OK': {
+          // Per NIP-01 ["OK", <event-id>, <accepted>, <message>] — relays use
+          // this to accept/reject a published event. We previously dropped these
+          // silently, which hid Bug #3 for weeks: strfry was rejecting kind-7
+          // reactions with `unexpected size for fixed-size tag: e` and nothing
+          // surfaced in the console. Now rejections are a warning so misrouted
+          // publishes are immediately visible in dev and in CI logs.
+          const [, okEventId, accepted, reason] = message as [string, string, boolean, string?];
+          if(accepted === false) {
+            this.log.warn('[NostrRelay] relay REJECTED event', okEventId?.slice(0, 8) + '...', 'reason:', reason || '(no reason)');
+          } else {
+            this.log.debug('[NostrRelay] relay accepted event:', okEventId?.slice(0, 8) + '...');
+          }
           break;
         }
         default:

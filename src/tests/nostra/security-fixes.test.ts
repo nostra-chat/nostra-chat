@@ -61,7 +61,7 @@ describe('Schnorr verification on inbound gift-wraps', () => {
     const recipientSk = generateSecretKey();
     const recipientPk = getPublicKey(recipientSk);
 
-    const [wrap] = wrapNip17Message(senderSk, recipientPk, 'hello');
+    const {wraps: [wrap]} = wrapNip17Message(senderSk, recipientPk, 'hello');
 
     // Tamper with the signature. nostr-tools caches verifyEvent results in
     // a `verifiedSymbol` property on the event, and object spread copies
@@ -86,7 +86,7 @@ describe('Schnorr verification on inbound gift-wraps', () => {
     relay.onMessage(onMessage);
 
     const senderSk = generateSecretKey();
-    const [wrap] = wrapNip17Message(senderSk, (relay as any).publicKey, 'payload');
+    const {wraps: [wrap]} = wrapNip17Message(senderSk, (relay as any).publicKey, 'payload');
 
     // JSON-roundtrip strips the `verifiedSymbol` cache, then we tamper.
     const tampered: any = JSON.parse(JSON.stringify(wrap));
@@ -104,7 +104,7 @@ describe('Schnorr verification on inbound gift-wraps', () => {
     const recipientSk = generateSecretKey();
     const recipientPk = getPublicKey(recipientSk);
 
-    const [wrap] = wrapNip17Message(senderSk, recipientPk, 'hello secure world');
+    const {wraps: [wrap]} = wrapNip17Message(senderSk, recipientPk, 'hello secure world');
     const rumor = unwrapNip17Message(wrap, recipientSk);
 
     expect(rumor.content).toBe('hello secure world');

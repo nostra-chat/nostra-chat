@@ -543,7 +543,47 @@ export class ChatAPI {
     // Add to history
     this.history.push(message);
 
-    // Save to message store with 'sending' status.
+    // Track delivery state
+    if(this.deliveryTracker) {
+      this.deliveryTracker.markSending(messageId);
+    }
+
+    // Publish first so we can capture the canonical rumor id. The sender row
+    // MUST be keyed by that rumor id so kind-7 reactions / kind-5 deletions
+    // carry a 64-hex `e` tag accepted by NIP-01 relays, and so the receiver's
+    // store (which also keys by rumor id) resolves references bilaterally.
+    // See Bug #3 (FIND-4e18d35d) — the prior `eventId = messageId` key caused
+    // strfry to reject e-tags with `unexpected size for fixed-size tag: e`.
+    let publishedRumorId: string | undefined;
+    let publishSucceeded = false;
+    if(this.relayPool.isConnected()) {
+      try {
+        const plaintext = JSON.stringify({
+          id: messageId,
+          from: this.ownId,
+          to: peerOwnId,
+          type,
+          content,
+          timestamp
+        });
+
+        const result: PublishResult = await this.relayPool.publish(peerOwnId!, plaintext);
+        publishedRumorId = result.rumorId;
+
+        if(result.successes.length > 0) {
+          publishSucceeded = true;
+          this.log('[ChatAPI] message published to', result.successes.length, 'relay(s):', messageId);
+        } else {
+          this.log('[ChatAPI] all relays failed, queueing message');
+        }
+      } catch(err) {
+        this.log.error('[ChatAPI] relay publish failed:', err);
+      }
+    } else {
+      this.log('[ChatAPI] relay pool not connected, queueing message');
+    }
+
+    // Save to message store after publish so the row can be keyed by rumorId.
     //
     // Identity-triple contract (Phase 2b.1, FIND-e49755c1): every first-write
     // row MUST carry mid + twebPeerId + timestamp computed ONCE at creation.
@@ -560,11 +600,18 @@ export class ChatAPI {
       const conversationId = store.getConversationId(this.ownId, peerOwnId || '');
       const timestampSec = Math.floor(timestamp / 1000);
 
+      // Prefer the canonical rumor id; fall back to the messageId if publish
+      // was skipped (offline/no-pool) so the row still has a stable key.
+      const rowEventId = publishedRumorId || messageId;
+
       let rowMid: number | undefined = opts?.mid;
       const twebPeerId = opts?.twebPeerId;
       if(rowMid === undefined && twebPeerId !== undefined) {
         try {
           const {NostraBridge} = await import('./nostra-bridge');
+          // Bridge hashes eventId+timestamp into a tweb mid. We key by messageId
+          // here (not rumorId) to preserve the mid value VMT previously computed
+          // so getHistory/getDialogs mirror coherence is unchanged.
           rowMid = await NostraBridge.getInstance().mapEventIdToMid(messageId, timestampSec);
         } catch(e: any) {
           this.log.warn('[ChatAPI] mid compute failed:', e?.message);
@@ -573,16 +620,17 @@ export class ChatAPI {
 
       if(rowMid !== undefined && twebPeerId !== undefined) {
         const row: StoredMessage = {
-          eventId: messageId,
+          eventId: rowEventId,
           conversationId,
           senderPubkey: this.ownId,
           content,
           type: type === 'text' ? 'text' : 'file',
           timestamp: timestampSec,
-          deliveryState: 'sending',
+          deliveryState: publishSucceeded ? 'sent' : 'sending',
           mid: rowMid,
           twebPeerId,
-          isOutgoing: true
+          isOutgoing: true,
+          appMessageId: messageId
         };
         await store.saveMessage(row);
       } else {
@@ -592,43 +640,18 @@ export class ChatAPI {
       this.log.warn('[ChatAPI] failed to save to message store:', err);
     }
 
-    // Track delivery state
-    if(this.deliveryTracker) {
-      this.deliveryTracker.markSending(messageId);
-    }
-
-    // Try to publish via relay pool (gift-wrap handled internally by pool)
-    if(this.relayPool.isConnected()) {
-      try {
-        const plaintext = JSON.stringify({
-          id: messageId,
-          from: this.ownId,
-          to: peerOwnId,
-          type,
-          content,
-          timestamp
-        });
-
-        const result: PublishResult = await this.relayPool.publish(peerOwnId!, plaintext);
-
-        if(result.successes.length > 0) {
-          this.updateMessageStatus(messageId, 'sent');
-          if(this.deliveryTracker) {
-            this.deliveryTracker.markSent(messageId);
-          }
-          this.log('[ChatAPI] message published to', result.successes.length, 'relay(s):', messageId);
-        } else {
-          // All relays failed -- fallback to offline queue
-          this.log('[ChatAPI] all relays failed, queueing message');
-          await this.queueMessage(messageId, content);
-        }
-      } catch(err) {
-        this.log.error('[ChatAPI] relay publish failed:', err);
-        await this.queueMessage(messageId, content);
+    if(publishSucceeded) {
+      // Keep the in-memory `history` view in sync for legacy consumers that
+      // read ChatAPI.getHistory() directly.
+      const msg = this.history.find((m) => m.id === messageId);
+      if(msg) msg.status = 'sent';
+      if(this.deliveryTracker) {
+        this.deliveryTracker.markSent(messageId);
       }
     } else {
-      // Not connected to any relay -- queue for offline delivery
-      this.log('[ChatAPI] relay pool not connected, queueing message');
+      // Either offline, disconnected, or every relay rejected. Queue the
+      // payload for later redelivery. The stored row (if any) has
+      // deliveryState='sending' and will transition when the queue flushes.
       await this.queueMessage(messageId, content);
     }
 
@@ -833,13 +856,20 @@ export class ChatAPI {
       msg.status = status;
     }
 
-    // Update in message store (fire-and-forget)
+    // Update in message store (fire-and-forget).
+    //
+    // Bug #3: sender rows are now keyed by `eventId = rumorId` (64-hex) and
+    // carry `appMessageId = chat-XXX-N`. Callers pass the app-level messageId,
+    // so look up by `appMessageId` first with a fallback to `eventId` for
+    // legacy rows written before the migration (e.g. offline queue with no
+    // rumorId captured, or pre-existing installs upgrading).
     const store = getMessageStore();
     const peerOwnId = this.activePeer;
     if(peerOwnId) {
       const conversationId = store.getConversationId(this.ownId, peerOwnId);
       store.getMessages(conversationId, 1).then(msgs => {
-        const stored = msgs.find(m => m.eventId === messageId);
+        const stored = msgs.find(m => m.appMessageId === messageId) ||
+                       msgs.find(m => m.eventId === messageId);
         if(stored) {
           // Explicit identity preservation — mutate ONLY deliveryState.
           const next: StoredMessage = {
@@ -953,7 +983,7 @@ export class ChatAPI {
           type: 'delete-notification',
           eventIds
         });
-        const wraps = wrapNip17Message(privateKey, peerPubkey, deleteContent);
+        const {wraps} = wrapNip17Message(privateKey, peerPubkey, deleteContent);
 
         for(const wrap of wraps) {
           await this.relayPool.publishRawEvent(wrap as any);
