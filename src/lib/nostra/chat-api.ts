@@ -335,7 +335,14 @@ export class ChatAPI {
     nostraReactionsReceive.setMessageResolver(async(eventId) => {
       const {getMessageStore} = await import('./message-store');
       const store = getMessageStore();
-      const row = await store.getByEventId(eventId);
+      // Sender stores row with `eventId = messageId` (app-level, chat-XXX-N);
+      // receiver stores with `eventId = rumor id` (64-char hex). Both sides
+      // also set `appMessageId = messageId`. The kind-7 e-tag is the reactor's
+      // `row.appMessageId` (see getMessageByPeerMid), so the peer resolves
+      // by appMessageId first — eventId fallback covers legacy rows that
+      // never had appMessageId populated.
+      let row = await store.getByAppMessageId(eventId);
+      if(!row) row = await store.getByEventId(eventId);
       if(!row) return undefined;
       if(row.mid === undefined || row.twebPeerId === undefined) return undefined;
       return {mid: row.mid, peerId: row.twebPeerId};
@@ -574,6 +581,7 @@ export class ChatAPI {
       if(rowMid !== undefined && twebPeerId !== undefined) {
         const row: StoredMessage = {
           eventId: messageId,
+          appMessageId: messageId,
           conversationId,
           senderPubkey: this.ownId,
           content,

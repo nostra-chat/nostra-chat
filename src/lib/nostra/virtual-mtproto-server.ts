@@ -236,7 +236,11 @@ export class NostraMTProtoServer {
     try {
       const row = await getMessageStore().getByMid(mid);
       if(!row) return null;
-      return {relayEventId: row.eventId, senderPubkey: row.senderPubkey};
+      // Prefer `appMessageId` (common across sender + receiver) over
+      // `eventId` (which the sender stores as messageId and the receiver
+      // stores as rumor id — the mismatch breaks reactions RX resolver).
+      // Fallback to eventId for legacy rows missing appMessageId.
+      return {relayEventId: row.appMessageId || row.eventId, senderPubkey: row.senderPubkey};
     } catch(e) {
       console.warn(LOG_PREFIX, 'getMessageByPeerMid: store lookup failed', e);
       return null;
