@@ -417,6 +417,27 @@ ctx.addEventListener('message', (event) => {
   }
 });
 
+ctx.addEventListener('message', async(event) => {
+  if((event as any).data?.type !== 'UPDATE_APPROVED') return;
+  const port = (event as any).ports[0] as MessagePort | undefined;
+  try {
+    const {handleUpdateApproved} = await import('./signed-update-sw');
+    const {getActiveVersion} = await import('./shell-cache');
+    const {getBakedPubkey} = await import('@lib/update/signing/trusted-keys');
+    const active = await getActiveVersion();
+    const pubkey = active?.installedPubkey || getBakedPubkey();
+    const res = await handleUpdateApproved(
+      (event as any).data.manifest,
+      (event as any).data.signature,
+      pubkey,
+      (done: number, total: number) => port?.postMessage({type: 'UPDATE_PROGRESS', done, total})
+    );
+    port?.postMessage({type: 'UPDATE_RESULT', outcome: res.outcome, reason: res.reason, chunk: res.chunk});
+  } catch(e) {
+    port?.postMessage({type: 'UPDATE_RESULT', outcome: 'swap-failed', reason: String(e)});
+  }
+});
+
 // ctx.onerror = (error) => {
 //   log.error('error:', error);
 // };
