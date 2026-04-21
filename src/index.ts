@@ -422,11 +422,9 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
     const {ensureMigrated} = await import('@lib/update/update-bootstrap');
     await ensureMigrated();
 
-    // Throttled probe on boot (fire-and-forget, 12h cadence)
-    const {runProbeIfDue} = await import('@lib/update/update-popup-controller');
-    void runProbeIfDue().catch((e) => console.warn('[update] probe failed', e));
-
-    // Stash incoming pending updates for hamburger click
+    // Register listeners BEFORE triggering probe — the probe dispatches
+    // update_available_signed synchronously if a new version is found, so the
+    // listener must be alive before runProbeIfDue() is called.
     rootScope.addEventListener('update_available_signed', ({manifest, signature}) => {
       (window as any).__nostraPendingUpdate = {manifest, signature};
     });
@@ -442,6 +440,10 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
         }
       });
     });
+
+    // Throttled probe on boot (fire-and-forget, 12h cadence) — runs AFTER listeners
+    const {runProbeIfDue} = await import('@lib/update/update-popup-controller');
+    void runProbeIfDue().catch((e) => console.warn('[update] probe failed', e));
 
     // First-install info banner — show once after fresh install
     try {

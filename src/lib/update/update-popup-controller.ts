@@ -13,6 +13,16 @@ const DECLINE_THRESHOLD_FOR_STALENESS = 7;
 
 function now() { return Date.now(); }
 
+// Module-load side effect: register the stash listener so `window.__nostraPendingUpdate`
+// is populated whenever a signed update is detected. This runs once per app-boot when
+// `src/index.ts` imports the controller. Registering HERE (not in index.ts) guarantees
+// the listener is alive BEFORE runProbeIfDue() is called on the same import cycle.
+if(typeof window !== 'undefined') {
+  rootScope.addEventListener('update_available_signed', ({manifest, signature}) => {
+    (window as any).__nostraPendingUpdate = {manifest, signature};
+  });
+}
+
 function isSnoozed(version: string): boolean {
   const snoozedVersion = localStorage.getItem(SNOOZE_VERSION_KEY);
   const snoozedUntil = parseInt(localStorage.getItem(SNOOZE_UNTIL_KEY) || '0', 10);
