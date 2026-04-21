@@ -422,6 +422,10 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
     const {ensureMigrated} = await import('@lib/update/update-bootstrap');
     await ensureMigrated();
 
+    // Throttled probe on boot (fire-and-forget, 12h cadence)
+    const {runProbeIfDue} = await import('@lib/update/update-popup-controller');
+    void runProbeIfDue().catch((e) => console.warn('[update] probe failed', e));
+
     // Stash incoming pending updates for hamburger click
     rootScope.addEventListener('update_available', ({manifest, signature}) => {
       (window as any).__nostraPendingUpdate = {manifest, signature};
