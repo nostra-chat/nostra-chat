@@ -58,7 +58,9 @@ async function currentShellCacheName(): Promise<string> {
 
 export async function requestCacheStrict(event: FetchEvent): Promise<Response> {
   const cache = await caches.open(await currentShellCacheName());
-  let hit = await cache.match(event.request);
+  // ignoreSearch: vite/release assets often carry a cache-buster querystring
+  // (e.g. site.webmanifest?v=xyz) that doesn't appear in the cached URL.
+  let hit = await cache.match(event.request, {ignoreSearch: true});
   if(!hit) {
     // Navigation to root or explicit path → fall back to index.html
     const url = new URL(event.request.url);
