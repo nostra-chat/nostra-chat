@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.0](https://github.com/nostra-chat/nostra-chat/compare/v0.10.1...v0.11.0) (2026-04-21)
+
+
+### Features
+
+* **fuzz:** phase 2b.2b — reporter fix + warmup + profile + baseline v2b2 emit ([#54](https://github.com/nostra-chat/nostra-chat/issues/54)) ([d72d5fc](https://github.com/nostra-chat/nostra-chat/commit/d72d5fc7f0c6dab6560f45627499456f56c9be79))
+* **update:** show latest version, full SW URLs, inline integrity details ([#57](https://github.com/nostra-chat/nostra-chat/issues/57)) ([9377990](https://github.com/nostra-chat/nostra-chat/commit/9377990cd5ac9504f07ea467a141f550adaebaf3))
+
+
+### Bug Fixes
+
+* **sidebar:** remove redundant version under npub in hamburger menu ([c58dc61](https://github.com/nostra-chat/nostra-chat/commit/c58dc61ad3268102a1d3732e90542cc447dc26de))
+
 ## [0.10.1](https://github.com/nostra-chat/nostra-chat/compare/v0.10.0...v0.10.1) (2026-04-21)
 
 
