@@ -4,8 +4,31 @@ Last updated: 2026-04-20
 Open bugs: 0 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3 · Fixed in Phase 2b.2b: 3
 
 ## Open (sorted by occurrences desc)
+### FIND-4e18d35d — INV-reaction-bilateral
+- **Status**: open
+- **Tier**: medium
+- **Occurrences**: 3
+- **First seen**: 2026-04-21 09:29:29
+- **Last seen**: 2026-04-21 09:42:02
+- **Seed**: 43
+- **Assertion**: "reaction 😂 (aa468d4bfef629c792a86ed75f1781bdf5c6efadf52bd14920cdd8381239d8df) from B not propagated to A"
+- **Replay**: `pnpm fuzz --replay=FIND-4e18d35d`
+- **Minimal trace** (1 actions):
+  1. `reactViaUI({"user":"userB","emoji":"😂"})`
+- **Artifacts**: [`docs/fuzz-reports/FIND-4e18d35d/`](../fuzz-reports/FIND-4e18d35d/)
 
-_(none)_
+### FIND-57989db1 — INV-mirrors-idb-coherent
+- **Status**: open
+- **Tier**: medium
+- **Occurrences**: 1
+- **First seen**: 2026-04-21 09:37:50
+- **Last seen**: 2026-04-21 09:37:50
+- **Seed**: 43
+- **Assertion**: "mirror mids not in idb on userB: 1776764255324505"
+- **Replay**: `pnpm fuzz --replay=FIND-57989db1`
+- **Minimal trace** (1 actions):
+  1. `replyToRandomBubble({"from":"userB","text":".5"})`
+- **Artifacts**: [`docs/fuzz-reports/FIND-57989db1/`](../fuzz-reports/FIND-57989db1/)
 
 ## Fixed
 

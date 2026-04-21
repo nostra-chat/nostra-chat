@@ -204,23 +204,30 @@ async function injectContact(self: UserHandle, other: UserHandle): Promise<numbe
  * Closes FIND-cold-deleteWhileSending, FIND-cold-reactPeerSeesEmoji.
  */
 async function warmupHandshake(a: UserHandle, b: UserHandle): Promise<void> {
+  // Best-effort warmup. Failures are logged but non-fatal: the fuzz run still
+  // proceeds so that cold-start flakes (if any) surface as findings rather
+  // than aborting the entire iteration at boot.
   log('warmup: A→B text → B→A react → A→B delete → drain');
   const warmupText = `__warmup_${Date.now()}__`;
 
-  await sendTextViaUI(a, warmupText);
-  const mid = await waitForBubbleOnPeer(b, warmupText, 15000);
-  log('warmup: step 1 (text) ack');
+  try {
+    await sendTextViaUI(a, warmupText);
+    const mid = await waitForBubbleOnPeer(b, warmupText, 15000);
+    log('warmup: step 1 (text) ack');
 
-  await reactToBubbleViaManager(b, mid, '👍');
-  await waitForReactionOnPeer(a, warmupText, '👍', 15000);
-  log('warmup: step 2 (react) ack');
+    await reactToBubbleViaManager(b, mid, '👍');
+    await waitForReactionOnPeer(a, warmupText, '👍', 15000);
+    log('warmup: step 2 (react) ack');
 
-  await deleteBubbleViaManager(a, warmupText);
-  await waitForBubbleAbsenceOnPeer(b, warmupText, 15000);
-  log('warmup: step 3 (delete) ack');
+    await deleteBubbleViaManager(a, warmupText);
+    await waitForBubbleAbsenceOnPeer(b, warmupText, 15000);
+    log('warmup: step 3 (delete) ack');
 
-  await a.page.waitForTimeout(500);
-  log('warmup: drain complete');
+    await a.page.waitForTimeout(500);
+    log('warmup: drain complete');
+  } catch(err) {
+    log(`warmup: non-fatal error — ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 async function sendTextViaUI(self: UserHandle, text: string): Promise<void> {

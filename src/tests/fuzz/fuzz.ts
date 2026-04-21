@@ -117,7 +117,7 @@ async function main() {
       maxCommands: opts.maxCommands,
       commands: lastCleanActions,
       emittedAt: new Date().toISOString(),
-      fuzzerVersion: 'phase2b1'
+      fuzzerVersion: 'phase2b2'
     };
     if(!existsSync('docs/fuzz-baseline')) mkdirSync('docs/fuzz-baseline', {recursive: true});
     const path = `docs/fuzz-baseline/baseline-seed${opts.seed}.json`;
