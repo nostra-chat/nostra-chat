@@ -12,7 +12,7 @@ describe('NIP-17 messaging roundtrip', () => {
   const pkB = getPublicKey(skB);
 
   it('wrapNip17Message produces kind 1059 events', () => {
-    const wraps = wrapNip17Message(skA, pkB, 'hello from A');
+    const {wraps} = wrapNip17Message(skA, pkB, 'hello from A');
     expect(wraps.length).toBeGreaterThanOrEqual(2); // recipient + self-send
     for(const w of wraps) {
       expect(w.kind).toBe(1059);
@@ -22,7 +22,7 @@ describe('NIP-17 messaging roundtrip', () => {
   });
 
   it('recipient can unwrap and read content', () => {
-    const wraps = wrapNip17Message(skA, pkB, 'secret message');
+    const {wraps} = wrapNip17Message(skA, pkB, 'secret message');
     // Find the wrap tagged for B
     const wrapForB = wraps.find(w => w.tags.some((t: string[]) => t[0] === 'p' && t[1] === pkB));
     expect(wrapForB).toBeDefined();
@@ -34,7 +34,7 @@ describe('NIP-17 messaging roundtrip', () => {
   });
 
   it('self-send wrap is included (sender can unwrap own copy)', () => {
-    const wraps = wrapNip17Message(skA, pkB, 'multi-device test');
+    const {wraps} = wrapNip17Message(skA, pkB, 'multi-device test');
     // Find the wrap tagged for A (self-send)
     const wrapForA = wraps.find(w => w.tags.some((t: string[]) => t[0] === 'p' && t[1] === pkA));
     expect(wrapForA).toBeDefined();
@@ -45,7 +45,7 @@ describe('NIP-17 messaging roundtrip', () => {
   });
 
   it('wrapManyEvents returns N+1 events (self-send + recipients)', () => {
-    const wraps = wrapNip17Message(skA, pkB, 'count check');
+    const {wraps} = wrapNip17Message(skA, pkB, 'count check');
     // 1 recipient + 1 self = 2
     expect(wraps.length).toBe(2);
   });

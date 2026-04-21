@@ -13,21 +13,21 @@ describe('NIP-17 gift-wrap structure', () => {
   const pkB = getPublicKey(skB);
 
   it('gift-wrap has kind 1059', () => {
-    const wraps = wrapNip17Message(skA, pkB, 'kind test');
+    const {wraps} = wrapNip17Message(skA, pkB, 'kind test');
     for(const w of wraps) {
       expect(w.kind).toBe(1059);
     }
   });
 
   it('rumor kind is 14 (PrivateDirectMessage)', () => {
-    const wraps = wrapNip17Message(skA, pkB, 'rumor kind test');
+    const {wraps} = wrapNip17Message(skA, pkB, 'rumor kind test');
     const wrapForB = wraps.find(w => w.tags.some((t: string[]) => t[0] === 'p' && t[1] === pkB))!;
     const rumor = unwrapNip17Message(wrapForB, skB);
     expect(rumor.kind).toBe(14);
   });
 
   it('gift-wrap created_at is randomized (differs from actual now)', () => {
-    const wraps = wrapNip17Message(skA, pkB, 'timestamp test');
+    const {wraps} = wrapNip17Message(skA, pkB, 'timestamp test');
     const nowSec = Math.floor(Date.now() / 1000);
     // At least one wrap should have a created_at that differs from now by > 0
     // (randomized within past 48 hours)
@@ -41,7 +41,7 @@ describe('NIP-17 gift-wrap structure', () => {
 
   it('unwrap fails on wrong recipient key', () => {
     const skC = generateSecretKey();
-    const wraps = wrapNip17Message(skA, pkB, 'wrong key test');
+    const {wraps} = wrapNip17Message(skA, pkB, 'wrong key test');
     const wrapForB = wraps.find(w => w.tags.some((t: string[]) => t[0] === 'p' && t[1] === pkB))!;
 
     expect(() => unwrapNip17Message(wrapForB, skC)).toThrow();

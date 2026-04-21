@@ -450,10 +450,15 @@ async function handleSelfEcho(
   msg: DecryptedMessage,
   ctx: ReceiveContext
 ): Promise<ReceiveResult> {
-  let echoId = msg.id;
+  // Bug #3 (FIND-4e18d35d): same-device dedup is done by rumor id (msg.id,
+  // 64-hex) because sender rows are now keyed by rumorId too. Cross-device
+  // saves also use rumorId so all stores converge on the same key. The parsed
+  // chat-XXX-N id survives as `appMessageId` on the stored row.
+  const echoId = msg.id;
+  let appMessageId: string | undefined;
   try {
     const parsed = JSON.parse(msg.content);
-    if(parsed.id) echoId = parsed.id;
+    if(parsed.id) appMessageId = parsed.id;
   } catch{ /* not JSON */ }
 
   const store = getMessageStore();
@@ -500,7 +505,8 @@ async function handleSelfEcho(
     deliveryState: 'sent',
     mid: resolvedMid,
     twebPeerId: resolvedPeerId,
-    isOutgoing: true
+    isOutgoing: true,
+    appMessageId
   });
 
   if(ctx.onMessage) {

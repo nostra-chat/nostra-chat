@@ -132,7 +132,11 @@ export function createDeliveryUI(): DeliveryUIManager {
       const {NostraPeerMapper} = await import('@lib/nostra/nostra-peer-mapper');
       const mapper = new NostraPeerMapper();
       const {getMessageStore: gms2} = await import('@lib/nostra/message-store');
-      const stored = await gms2().getByEventId(eventId);
+      // Bug #3: receipts carry the app-level messageId (chat-XXX-N). Rows are
+      // now keyed by rumor id (64-hex), so prefer appMessageId lookup; fall
+      // back to direct eventId match for legacy receipts still referencing
+      // the old key scheme.
+      const stored = (await gms2().getByAppMessageId(eventId)) || (await gms2().getByEventId(eventId));
       const ts = stored?.timestamp ?? Math.floor(Date.now() / 1000);
       const hashed = await mapper.mapEventId(eventId, ts);
       if(hashed) mid = String(hashed);
