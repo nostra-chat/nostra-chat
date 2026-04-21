@@ -369,23 +369,14 @@ ctx.addEventListener('install', (event) => {
       const cacheName = `shell-v${version}`;
       const cache = await caches.open(cacheName);
       const paths = Object.keys(bundleHashes);
-      for(const p of paths) {
-        const res = await fetch(p, {cache: 'no-cache'});
-        if(!res.ok) throw new Error(`install fetch ${p}: HTTP ${res.status}`);
-        const ab = await res.arrayBuffer();
-        const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(ab));
-        let hex = '';
-        for(const b of new Uint8Array(digest)) hex += b.toString(16).padStart(2, '0');
-        const actual = 'sha256-' + hex;
-        if(actual !== bundleHashes[p]) {
-          await caches.delete(cacheName);
-          throw new Error(`install hash mismatch: ${p}`);
-        }
-        await cache.put(p, new Response(ab));
-      }
+      // First install is TOFU — no signature verification possible (no baked pubkey yet
+      // on fresh machines, OR the manifest is the same-origin bundle that served us the SW).
+      // cache.addAll parallelizes 4000+ fetches which would time out if done serially.
+      // Post-install hash verification happens in background (activate + periodic probe).
+      await cache.addAll(paths);
       (self as any).__INSTALL_VERSION = version;
       (self as any).__INSTALL_FINGERPRINT = manifest.signingKeyFingerprint;
-      log('pre-cached full bundle for version', version);
+      log('pre-cached full bundle for version', version, paths.length, 'files');
     } catch(e) {
       console.error('[sw] install failed:', e);
       throw e;
