@@ -260,7 +260,7 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 
 - `pnpm fuzz --duration=2h` — overnight run
 - `pnpm fuzz --replay=FIND-<sig>` — deterministic replay of a finding
-- `pnpm fuzz --replay-baseline` — 30s regression check (baseline `baseline-seed42-v2b2.json` pending live emit — see `docs/VERIFICATION_2B2B.md`)
+- `pnpm fuzz --replay-baseline` — 30s regression check. **Baseline `baseline-seed42-v2b2.json` NOT emitted** — blocked by open bug `FIND-4e18d35d` (see Phase 2b.3 note below + `docs/PROMPTS/bug-3-reactions-eventid-next-session.md`).
 - `pnpm fuzz --headed --slowmo=200` — watch the fuzzer in a real browser
 - `pnpm fuzz` runs preserve `docs/FUZZ-FINDINGS.md` curation automatically (T1 of 2b.2b). No `git restore` workaround needed.
 - Spec Phase 1: `docs/superpowers/specs/2026-04-17-bug-fuzzer-design.md`
@@ -271,6 +271,10 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 - Hook Worker-side managers (not main-thread wrappers like `chat.sendReaction`); fuzz actions and programmatic callers reach managers via `rs.managers.X` proxy and bypass UI entry points.
 - Stop a hung fuzz: `pkill -9 -f "tsx.*fuzz"; pkill -9 -f chromium` (regular `pkill -f` may miss the inner tsx node child).
 - New tests in `src/tests/fuzz/` are auto-discovered; new tests in `src/tests/nostra/` must be appended to the explicit file list in `package.json` `test:nostra:quick`.
+- **For debugging a specific reproducible bug, prefer a targeted E2E over the fuzz.** Import `bootHarness()` from `src/tests/fuzz/harness.ts` in a standalone tsx script, run one deterministic action flow, dump `user.consoleLog[]` at end. ~80s per pass vs 5min+ for random fuzz. Run with `node_modules/.bin/tsx <path>` (bypasses `npx` rewrite).
+- **strfry rejects events silently.** LocalRelay responds with `["OK", eventId, false, "reason"]` for rejected events but `src/lib/nostra/nostr-relay.ts` has no `case 'OK'` handler — rejections are dropped on the floor. When a publish "succeeds" but the event never appears in `getAllEvents()`, the relay rejected it. Add a temporary OK-logger in the `switch(type)` default branch to surface the reason.
+- **Vite-plugin-checker overlay blocks Playwright clicks in headless.** Any ESLint warning (including superfluous `eslint-disable-next-line no-console` when no `no-console` rule exists) renders `<vite-plugin-checker-error-overlay>` that intercepts pointer events → `.click()` retries then times out. Before debugging a click timeout, check the dev server log for ESLint warnings. Don't add eslint-disable pragmas that aren't needed.
+- **Stale `pnpm start` from removed worktrees occupy :8080.** `git worktree remove` doesn't kill the dev-server process; it keeps serving from the deleted path. New `pnpm start` in a fresh worktree falls to :8081/:8082. Fuzz harness hardcodes `APP_URL=http://localhost:8080` → "Failed to fetch dynamically imported module" errors. Fix: `ss -tlnp | grep ':808'` + `kill <pid>` before starting new server.
 
 **Adding a fuzz artifact** — `src/tests/fuzz/invariants/<tier>.ts` (one file per tier: `console.ts`, `bubbles.ts`, `delivery.ts`, `avatar.ts` = cheap; `state.ts`, `queue.ts` = medium; `regression.ts` = regression). Register in `invariants/index.ts`. Add a Vitest in the same directory. Same additive pattern for `postconditions/<category>.ts`.
 
@@ -284,7 +288,9 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 
 Carry-forward open FIND (`FIND-chrono-v2`) — `INV-bubble-chronological` flake on high-concurrency traces, same-second same-user tempMid race distinct from c0046153. Closed in 2b.2b via `mid` tiebreaker in `src/helpers/array/insertSomethingWithTiebreak.ts`.
 
-**Phase 2b.2b closed** reporter clobber bug (curated Fixed sections preserved automatically via parse-merge), cold-start races (`FIND-cold-deleteWhileSending`, `FIND-cold-reactPeerSeesEmoji`) via multi-kind deterministic warmup in `bootHarness`, same-second tempMid race (`FIND-chrono-v2`) via `mid` tiebreaker, added UI-driven `reactViaUI` action + `INV-reactions-picker-nonempty` (would have caught PR #47 empty-stub bug), profile scope (editName/editBio/uploadAvatar/setNip05 + Blossom mock + 3 invariants + 3 postconditions). Baseline `baseline-seed42-v2b2.json` emit pending user live run — see `docs/VERIFICATION_2B2B.md`. Groups scope moves to **Phase 2b.3**.
+**Phase 2b.2b closed** reporter clobber bug (curated Fixed sections preserved automatically via parse-merge), cold-start races (`FIND-cold-deleteWhileSending`, `FIND-cold-reactPeerSeesEmoji`) via multi-kind deterministic warmup in `bootHarness`, same-second tempMid race (`FIND-chrono-v2`) via `mid` tiebreaker, added UI-driven `reactViaUI` action + `INV-reactions-picker-nonempty` (would have caught PR #47 empty-stub bug), profile scope (editName/editBio/uploadAvatar/setNip05 + Blossom mock + 3 invariants + 3 postconditions). Groups scope moves to **Phase 2b.3**.
+
+**Phase 2b.3 open**: eventId mismatch between sender (`eventId = messageId`, format `chat-XXX-N`) and receiver (`eventId = rumor_id`, 64-hex) breaks NIP-25 reactions bilateral propagation. PR #62 attempted fix via `appMessageId` was REVERTED — it violated NIP-01's fixed-size `e`-tag requirement (strfry rejects with `"invalid: unexpected size for fixed-size tag: e"`). Real fix requires extracting `rumor.id` from `wrapNip17Message` (`src/lib/nostra/nostr-crypto.ts`) and storing it sender-side in `chat-api.ts::sendMessage`. Full plan in `docs/PROMPTS/bug-3-reactions-eventid-next-session.md`. `FIND-4e18d35d` remains Open; baseline v2b2 emit blocked until resolved.
 
 ### Bubble Rendering
 - Kind 0 profile must be PUBLISHED during onboarding (not just saved locally) for other users to fetch it.
