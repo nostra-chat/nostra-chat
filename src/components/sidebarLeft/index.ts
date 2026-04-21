@@ -104,7 +104,6 @@ import AppNostraQRTab from '@components/sidebarLeft/tabs/nostraQR';
 import {generateDicebearAvatar} from '@helpers/generateDicebearAvatar';
 import {decodePubkey} from '@lib/nostra/nostr-identity';
 import {loadCachedProfile} from '@lib/nostra/profile-cache';
-import {BUILD_VERSION} from '@lib/update/build-version';
 
 export const LEFT_COLUMN_ACTIVE_CLASSNAME = 'is-left-column-shown';
 
@@ -974,10 +973,7 @@ export class AppSidebarLeft extends SidebarSlider {
     nameEl.style.cssText = 'font-weight:600;font-size:0.9375rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
     const npubEl = document.createElement('span');
     npubEl.style.cssText = 'font-size:0.75rem;opacity:0.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
-    const versionEl = document.createElement('span');
-    versionEl.style.cssText = 'font-size:0.6875rem;opacity:0.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
-    versionEl.textContent = `v${BUILD_VERSION}`;
-    text.append(nameEl, npubEl, versionEl);
+    text.append(nameEl, npubEl);
     wrap.append(avatar, text);
 
     // Does NOT depend on the Solid identity store — dev-mode HMR can create
