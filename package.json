@@ -37,7 +37,8 @@
     "watch-lang": "node watch-lang.js",
     "lint": "npx eslint \"src/**/*.{ts,tsx}\"",
     "build:solid": "node ./src/scripts/build_solid.js",
-    "format-lang": "node ./src/scripts/format_lang.js"
+    "format-lang": "node ./src/scripts/format_lang.js",
+    "gen-signing-key": "tsx src/scripts/build/gen-signing-key.ts"
   },
   "author": "",
   "license": "GPL-3.0-only",

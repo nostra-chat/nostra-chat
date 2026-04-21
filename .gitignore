@@ -68,3 +68,6 @@ ignore
 # Fuzzer artifacts (local run outputs)
 docs/FUZZ-FINDINGS.md
 docs/fuzz-reports/
+
+signing-private.key
+*.private.key
