@@ -144,7 +144,10 @@ export async function updateBootstrap(opts: BootstrapOptions = {}): Promise<void
   // Step 1b: registration.update() byte comparison
   const waitingBefore = reg.waiting;
   try {
-    await reg.update();
+    // DO NOT call reg.update() here. Automatic SW revalidation triggers the
+    // browser to re-download sw.js, potentially serving MITM content into the
+    // waiting slot. Update checks are now explicit via probe().
+    // Previous code: await reg.update();
   } catch{
     _bootGate = BootGate.AllVerified;
     return;
