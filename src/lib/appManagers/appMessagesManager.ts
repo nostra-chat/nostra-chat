@@ -1449,9 +1449,9 @@ export class AppMessagesManager extends AppManager {
           // the failure instead of rendering a ghost bubble.
           if(!nostraMid) {
             storage.delete(tempId);
-            this.rootScope.dispatchEvent('messages_deleted', {
+            this.rootScope.dispatchEvent('history_delete', {
               peerId,
-              mids: [tempId]
+              msgs: new Set<number>([tempId])
             });
             message.promise?.reject(new Error('[Nostra.chat] P2P send failed — VMT returned no nostraMid'));
             return;
