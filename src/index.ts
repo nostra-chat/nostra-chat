@@ -418,6 +418,10 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
       throw err;
     }
 
+    // Migration shim for users upgrading from pre-consent-gate versions
+    const {ensureMigrated} = await import('@lib/update/update-bootstrap');
+    await ensureMigrated();
+
     // Stash incoming pending updates for hamburger click
     rootScope.addEventListener('update_available', ({manifest, signature}) => {
       (window as any).__nostraPendingUpdate = {manifest, signature};

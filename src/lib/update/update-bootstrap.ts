@@ -245,6 +245,28 @@ export function __resetForTest(): void {
   _networkCheckInFlight = false;
 }
 
+/**
+ * Migration shim for users upgrading from pre-consent-gate versions.
+ * If shell-v* caches exist but no active-version record in IDB (fresh SW
+ * install before T8's setActiveVersion hook ran), derive active from the
+ * newest shell-v cache. Non-destructive: on any error, logs and returns.
+ */
+export async function ensureMigrated(): Promise<void> {
+  if(typeof caches === 'undefined' || typeof indexedDB === 'undefined') return;
+  try {
+    const {getActiveVersion, setActiveVersion} = await import('@lib/serviceWorker/shell-cache');
+    const active = await getActiveVersion();
+    if(active) return;
+    const keys = await caches.keys();
+    const shellCaches = keys.filter((k) => k.startsWith('shell-v') && !k.endsWith('-pending'));
+    if(shellCaches.length === 0) return;
+    const latest = shellCaches.map((k) => k.slice('shell-v'.length)).sort().pop();
+    if(latest) await setActiveVersion(latest, 'ed25519:migrated');
+  } catch(e) {
+    console.warn('[update] migration check failed', e);
+  }
+}
+
 // Retry on reconnect
 if(typeof window !== 'undefined') {
   window.addEventListener('online', () => {
