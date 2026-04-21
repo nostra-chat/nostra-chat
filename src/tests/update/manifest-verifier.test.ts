@@ -3,7 +3,7 @@ import {verifyManifestsAcrossSources, MANIFEST_SOURCES} from '@lib/update/manife
 import {setUpdateTransport, resetUpdateTransport} from '@lib/update/update-transport';
 import type {Manifest} from '@lib/update/types';
 
-type SourceName = 'cdn' | 'github-release' | 'ipfs';
+type SourceName = 'cdn' | 'github-pages' | 'ipfs';
 
 const validManifest = (overrides: Partial<Manifest> = {}): Manifest => ({
   schemaVersion: 1,
@@ -35,7 +35,7 @@ describe('verifyManifestsAcrossSources', () => {
 
   it('returns verified when all 3 sources agree', async() => {
     const m = validManifest();
-    mockBySource({'cdn': m, 'github-release': m, 'ipfs': m});
+    mockBySource({'cdn': m, 'github-pages': m, 'ipfs': m});
 
     const result = await verifyManifestsAcrossSources();
     expect(result.verdict).toBe('verified');
@@ -45,7 +45,7 @@ describe('verifyManifestsAcrossSources', () => {
 
   it('returns verified-partial when 2 succeed and 1 offline, and the 2 agree', async() => {
     const m = validManifest();
-    mockBySource({'cdn': m, 'github-release': m, 'ipfs': new Error('offline')});
+    mockBySource({'cdn': m, 'github-pages': m, 'ipfs': new Error('offline')});
 
     const result = await verifyManifestsAcrossSources();
     expect(result.verdict).toBe('verified-partial');
@@ -55,7 +55,7 @@ describe('verifyManifestsAcrossSources', () => {
   it('returns conflict when sources disagree on version', async() => {
     const m1 = validManifest({version: '0.8.0'});
     const m2 = validManifest({version: '0.9.0'});
-    mockBySource({'cdn': m1, 'github-release': m2, 'ipfs': m1});
+    mockBySource({'cdn': m1, 'github-pages': m2, 'ipfs': m1});
 
     const result = await verifyManifestsAcrossSources();
     expect(result.verdict).toBe('conflict');
@@ -63,14 +63,14 @@ describe('verifyManifestsAcrossSources', () => {
 
   it('returns insufficient when only 1 source succeeds', async() => {
     const m = validManifest();
-    mockBySource({'cdn': m, 'github-release': new Error('nope'), 'ipfs': new Error('nope')});
+    mockBySource({'cdn': m, 'github-pages': new Error('nope'), 'ipfs': new Error('nope')});
 
     const result = await verifyManifestsAcrossSources();
     expect(result.verdict).toBe('insufficient');
   });
 
   it('returns offline when all sources fail', async() => {
-    mockBySource({'cdn': new Error('nope'), 'github-release': new Error('nope'), 'ipfs': new Error('nope')});
+    mockBySource({'cdn': new Error('nope'), 'github-pages': new Error('nope'), 'ipfs': new Error('nope')});
 
     const result = await verifyManifestsAcrossSources();
     expect(result.verdict).toBe('offline');
@@ -79,7 +79,7 @@ describe('verifyManifestsAcrossSources', () => {
 
   it('rejects manifests with unknown schemaVersion', async() => {
     const m = validManifest({schemaVersion: 99});
-    mockBySource({'cdn': m, 'github-release': m, 'ipfs': m});
+    mockBySource({'cdn': m, 'github-pages': m, 'ipfs': m});
 
     const result = await verifyManifestsAcrossSources();
     expect(result.verdict).toBe('offline');
@@ -89,7 +89,7 @@ describe('verifyManifestsAcrossSources', () => {
     const base = validManifest();
     mockBySource({
       'cdn': {...base, changelog: 'foo'},
-      'github-release': {...base, changelog: 'foo\n'},
+      'github-pages': {...base, changelog: 'foo\n'},
       'ipfs': {...base, changelog: 'bar'}
     });
 
