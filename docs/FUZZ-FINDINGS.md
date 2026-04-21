@@ -1,25 +1,30 @@
 # Fuzz Findings
 
 Last updated: 2026-04-20
-Open bugs: 1 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3 · Fixed in Phase 2b.2b: 3 · Fixed in Phase 2b.3: 1
+Open bugs: 0 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3 · Fixed in Phase 2b.2b: 3 · Fixed in Phase 2b.3: 2
 
 ## Open (sorted by occurrences desc)
-### FIND-57989db1 — INV-mirrors-idb-coherent
-- **Status**: open
+
+_(none)_
+
+## Fixed
+
+### Fixed in Phase 2b.3
+
+#### FIND-57989db1 — INV-mirrors-idb-coherent (VMT failure polluted mirror with tempId)
+- **Status**: fixed in Phase 2b.3
 - **Tier**: medium
 - **Occurrences**: 1
 - **First seen**: 2026-04-21 09:37:50
 - **Last seen**: 2026-04-21 09:37:50
 - **Seed**: 43
-- **Assertion**: "mirror mids not in idb on userB: 1776764255324505"
-- **Replay**: `pnpm fuzz --replay=FIND-57989db1`
-- **Minimal trace** (1 actions):
-  1. `replyToRandomBubble({"from":"userB","text":".5"})`
+- **Assertion**: `"mirror mids not in idb on userB: 1776764255324505"`
+- **Minimal trace** (1 action): `replyToRandomBubble({"from":"userB","text":".5"})`
+- **Root cause**: in `appMessagesManager.ts` the P2P send-completion handler entered its success branch when the VMT returned `emptyUpdates` — regardless of whether the VMT actually succeeded. The VMT returns `emptyUpdates` on BOTH success and failure, distinguishing them only via the `nostraMid` field being set. When `chatAPI.sendText` (or any step inside the VMT's `try` block) threw, the catch swallowed the error, returned `emptyUpdates` with NO `nostraMid`, and the Worker then dispatched `message_sent` + `history_append` using the tempId as the message mid. Because `generateTempMessageId` returns `topMessage + 1` (an INTEGER) when `topMessage >= 2^50` (FIND-cfd24d69 fix), the main-thread mirror gained an integer mid with no IDB row — the exact pattern INV-mirrors-idb-coherent detects. The mid `1776764255324505` in the failing assertion is exactly `topMessage + 1` on userB's chat at that point.
+- **Fix**: gate the P2P success-path execution on `nostraMid` being present. When the VMT signals failure (no `nostraMid`), the Worker now deletes the temp bubble from storage, dispatches `messages_deleted` so the UI removes it, and rejects the send promise. The mirror is never polluted with an orphan tempId. Scope: 1 production file, ~15 LOC. `src/lib/appManagers/appMessagesManager.ts`.
+- **Regression coverage**: primary verification is the live fuzz replay (`pnpm fuzz --replay=FIND-57989db1`). Unit-testing the Worker-side P2P completion handler in isolation would require mocking the full bridge pipeline; the defensive gate matches the shape of the `FIND-e49755c1` identity-triple invariant and is covered by the same invariant scan at fuzz runtime.
+- **Follow-up**: the underlying reason `chatAPI.sendText` threw for this specific reply is not addressed by this fix (the fix makes failures visible rather than silent). Likely candidates: relay disconnect, encryption failure on a specific content, or a race in `chatAPI.connect(peerPubkey)`. If the fuzz observes new findings post-fix with "P2P send failed" rejections, investigate the underlying send-failure source.
 - **Artifacts**: [`docs/fuzz-reports/FIND-57989db1/`](../fuzz-reports/FIND-57989db1/)
-
-## Fixed
-
-### Fixed in Phase 2b.3
 
 #### FIND-4e18d35d — INV-reaction-bilateral (reactions on own messages not propagated to peer)
 - **Status**: fixed in Phase 2b.3

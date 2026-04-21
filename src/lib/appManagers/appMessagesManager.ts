@@ -1438,7 +1438,26 @@ export class AppMessagesManager extends AppManager {
           // Use the real timestamp-based mid from the Virtual MTProto Server
           // so that the bubble sorts correctly among received messages.
           const nostraMid = (updates as any).nostraMid;
-          if(nostraMid && nostraMid !== tempId) {
+
+          // [Nostra.chat] FIND-57989db1 — VMT signals P2P send failure by
+          // returning emptyUpdates (no nostraMid). Before this gate, the
+          // Worker proceeded into the success path using the tempId (an
+          // integer >= 2^50 per generateTempMessageId), updating the mirror
+          // with a mid that has no IDB counterpart because VMT's IDB save
+          // never completed. Surface the failure explicitly: delete the
+          // temp bubble and reject the send promise so tweb's UI surfaces
+          // the failure instead of rendering a ghost bubble.
+          if(!nostraMid) {
+            storage.delete(tempId);
+            this.rootScope.dispatchEvent('history_delete', {
+              peerId,
+              msgs: new Set<number>([tempId])
+            });
+            message.promise?.reject(new Error('[Nostra.chat] P2P send failed — VMT returned no nostraMid'));
+            return;
+          }
+
+          if(nostraMid !== tempId) {
             storage.delete(tempId);
             message.id = nostraMid;
             message.mid = nostraMid;
