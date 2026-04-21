@@ -13,7 +13,7 @@
     "start-in-docker": "vite --force --host",
     "serve": "pnpm run build; node server.js",
     "preview": "pnpm run build && vite preview --port 8080",
-    "build": "pnpm run generate-changelog && vite build && pnpm run emit-manifest && pnpm run validate-manifest",
+    "build": "pnpm run generate-changelog && NODE_ENV=production vite build --mode production && pnpm run emit-manifest && pnpm run validate-manifest",
     "build:release": "pnpm run update-tor-consensus && pnpm run build",
     "emit-manifest": "tsx src/scripts/build/emit-update-manifest.ts",
     "validate-manifest": "tsx src/scripts/build/validate-update-manifest.ts dist/update-manifest.json",
