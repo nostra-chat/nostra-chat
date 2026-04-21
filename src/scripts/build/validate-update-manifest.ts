@@ -24,7 +24,23 @@ for(const k of ['schemaVersion', 'version', 'gitSha', 'published', 'swUrl', 'bun
   if(!(k in m)) die(`missing required field: ${k}`);
 }
 
-if(m.schemaVersion !== 1) die(`unexpected schemaVersion: ${m.schemaVersion}`);
+if(m.schemaVersion !== 1 && m.schemaVersion !== 2) {
+  throw new Error(`Unsupported schemaVersion ${m.schemaVersion}`);
+}
+if(m.schemaVersion === 2) {
+  if(typeof m.signingKeyFingerprint !== 'string' || !m.signingKeyFingerprint.startsWith('ed25519:')) {
+    throw new Error('schemaVersion 2 requires signingKeyFingerprint starting with "ed25519:"');
+  }
+  if(typeof m.securityRelease !== 'boolean') {
+    throw new Error('schemaVersion 2 requires boolean securityRelease');
+  }
+  if(typeof m.securityRollback !== 'boolean') {
+    throw new Error('schemaVersion 2 requires boolean securityRollback');
+  }
+  if(m.rotation !== null && typeof m.rotation !== 'object') {
+    throw new Error('rotation must be null or an object with {newPubkey, newFingerprint, crossCertSig}');
+  }
+}
 if(m.version !== PKG.version) die(`version mismatch: manifest=${m.version} package.json=${PKG.version}`);
 if(process.env.GITHUB_SHA && m.gitSha !== process.env.GITHUB_SHA) {
   die(`gitSha mismatch: manifest=${m.gitSha} GITHUB_SHA=${process.env.GITHUB_SHA}`);

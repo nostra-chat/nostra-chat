@@ -10,6 +10,7 @@ import {createHash} from 'crypto';
 import {join, relative} from 'path';
 import {execSync} from 'child_process';
 import {walkFiles, DIST_EXCLUDE_PATTERNS} from './fs-utils';
+import {TRUSTED_PUBKEY_FINGERPRINT} from '../../lib/update/signing/trusted-pubkey.generated';
 
 const DIST_DIR = 'dist';
 const PKG = JSON.parse(readFileSync('package.json', 'utf8'));
@@ -64,14 +65,18 @@ function main() {
   }
 
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     version: VERSION,
     gitSha: GIT_SHA,
     published: new Date().toISOString(),
     swUrl,
+    signingKeyFingerprint: TRUSTED_PUBKEY_FINGERPRINT,
+    securityRelease: process.env.SECURITY_RELEASE === 'true',
+    securityRollback: process.env.SECURITY_ROLLBACK === 'true',
     bundleHashes,
     changelog: extractChangelog(VERSION),
-    alternateSources: {}
+    alternateSources: {},
+    rotation: null as null | {newPubkey: string; newFingerprint: string; crossCertSig: string}
   };
 
   const outPath = join(DIST_DIR, 'update-manifest.json');

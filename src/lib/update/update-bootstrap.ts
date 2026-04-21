@@ -144,7 +144,10 @@ export async function updateBootstrap(opts: BootstrapOptions = {}): Promise<void
   // Step 1b: registration.update() byte comparison
   const waitingBefore = reg.waiting;
   try {
-    await reg.update();
+    // DO NOT call reg.update() here. Automatic SW revalidation triggers the
+    // browser to re-download sw.js, potentially serving MITM content into the
+    // waiting slot. Update checks are now explicit via probe().
+    // Previous code: await reg.update();
   } catch{
     _bootGate = BootGate.AllVerified;
     return;
@@ -240,6 +243,28 @@ export function assertBootGateOpen(): void {
 export function __resetForTest(): void {
   _bootGate = BootGate.LocalChecksOnly;
   _networkCheckInFlight = false;
+}
+
+/**
+ * Migration shim for users upgrading from pre-consent-gate versions.
+ * If shell-v* caches exist but no active-version record in IDB (fresh SW
+ * install before T8's setActiveVersion hook ran), derive active from the
+ * newest shell-v cache. Non-destructive: on any error, logs and returns.
+ */
+export async function ensureMigrated(): Promise<void> {
+  if(typeof caches === 'undefined' || typeof indexedDB === 'undefined') return;
+  try {
+    const {getActiveVersion, setActiveVersion} = await import('@lib/serviceWorker/shell-cache');
+    const active = await getActiveVersion();
+    if(active) return;
+    const keys = await caches.keys();
+    const shellCaches = keys.filter((k) => k.startsWith('shell-v') && !k.endsWith('-pending'));
+    if(shellCaches.length === 0) return;
+    const latest = shellCaches.map((k) => k.slice('shell-v'.length)).sort().pop();
+    if(latest) await setActiveVersion(latest, 'ed25519:migrated');
+  } catch(e) {
+    console.warn('[update] migration check failed', e);
+  }
 }
 
 // Retry on reconnect

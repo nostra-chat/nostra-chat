@@ -5,7 +5,6 @@
  */
 
 import {logger, LogTypes} from '@lib/logger';
-import {CACHE_ASSETS_NAME, requestCache} from '@lib/serviceWorker/cache';
 import onStreamFetch, {toggleStreamInUse} from '@lib/serviceWorker/stream';
 import {closeAllNotifications, fillPushObject, onPing, onShownNotification, resetPushAccounts} from '@lib/serviceWorker/push';
 import CacheStorageController from '@lib/files/cacheStorage';
@@ -264,27 +263,25 @@ watchCacheStoragesLifetime({
 watchMtprotoOnDev({connectedWindows, onWindowConnected});
 
 const onFetch = (event: FetchEvent): void => {
-  // Phase A: intercept navigation so the SW serves cached index.html.
-  // This prevents a compromised CDN from swapping /index.html to redirect
-  // the browser to attacker-controlled chunk URLs that bypass the trusted bundle.
-  if(
-    import.meta.env.PROD &&
-    (
-      event.request.mode === 'navigate' ||
-      /\/$|\.html?($|\?)/.test(event.request.url)
-    ) &&
-    new URL(event.request.url).origin === location.origin
-  ) {
-    return event.respondWith(requestCache(event));
-  }
-
-  if(
-    import.meta.env.PROD &&
-    !IS_SAFARI &&
-    event.request.url.indexOf(location.origin + '/') === 0 &&
-    event.request.url.match(/\.(js|css|jpe?g|json|wasm|png|mp3|svg|tgs|ico|woff2?|ttf|webmanifest?)(?:\?.*)?$/)
-  ) {
-    return event.respondWith(requestCache(event));
+  // Phase A (Task 11): CACHE-ONLY lockdown for all app-shell assets.
+  // Navigation requests and shell file extensions are served strictly from cache.
+  // Network fallback is intentionally removed — a missing asset means cache corruption.
+  // update-manifest.json and .sig are exceptions (probe must reach network).
+  if(import.meta.env.PROD) {
+    const _url = new URL(event.request.url);
+    const isSameOrigin = _url.origin === location.origin;
+    const isNavigation = event.request.mode === 'navigate';
+    const looksShell = _url.pathname === '/' || /\.(html?|js|css|wasm|json|svg|woff2?|ttf|webmanifest?|ico|png|jpe?g|mp3|tgs)(\?|$)/.test(_url.pathname);
+    if(isSameOrigin && (isNavigation || looksShell)) {
+      if(_url.pathname === '/update-manifest.json' || _url.pathname === '/update-manifest.json.sig') {
+        // let network handle manifest probe requests
+      } else {
+        return event.respondWith((async() => {
+          const {requestCacheStrict} = await import('./cache');
+          return requestCacheStrict(event);
+        })());
+      }
+    }
   }
 
   if(import.meta.env.DEV && event.request.url.match(/\.([jt]sx?|s?css)?($|\?)/)) {
@@ -364,11 +361,34 @@ ctx.addEventListener('install', (event) => {
   log('installing');
   event.waitUntil((async() => {
     try {
-      const cache = await ctx.caches.open(CACHE_ASSETS_NAME);
-      await cache.addAll(['./', './index.html']);
-      log('pre-cached navigation entry');
-    } catch(err) {
-      log.warn('failed to pre-cache index.html', err);
+      const manifestRes = await fetch('/update-manifest.json', {cache: 'no-cache'});
+      if(!manifestRes.ok) throw new Error(`manifest fetch ${manifestRes.status}`);
+      const manifest = await manifestRes.json();
+      const version = manifest.version as string;
+      const bundleHashes = manifest.bundleHashes as Record<string, string>;
+      const cacheName = `shell-v${version}`;
+      const cache = await caches.open(cacheName);
+      const paths = Object.keys(bundleHashes);
+      for(const p of paths) {
+        const res = await fetch(p, {cache: 'no-cache'});
+        if(!res.ok) throw new Error(`install fetch ${p}: HTTP ${res.status}`);
+        const ab = await res.arrayBuffer();
+        const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(ab));
+        let hex = '';
+        for(const b of new Uint8Array(digest)) hex += b.toString(16).padStart(2, '0');
+        const actual = 'sha256-' + hex;
+        if(actual !== bundleHashes[p]) {
+          await caches.delete(cacheName);
+          throw new Error(`install hash mismatch: ${p}`);
+        }
+        await cache.put(p, new Response(ab));
+      }
+      (self as any).__INSTALL_VERSION = version;
+      (self as any).__INSTALL_FINGERPRINT = manifest.signingKeyFingerprint;
+      log('pre-cached full bundle for version', version);
+    } catch(e) {
+      console.error('[sw] install failed:', e);
+      throw e;
     }
     // NO skipWaiting() — new SW stays in waiting until user consent via main-thread SKIP_WAITING message.
   })());
@@ -377,10 +397,13 @@ ctx.addEventListener('install', (event) => {
 ctx.addEventListener('activate', (event) => {
   log('activating', ctx);
   event.waitUntil((async() => {
-    // Clear old asset cache — reached either on explicit user consent (normal Phase A flow)
-    // or on the one-time silent migration from pre-Phase A SW (spec: "migration strategy").
-    await ctx.caches.delete(CACHE_ASSETS_NAME);
-    log('cleared assets cache');
+    const v = (self as any).__INSTALL_VERSION as string | undefined;
+    const fp = (self as any).__INSTALL_FINGERPRINT as string | undefined;
+    if(v && fp) {
+      const {setActiveVersion, gcOrphans} = await import('./shell-cache');
+      await setActiveVersion(v, fp);
+      await gcOrphans();
+    }
     // NO clients.claim() — reload is handled by main thread via controllerchange listener.
   })());
 });
@@ -391,6 +414,27 @@ ctx.addEventListener('message', (event) => {
   if(event.data && event.data.type === 'SKIP_WAITING') {
     log('received SKIP_WAITING message, promoting this SW to active');
     ctx.skipWaiting();
+  }
+});
+
+ctx.addEventListener('message', async(event) => {
+  if((event as any).data?.type !== 'UPDATE_APPROVED') return;
+  const port = (event as any).ports[0] as MessagePort | undefined;
+  try {
+    const {handleUpdateApproved} = await import('./signed-update-sw');
+    const {getActiveVersion} = await import('./shell-cache');
+    const {getBakedPubkey} = await import('@lib/update/signing/trusted-keys');
+    const active = await getActiveVersion();
+    const pubkey = active?.installedPubkey || getBakedPubkey();
+    const res = await handleUpdateApproved(
+      (event as any).data.manifest,
+      (event as any).data.signature,
+      pubkey,
+      (done: number, total: number) => port?.postMessage({type: 'UPDATE_PROGRESS', done, total})
+    );
+    port?.postMessage({type: 'UPDATE_RESULT', outcome: res.outcome, reason: res.reason, chunk: res.chunk});
+  } catch(e) {
+    port?.postMessage({type: 'UPDATE_RESULT', outcome: 'swap-failed', reason: String(e)});
   }
 });
 

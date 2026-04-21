@@ -203,14 +203,22 @@ export class AppSidebarLeft extends SidebarSlider {
     this.updateBtn = document.createElement('div');
     this.updateBtn.className = 'btn-circle rp btn-corner z-depth-1 btn-update is-hidden';
     this.updateBtn.tabIndex = -1;
+    this.updateBtn.setAttribute('data-update-btn', '');
     ripple(this.updateBtn);
     this.updateBtn.append(i18n('Update'));
 
-    attachClickEvent(this.updateBtn, () => {
+    attachClickEvent(this.updateBtn, async() => {
       if(this.updateBtn.classList.contains('is-hidden')) {
         return;
       }
 
+      const pending = (window as any).__nostraPendingUpdate;
+      if(pending) {
+        const {showUpdateConsentPopup} = await import('@components/popups/updateConsent/mount');
+        await showUpdateConsentPopup(pending.manifest, pending.signature);
+        return;
+      }
+      // Fallback: no pending update stashed — force a reload as before.
       appNavigationController.reload();
     });
 

@@ -37,6 +37,12 @@ jobs:
       - name: Build
         run: pnpm build:release
 
+      - name: Sign update manifest
+        if: env.UPDATE_SIGNING_KEY != ''
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: pnpm run sign-manifest
+
       - uses: actions/upload-artifact@v4
         with:
           name: dist

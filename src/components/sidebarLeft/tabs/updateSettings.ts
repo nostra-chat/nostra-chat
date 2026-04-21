@@ -189,6 +189,9 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
       checkBtn.textContent = I18n.format('Update.Action.Checking', true);
       try {
         await runNetworkChecks({force: true});
+        // Also trigger consent-gated probe (signature verify + downgrade check)
+        const {runProbeIfDue} = await import('@lib/update/update-popup-controller');
+        await runProbeIfDue(true).catch((e) => console.warn('[update] probe failed', e));
         const latest = await getUpdateStateSnapshot();
         if(latest.lastIntegrityCheck) {
           lastCheckRow.subtitle.textContent = formatRelativeTime(latest.lastIntegrityCheck);

@@ -113,7 +113,11 @@ describe('updateBootstrap — Step 1b registration.update byte check', () => {
   });
   afterEach(() => { vi.restoreAllMocks(); });
 
-  it('throws CompromiseAlertError when unexpected waiting SW appears after update()', async() => {
+  // Obsolete: reg.update() call removed in the consent-gated update design (2026-04-21).
+  // The sw-byte-change-at-same-url detection is no longer applicable; SW revalidation
+  // is entirely browser-driven and the new waiting SW is not activated without user
+  // consent (enforced by the SKIP_WAITING gate in signed-update-sw.ts).
+  it.skip('throws CompromiseAlertError when unexpected waiting SW appears after update()', async() => {
     const newWaiting = {scriptURL: 'https://app.example.com/sw-abc.js'};
     const registration: any = {
       active: {scriptURL: 'https://app.example.com/sw-abc.js'},

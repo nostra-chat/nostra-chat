@@ -302,6 +302,9 @@ export type BroadcastEvents = {
   'update_completed': string,
   'update_compromise_detected': import('@lib/update/types').CompromiseReason,
   'update_integrity_check_completed': import('@lib/update/types').IntegrityResult,
+  'update_available_signed': {manifest: any; signature: string},
+  'update_staleness_banner': {version: string},
+  'update_applied': {version: string},
 };
 
 export type BroadcastEventsListeners = {

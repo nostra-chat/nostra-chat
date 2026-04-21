@@ -417,6 +417,46 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
       }
       throw err;
     }
+
+    // Migration shim for users upgrading from pre-consent-gate versions
+    const {ensureMigrated} = await import('@lib/update/update-bootstrap');
+    await ensureMigrated();
+
+    // Throttled probe on boot (fire-and-forget, 12h cadence)
+    const {runProbeIfDue} = await import('@lib/update/update-popup-controller');
+    void runProbeIfDue().catch((e) => console.warn('[update] probe failed', e));
+
+    // Stash incoming pending updates for hamburger click
+    rootScope.addEventListener('update_available_signed', ({manifest, signature}) => {
+      (window as any).__nostraPendingUpdate = {manifest, signature};
+    });
+
+    // Staleness banner: persistent top banner after 7 consecutive declines
+    rootScope.addEventListener('update_staleness_banner', async({version}) => {
+      const {showStalenessBanner} = await import('@components/banners/stalenessBanner.mount');
+      await showStalenessBanner(version, async() => {
+        const pending = (window as any).__nostraPendingUpdate;
+        if(pending) {
+          const {showUpdateConsentPopup} = await import('@components/popups/updateConsent/mount');
+          await showUpdateConsentPopup(pending.manifest, pending.signature);
+        }
+      });
+    });
+
+    // First-install info banner — show once after fresh install
+    try {
+      const {shouldShowFirstInstall} = await import('@components/banners/firstInstallInfo');
+      if(shouldShowFirstInstall()) {
+        const {getActiveVersion} = await import('@lib/serviceWorker/shell-cache');
+        const active = await getActiveVersion();
+        if(active) {
+          const {mountFirstInstallBanner} = await import('@components/banners/firstInstallInfo.mount');
+          mountFirstInstallBanner(active.keyFingerprint, active.version);
+        }
+      }
+    } catch(e) {
+      console.warn('[update] first-install banner failed', e);
+    }
   } else if(import.meta.env.DEV) {
     // Local simulation hook: exposes window.__triggerUpdatePopup() so the update
     // popup can be exercised in `pnpm start` without a mainnet deploy.
