@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.11.2](https://github.com/nostra-chat/nostra-chat/compare/v0.11.1...v0.11.2) (2026-04-21)
+
+
+### Bug Fixes
+
+* **nostra:** P2P send failure must not pollute mirror with tempId ([#61](https://github.com/nostra-chat/nostra-chat/issues/61)) ([a7f957d](https://github.com/nostra-chat/nostra-chat/commit/a7f957ddae416a050791a49c2e451fcb8c34a448))
+* **nostra:** reactions on own messages propagate bilaterally to peer ([#59](https://github.com/nostra-chat/nostra-chat/issues/59)) ([6c7adfd](https://github.com/nostra-chat/nostra-chat/commit/6c7adfd51e0d9b03b7dddc1fb25494af29a661e1))
+* **update-popup:** render English fallbacks when I18n.strings is empty ([6286723](https://github.com/nostra-chat/nostra-chat/commit/6286723fb9769bdebf05e48401bc56285a84cc51))
+
 ## [0.11.1](https://github.com/nostra-chat/nostra-chat/compare/v0.11.0...v0.11.1) (2026-04-21)
 
 
