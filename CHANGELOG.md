@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.16.0](https://github.com/nostra-chat/nostra-chat/compare/v0.15.0...v0.16.0) (2026-04-22)
+
+
+### Features
+
+* **onboarding:** redesign Import Seed Phrase screen with 2x6 grid ([168a0d4](https://github.com/nostra-chat/nostra-chat/commit/168a0d4e3511264fe3333059a39630ac7bbee1c7))
+* **settings:** polish App Updates — signature panel, sources list, updated copy ([#73](https://github.com/nostra-chat/nostra-chat/issues/73)) ([98238cf](https://github.com/nostra-chat/nostra-chat/commit/98238cf6af48336b3d1aa4a7f9a321106ad3a6de))
+* **settings:** surface install-now + snooze controls in App Updates tab ([#71](https://github.com/nostra-chat/nostra-chat/issues/71)) ([431b59e](https://github.com/nostra-chat/nostra-chat/commit/431b59e67c597805f4c81247a633e4f5422b3cfb))
+
+
+### Bug Fixes
+
+* **onboarding:** give seed-phrase fields a visible border and filled state ([f5047ff](https://github.com/nostra-chat/nostra-chat/commit/f5047ffa069a50edcf40f3a800b58a1968c077ce))
+* **sw:** fail-fast precache install + reinstall overlay on cache miss ([fa11cc0](https://github.com/nostra-chat/nostra-chat/commit/fa11cc0d5af385775e4f94a5f3b11329bb5b461a))
+* **sw:** suppress false cache-miss overlay for browser auto-requests ([de7d25b](https://github.com/nostra-chat/nostra-chat/commit/de7d25b98c4f6be7a917a584bd5c39847fafd2dd))
+
 ## [0.15.0](https://github.com/nostra-chat/nostra-chat/compare/v0.14.1...v0.15.0) (2026-04-22)
 
 
