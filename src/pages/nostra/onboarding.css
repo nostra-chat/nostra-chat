@@ -113,20 +113,73 @@
   margin-bottom: 0.5rem;
 }
 
-/* ─── Info text ─────────────────────────────────────────────────────── */
+/* ─── Welcome hero (shared: welcome + display-name) ───────────────── */
 
-.nostra-info-text {
-  font-size: 0.85rem;
-  margin-top: 0.25rem;
+.nostra-welcome-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin: 2rem 0 1.5rem;
 }
 
-/* ─── Avatar Preview ───────────────────────────────────────────────── */
+.nostra-welcome-logo {
+  width: 88px;
+  height: 88px;
+  border-radius: 22%;
+  box-shadow: 0 4px 24px rgba(135, 116, 225, 0.25);
+  margin-bottom: 1.25rem;
+}
+
+.nostra-welcome-title {
+  font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0 0 1rem;
+  color: var(--primary-text-color);
+}
+
+.nostra-welcome-title span {
+  color: #8774e1;
+}
+
+.nostra-welcome-description {
+  font-size: 0.9rem;
+  line-height: 1.55;
+  opacity: 0.72;
+  margin: 0 0 1.75rem;
+  max-width: 28rem;
+  color: var(--primary-text-color);
+}
+
+.nostra-welcome-divider {
+  width: 3rem;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.15;
+  margin-bottom: 0.5rem;
+}
+
+@media (max-width: 480px) {
+  .nostra-welcome-title {
+    font-size: 1.5rem;
+  }
+  .nostra-welcome-description {
+    font-size: 0.85rem;
+  }
+  .nostra-welcome-logo {
+    width: 72px;
+    height: 72px;
+  }
+}
+
+/* ─── Avatar Preview (display-name step) ───────────────────────────── */
 
 .nostra-avatar-preview {
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.25rem;
 }
 
 .nostra-avatar-img {
@@ -135,10 +188,7 @@
   border-radius: 50%;
   background: var(--surface-color, #f4f4f5);
   object-fit: cover;
-}
-
-.nostra-avatar-label {
-  margin-top: 0.5rem;
-  font-size: 0.8rem;
-  color: var(--secondary-text-color);
+  box-shadow:
+    0 0 0 3px rgba(135, 116, 225, 0.18),
+    0 6px 20px rgba(135, 116, 225, 0.18);
 }

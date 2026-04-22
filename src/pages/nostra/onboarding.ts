@@ -85,17 +85,31 @@ export class NostraOnboarding {
     this.currentStep = 'welcome';
     this.container.innerHTML = '';
 
-    const h4 = document.createElement('h4');
-    h4.classList.add('text-center');
-    h4.textContent = 'Welcome to Nostra.chat';
+    const hero = document.createElement('div');
+    hero.classList.add('nostra-welcome-hero');
 
-    const subtitle = document.createElement('div');
-    subtitle.classList.add('subtitle', 'text-center');
-    subtitle.textContent = 'Private messaging powered by Nostr';
+    const logo = document.createElement('img');
+    logo.classList.add('nostra-welcome-logo');
+    logo.src = 'assets/img/logo_filled_rounded.png?v=jw3mK7G9Ry';
+    logo.alt = '';
+    logo.width = 88;
+    logo.height = 88;
 
-    const info = document.createElement('div');
-    info.classList.add('subtitle', 'text-center', 'nostra-info-text');
-    info.textContent = 'Your identity is generated locally. No phone number or email required.';
+    const title = document.createElement('h1');
+    title.classList.add('nostra-welcome-title');
+    const accent = document.createElement('span');
+    accent.textContent = '.chat';
+    title.append(document.createTextNode('Welcome to Nostra'), accent);
+
+    const description = document.createElement('p');
+    description.classList.add('nostra-welcome-description');
+    description.textContent = 'Private messaging over Nostr. Your keys, your data. No phone number or email required.';
+
+    const divider = document.createElement('div');
+    divider.classList.add('nostra-welcome-divider');
+    divider.setAttribute('aria-hidden', 'true');
+
+    hero.append(logo, title, description, divider);
 
     const inputWrapper = document.createElement('div');
     inputWrapper.classList.add('input-wrapper');
@@ -109,7 +123,7 @@ export class NostraOnboarding {
     btnImport.addEventListener('click', () => this.showImport());
 
     inputWrapper.append(btnCreate, btnImport);
-    this.container.append(h4, subtitle, info, inputWrapper);
+    this.container.append(hero, inputWrapper);
   }
 
   // ─── Step 2a: Create ────────────────────────────────────────────────
@@ -288,15 +302,9 @@ export class NostraOnboarding {
     this.currentStep = 'display-name';
     this.container.innerHTML = '';
 
-    const h4 = document.createElement('h4');
-    h4.classList.add('text-center');
-    h4.textContent = 'Choose a Display Name';
+    const hero = document.createElement('div');
+    hero.classList.add('nostra-welcome-hero');
 
-    const subtitle = document.createElement('div');
-    subtitle.classList.add('subtitle', 'text-center');
-    subtitle.textContent = 'This is how others will see you';
-
-    // Avatar preview from npub
     const avatarPreview = document.createElement('div');
     avatarPreview.classList.add('nostra-avatar-preview');
 
@@ -311,10 +319,15 @@ export class NostraOnboarding {
       });
     }
 
-    const avatarLabel = document.createElement('div');
-    avatarLabel.classList.add('nostra-avatar-label');
-    avatarLabel.textContent = 'Your unique avatar';
-    avatarPreview.append(avatarLabel);
+    const title = document.createElement('h1');
+    title.classList.add('nostra-welcome-title');
+    title.textContent = 'You\'re all set';
+
+    const description = document.createElement('p');
+    description.classList.add('nostra-welcome-description');
+    description.textContent = 'Pick how others will see you';
+
+    hero.append(avatarPreview, title, description);
 
     const nameField = new InputField({
       label: 'Display Name' as any,
@@ -340,7 +353,7 @@ export class NostraOnboarding {
     });
 
     inputWrapper.append(nameField.container, btnFinish, btnSkip);
-    this.container.append(h4, subtitle, avatarPreview, inputWrapper);
+    this.container.append(hero, inputWrapper);
     setTimeout(() => nameField.input.focus(), 100);
   }
 
