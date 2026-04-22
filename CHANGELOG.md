@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.15.0](https://github.com/nostra-chat/nostra-chat/compare/v0.14.1...v0.15.0) (2026-04-22)
+
+
+### Features
+
+* **onboarding:** polish welcome + display-name to match splash ([bdc9106](https://github.com/nostra-chat/nostra-chat/commit/bdc910660e0d606600a02fe8a78d0580defe9611))
+* **popup:** redesign first-install info — English + polished ([7a6685f](https://github.com/nostra-chat/nostra-chat/commit/7a6685f6af10adda5b17fca480d36c5821cc06d5))
+
+
+### Bug Fixes
+
+* **sw:** normalize manifest path before emoji-skip regex ([3e8c3ee](https://github.com/nostra-chat/nostra-chat/commit/3e8c3eef867678661dce68c8ee9f0f0c9358aa35))
+
 ## [0.14.1](https://github.com/nostra-chat/nostra-chat/compare/v0.14.0...v0.14.1) (2026-04-22)
 
 
