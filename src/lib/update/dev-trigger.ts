@@ -26,15 +26,17 @@ export async function install(): Promise<void> {
   (window as any).__triggerUpdatePopup = async(opts: TriggerOptions = {}) => {
     const version = opts.version ?? '99.0.0';
     const swUrl = opts.swUrl ?? '/sw.js';
-    const manifest: Manifest = {
+    const manifest = {
       schemaVersion: 1,
       version,
-      gitSha: 'devdev0',
+      gitSha: 'devdev0deadbeef',
       published: new Date().toISOString(),
       swUrl,
       bundleHashes: {},
-      changelog: opts.changelog ?? '## What\'s new\n- Dev trigger\n- Second item'
-    };
+      changelog: opts.changelog ?? '## What\'s new\n- Dev trigger\n- Second item',
+      signingKeyFingerprint: 'ed25519:dev-stub',
+      rotation: null
+    } as Manifest;
     const signature = 'DEV_STUB_SIGNATURE';
     const manifestText = JSON.stringify(manifest);
 

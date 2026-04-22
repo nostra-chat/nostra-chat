@@ -6,8 +6,8 @@ export interface UpdateConsentProps {
     version: string;
     gitSha: string;
     published: string;
-    signingKeyFingerprint: string;
-    rotation: null | {newFingerprint: string};
+    signingKeyFingerprint?: string;
+    rotation?: null | {newFingerprint: string};
     changelog?: string;
   };
   installedFingerprint: string;
@@ -38,8 +38,10 @@ export function UpdateConsent(props: UpdateConsentProps) {
   const [progress] = createSignal<{done: number; total: number} | null>(null);
   const [error, setError] = createSignal<string>('');
 
-  const keyMatches = () => props.newManifest.signingKeyFingerprint === props.installedFingerprint;
-  const isRotation = () => props.newManifest.rotation !== null;
+  const keyMatches = () =>
+    !!props.newManifest.signingKeyFingerprint &&
+    props.newManifest.signingKeyFingerprint === props.installedFingerprint;
+  const isRotation = () => props.newManifest.rotation != null;
 
   async function accept() {
     setBusy(true);
