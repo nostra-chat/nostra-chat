@@ -155,3 +155,16 @@ pnpm build
      pnpm run sign-manifest
        → dist/update-manifest.json.sig
 ```
+
+## Maintainer invariants (don't break these)
+
+Discovered the hard way during smoke testing of v0.12.0. Each invariant exists for a reason; check the listed file before changing.
+
+- **`cache.addAll(paths)` for SW install precache** (`src/lib/serviceWorker/index.service.ts`). 4000+ files cannot be fetched serially within the browser's 30s install budget. NEVER refactor to a `for...of fetch+verify` loop.
+- **Sig verify uses raw `manifestText` bytes, not `JSON.stringify(parsed)`** (`src/lib/serviceWorker/signed-update-sw.ts`). postMessage / structured-clone reorders object keys → re-serialized JSON has different bytes than what the server emitted → signature fails. The probe returns `manifestText` and threads it through dispatch → popup → `acceptUpdate` → SW handler.
+- **`setActiveVersion` runs in `install`, not `activate`** (`src/lib/serviceWorker/index.service.ts`). Some browser configurations recycle the worker scope between events, dropping `self.__INSTALL_*` globals. Persist directly to IDB during install.
+- **Update-flow SW deps are STATIC imports** (`signed-update-sw`, `shell-cache`, `trusted-keys`). Vite chunk splits make `await import('./foo')` inside SW unreliable — chunk fails to load → `swap-failed` with no useful error.
+- **`requestCacheStrict` uses `{ignoreSearch: true}`** (`src/lib/serviceWorker/cache.ts`). Vite asset URLs carry cache-buster querystrings (e.g. `site.webmanifest?v=jw3mK7G9Aq`) that don't appear in the cached URL.
+- **URL-reserved chars in manifest paths are encoded before fetch** (`signed-update-sw.ts`: `path.replace(/#/g, '%23').replace(/\?/g, '%3F')`). Build excludes `/changelogs/*.md` for the same reason — release notes are embedded in `manifest.changelog` instead.
+- **`update_available_signed` listener registers as a module-load side-effect** in `src/lib/update/update-popup-controller.ts`, NOT in `src/index.ts`. This guarantees the listener is alive before `runProbeIfDue()` (called on the same import cycle) dispatches the event. A duplicate listener in `src/index.ts` would overwrite the stash without `manifestText`.
+- **`@noble/ed25519` v3 API** — `ed.hashes.sha512 = sha512` (NOT `ed.etc.sha512Sync = ...`), `ed.utils.randomSecretKey()` (NOT `randomPrivateKey`), import sha512 from `@noble/hashes/sha2.js` (NOT `/sha512`). Every file using `ed.signAsync`/`ed.verifyAsync` must set `ed.hashes.sha512 = sha512` at module top.
