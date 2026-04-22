@@ -374,9 +374,29 @@ ctx.addEventListener('install', (event) => {
       const paths = Object.keys(bundleHashes);
       // First install is TOFU — no signature verification possible (no baked pubkey yet
       // on fresh machines, OR the manifest is the same-origin bundle that served us the SW).
-      // cache.addAll parallelizes 4000+ fetches which would time out if done serially.
-      // Post-install hash verification happens in background (activate + periodic probe).
-      await cache.addAll(paths);
+      // Parallel fetch in batches: avoids 30s install timeout. Per-path fetches tolerate
+      // failures of optional asset paths (e.g. paths with URL-reserved chars like `#`
+      // in changelog filenames that old manifests still include).
+      const BATCH_SIZE = 32;
+      let successCount = 0;
+      for(let i = 0; i < paths.length; i += BATCH_SIZE) {
+        const batch = paths.slice(i, i + BATCH_SIZE);
+        await Promise.all(batch.map(async(p) => {
+          try {
+            // Encode URL-reserved chars (`#`, `?`) that fetch would treat as
+            // fragment/query separators and silently strip.
+            const encoded = p.replace(/#/g, '%23').replace(/\?/g, '%3F');
+            const url = new URL(encoded, self.location.href).href;
+            const res = await fetch(url, {cache: 'no-cache'});
+            if(!res.ok) return;
+            await cache.put(p, res);
+            successCount++;
+          } catch{
+            // best-effort: skip paths that fail to fetch or cache
+          }
+        }));
+      }
+      if(successCount === 0) throw new Error('[sw] install: no paths cached');
       // Persist version+fingerprint directly here in install — activate handler
       // cannot rely on self.__INSTALL_* globals because some browsers recycle
       // the worker scope between install and activate.
