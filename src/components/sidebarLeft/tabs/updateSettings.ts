@@ -440,62 +440,52 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
     renderDiagnostics(snap);
 
     // ── Advanced (recovery) ─────────────────────────────────────────────
+    // One recovery action: full reinstall. Combines everything the two
+    // previous Rows (Reset baseline + dev Force reload) did separately —
+    // unregister Service Worker, wipe CacheStorage, reset the trusted
+    // baseline, reload — and explains it in user terms. A soft baseline
+    // reset without re-download is a footgun (it asks the user to trust
+    // code that may be the very thing the compromise banner is warning
+    // about), so it's not offered as a separate shortcut anymore.
     const advancedSection = new SettingSection({
       name: 'Update.Section.Advanced',
       caption: 'Update.Advanced.Caption'
     });
-    const resetRow = new Row({
-      titleLangKey: 'Update.Action.ResetBaseline',
-      subtitleLangKey: 'Update.Row.ResetBaseline.Subtitle',
+    const reinstallRow = new Row({
+      titleLangKey: 'Update.Action.Reinstall',
+      subtitleLangKey: 'Update.Row.Reinstall.Subtitle',
       icon: 'replace',
       clickable: async() => {
         try {
           await confirmationPopup({
-            titleLangKey: 'Update.Action.ResetBaseline',
-            descriptionLangKey: 'Update.Reset.Description',
+            titleLangKey: 'Update.Reinstall.ConfirmTitle',
+            descriptionLangKey: 'Update.Reinstall.ConfirmDescription',
             button: {
-              text: document.createTextNode(I18n.format('Update.Action.ResetAndReload', true)),
+              text: document.createTextNode(I18n.format('Update.Action.ReinstallConfirm', true)),
               isDanger: true
             }
           });
         } catch{
           return;
         }
+        try {
+          if('serviceWorker' in navigator) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map((r) => r.unregister()));
+          }
+          if('caches' in window) {
+            const names = await caches.keys();
+            await Promise.all(names.map((n) => caches.delete(n)));
+          }
+        } catch(err) {
+          console.warn('[reinstall] cleanup failed', err);
+        }
         resetBaseline();
         window.location.reload();
       },
       listenerSetter: this.listenerSetter
     });
-    advancedSection.content.append(resetRow.container);
-
-    // Dev-only shortcut that unregisters the Service Worker and wipes
-    // CacheStorage, then reloads. Same blast radius as DevTools "Clear
-    // site data" MINUS localStorage/IndexedDB — the Nostra identity and
-    // account data stay put. Gated at build time so the branch is
-    // dead-code-eliminated from the prod bundle.
-    if(!import.meta.env.PROD) {
-      const devResetRow = new Row({
-        titleLangKey: 'Update.Action.DevForceReload',
-        subtitleLangKey: 'Update.Row.DevForceReload.Subtitle',
-        clickable: async() => {
-          try {
-            if('serviceWorker' in navigator) {
-              const regs = await navigator.serviceWorker.getRegistrations();
-              await Promise.all(regs.map((r) => r.unregister()));
-            }
-            if('caches' in window) {
-              const names = await caches.keys();
-              await Promise.all(names.map((n) => caches.delete(n)));
-            }
-          } catch(err) {
-            console.warn('[dev force reload] cleanup failed', err);
-          }
-          window.location.reload();
-        },
-        listenerSetter: this.listenerSetter
-      });
-      advancedSection.content.append(devResetRow.container);
-    }
+    advancedSection.content.append(reinstallRow.container);
 
     // ── About this protection ───────────────────────────────────────────
     const helpSection = new SettingSection({name: 'Update.Section.About'});
