@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.13.0](https://github.com/nostra-chat/nostra-chat/compare/v0.12.1...v0.13.0) (2026-04-22)
+
+
+### Features
+
+* **dialogs:** per-conversation read cursor via VMT ([5ea149f](https://github.com/nostra-chat/nostra-chat/commit/5ea149f46a6f32f5efa82c6b5d88793a3582c392))
+
+
+### Bug Fixes
+
+* **dialogs:** break reloadConversation recursion on empty transport response ([c90f26c](https://github.com/nostra-chat/nostra-chat/commit/c90f26c5b186602c80536c10ee1f9933fa2e1be5))
+* **folders:** populate People and Groups system folders ([c3da0bc](https://github.com/nostra-chat/nostra-chat/commit/c3da0bcc2e4dce5527339d0d7d2658ef77287a00))
+* **update:** auto-show consent popup on boot + repair dev-trigger ([a5a24a0](https://github.com/nostra-chat/nostra-chat/commit/a5a24a06d50cef69879cb940b383e7b1c331e3ef))
+* **update:** first-install info banner → modal popup ([c769767](https://github.com/nostra-chat/nostra-chat/commit/c76976726072a7b9b6df02ddb4f98d2dfb08ae87))
+* **update:** guard UpdateConsent against missing rotation field + E2E ([3a918da](https://github.com/nostra-chat/nostra-chat/commit/3a918da2dcd589a9cf1ace9bbdcd25b88424d585))
+
 ## [0.12.1](https://github.com/nostra-chat/nostra-chat/compare/v0.12.0...v0.12.1) (2026-04-22)
 
 
