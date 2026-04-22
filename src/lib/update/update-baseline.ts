@@ -30,6 +30,8 @@ export interface IntegritySourceDetail {
   name: string;
   status: string;
   version?: string;
+  gitSha?: string;
+  swUrl?: string;
   error?: string;
 }
 
