@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.14.1](https://github.com/nostra-chat/nostra-chat/compare/v0.14.0...v0.14.1) (2026-04-22)
+
+
+### Bug Fixes
+
+* **boot:** reveal splash via explicit hook, drop faulty DOM observer ([d28eff0](https://github.com/nostra-chat/nostra-chat/commit/d28eff0830395f872ee65b916dea59f5acaf2a30))
+
+
+### Performance
+
+* **sw:** skip emoji PNGs from install precache ([6fe4bd6](https://github.com/nostra-chat/nostra-chat/commit/6fe4bd6845281fb3acce853bd5ed9e0047fde1cd))
+
 ## [0.14.0](https://github.com/nostra-chat/nostra-chat/compare/v0.13.0...v0.14.0) (2026-04-22)
 
 
