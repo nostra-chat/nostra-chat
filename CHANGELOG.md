@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.17.0](https://github.com/nostra-chat/nostra-chat/compare/v0.16.0...v0.17.0) (2026-04-22)
+
+
+### Features
+
+* **dev:** skip Service Worker in dev + Force reload (dev) button in App Updates ([#78](https://github.com/nostra-chat/nostra-chat/issues/78)) ([542437b](https://github.com/nostra-chat/nostra-chat/commit/542437b469add34aab4b54abff64702dbf185e19))
+
+
+### Bug Fixes
+
+* **settings:** show per-source gitSha and auto-expand Diagnostics on bad verdict ([#77](https://github.com/nostra-chat/nostra-chat/issues/77)) ([ab62802](https://github.com/nostra-chat/nostra-chat/commit/ab62802cde811e5f045a1b3174cf9808b27cdb18))
+* **sw:** exclude Cloudflare Pages _headers/_redirects from bundle manifest ([#79](https://github.com/nostra-chat/nostra-chat/issues/79)) ([356e7b0](https://github.com/nostra-chat/nostra-chat/commit/356e7b06ed937d2306d3645f8cae575151fdbd5f))
+* **update:** accept schemaVersion 2 + split offline/error verdicts + simplify App Updates tab ([#75](https://github.com/nostra-chat/nostra-chat/issues/75)) ([0615c1d](https://github.com/nostra-chat/nostra-chat/commit/0615c1d847760ae72e9c56e1f6817f809147372a))
+
 ## [0.16.0](https://github.com/nostra-chat/nostra-chat/compare/v0.15.0...v0.16.0) (2026-04-22)
 
 
