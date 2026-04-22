@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.14.0](https://github.com/nostra-chat/nostra-chat/compare/v0.13.0...v0.14.0) (2026-04-22)
+
+
+### Features
+
+* **boot:** polish splash with logo + product description ([f34df2e](https://github.com/nostra-chat/nostra-chat/commit/f34df2ed99b364151348d2c37263d4a63e313aee))
+
+
+### Bug Fixes
+
+* **boot:** static splash during SW install first-run ([6afe81f](https://github.com/nostra-chat/nostra-chat/commit/6afe81f06b4c2395a762d7830de46ea143eb2d32))
+* **dialogs:** use local count for People/Groups system folders ([a3033e2](https://github.com/nostra-chat/nostra-chat/commit/a3033e24d9f6fde3e418bad9c6b16349ba4f059c))
+* **groups:** seed synthetic chatCreate service row to satisfy tweb top_message ([bf761be](https://github.com/nostra-chat/nostra-chat/commit/bf761be3875993af3e2cada89f6cf17cb205cd61))
+
 ## [0.13.0](https://github.com/nostra-chat/nostra-chat/compare/v0.12.1...v0.13.0) (2026-04-22)
 
 
