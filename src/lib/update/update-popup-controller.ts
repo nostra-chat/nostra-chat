@@ -81,6 +81,3 @@ export async function acceptUpdate(manifest: any, signature: string, manifestTex
 export function declineUpdate(version: string): number {
   return recordDecline(version);
 }
-
-// Backward-compat alias for the legacy updateAvailable popup (pre-consent-gated design).
-export const skipVersion = declineUpdate;

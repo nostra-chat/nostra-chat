@@ -171,28 +171,11 @@ describe('updateBootstrap — Step 2 manifest cross-source verification', () => 
     expect(Number(localStorage.getItem('nostra.update.lastIntegrityCheck'))).toBe(12345);
   });
 
-  it('dispatches update_available when verdict verified and newer version', async() => {
-    mockSWRegistration({activeScriptURL: 'https://app.example.com/sw-abc.js'});
-    const mv = await import('@lib/update/manifest-verifier');
-    vi.spyOn(mv, 'verifyManifestsAcrossSources').mockResolvedValue({
-      verdict: 'verified',
-      manifest: {
-        schemaVersion: 1, version: '99.0.0', gitSha: 'xxx', published: 'x',
-        swUrl: './sw-new.js', bundleHashes: {'./sw-new.js': 'sha256-x'},
-        changelog: 'note'
-      },
-      sources: [],
-      checkedAt: Date.now()
-    });
-
-    const rs = (await import('@lib/rootScope')).default;
-    const spy = vi.spyOn(rs, 'dispatchEventSingle');
-    await updateBootstrap();
-
-    const call = spy.mock.calls.find(c => c[0] === 'update_available');
-    expect(call).toBeDefined();
-    expect((call![1] as any).version).toBe('99.0.0');
-  });
+  // Legacy test removed: `update_available` was the pre-Phase-A event, dispatched
+  // on any verified newer version with no consent gate. Phase A moved update
+  // notification to `update-popup-controller.runProbeIfDue()` which performs
+  // signature verification + downgrade check and dispatches `update_available_signed`.
+  // Coverage for that path lives in tests for the controller / probe, not bootstrap.
 });
 
 describe('updateBootstrap — Phase 6 post-reload finalization', () => {
