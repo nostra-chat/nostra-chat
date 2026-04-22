@@ -4550,8 +4550,25 @@ export class AppMessagesManager extends AppManager {
         fullfillLeft();
 
         this.reloadConversationsPromise = null;
+        // Defense against self-inflicted DoS: recurse only if the peers queued
+        // here are DIFFERENT from the ones we just failed to resolve. Without
+        // this guard, a transport that consistently returns an empty
+        // peerDialogs response (Nostra mode: messages.getPeerDialogs is a
+        // NOSTRA_STATIC empty stub) keeps the original peers queued (forEach
+        // at line above is a no-op) and the tail call recurses at ~50Hz,
+        // burning CPU and filling RAM with log entries.
         if(this.reloadConversationsPeers.size) {
-          this.reloadConversation();
+          const snapshotPeerIds = reloadConversationsPeers;
+          let hasNewPeer = false;
+          for(const peerId of this.reloadConversationsPeers.keys()) {
+            if(!snapshotPeerIds.has(peerId)) { hasNewPeer = true; break; }
+          }
+          if(hasNewPeer) {
+            this.reloadConversation();
+          } else {
+            log.warn('transport could not resolve', this.reloadConversationsPeers.size, 'peers — dropping to avoid recursion');
+            this.reloadConversationsPeers.clear();
+          }
         }
       });
     });
