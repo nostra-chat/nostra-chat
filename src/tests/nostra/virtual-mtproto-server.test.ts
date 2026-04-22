@@ -43,7 +43,10 @@ const mockStore = vi.hoisted(() => ({
   getMessages: vi.fn(),
   getConversationId: vi.fn((a: string, b: string) => [a, b].sort().join(':')),
   saveMessage: vi.fn(),
-  deleteByMid: vi.fn()
+  deleteByMid: vi.fn(),
+  getReadCursor: vi.fn(),
+  setReadCursor: vi.fn(),
+  countUnread: vi.fn()
 }));
 
 const mockGetPubkey = vi.hoisted(() => vi.fn());
@@ -158,6 +161,9 @@ describe('NostraMTProtoServer', () => {
 
     mockStore.getAllConversationIds.mockResolvedValue([CONVERSATION_ID]);
     mockStore.getMessages.mockResolvedValue([mockMessage]);
+    mockStore.getReadCursor.mockResolvedValue(0);
+    mockStore.countUnread.mockResolvedValue(0);
+    mockStore.setReadCursor.mockResolvedValue(undefined);
 
     mockGetPubkey.mockResolvedValue(PEER_PUBKEY);
   });
@@ -208,6 +214,23 @@ describe('NostraMTProtoServer', () => {
       expect(result.messages).toEqual([]);
       expect(result.users).toEqual([]);
       expect(result.count).toBe(0);
+    });
+
+    it('propagates unread_count from store.countUnread', async () => {
+      mockStore.countUnread.mockResolvedValueOnce(3);
+      const result = await server.handleMethod('messages.getDialogs', {});
+
+      expect(mockStore.countUnread).toHaveBeenCalledWith(CONVERSATION_ID, OWN_PUBKEY);
+      expect(result.dialogs[0].unread_count).toBe(3);
+    });
+
+    it('propagates the read cursor into read_inbox/outbox_max_id', async () => {
+      mockStore.getReadCursor.mockResolvedValueOnce(7);
+      const result = await server.handleMethod('messages.getDialogs', {});
+
+      expect(mockStore.getReadCursor).toHaveBeenCalledWith(CONVERSATION_ID);
+      expect(result.dialogs[0].read_inbox_max_id).toBe(7);
+      expect(result.dialogs[0].read_outbox_max_id).toBe(7);
     });
   });
 
@@ -487,6 +510,50 @@ describe('NostraMTProtoServer', () => {
       expect(result._).toBe('messages.affectedMessages');
       expect(result.pts).toBe(1);
       expect(result.pts_count).toBe(0);
+    });
+
+    it('advances the read cursor via setReadCursor', async () => {
+      await server.handleMethod('messages.readHistory', {
+        peer: {user_id: PEER_ID},
+        max_id: 42
+      });
+
+      expect(mockStore.setReadCursor).toHaveBeenCalledWith(CONVERSATION_ID, 42);
+    });
+
+    it('is a no-op when max_id is 0', async () => {
+      await server.handleMethod('messages.readHistory', {
+        peer: {user_id: PEER_ID},
+        max_id: 0
+      });
+
+      expect(mockStore.setReadCursor).not.toHaveBeenCalled();
+    });
+
+    it('is a no-op when peer cannot be resolved', async () => {
+      mockGetPubkey.mockResolvedValueOnce(null);
+      await server.handleMethod('messages.readHistory', {
+        peer: {user_id: 999999},
+        max_id: 42
+      });
+
+      expect(mockStore.setReadCursor).not.toHaveBeenCalled();
+    });
+
+    it('round-trip: getDialogs reports unread=3, then readHistory clears, getDialogs reports 1', async () => {
+      mockStore.countUnread.mockResolvedValueOnce(3);
+      const before = await server.handleMethod('messages.getDialogs', {});
+      expect(before.dialogs[0].unread_count).toBe(3);
+
+      await server.handleMethod('messages.readHistory', {
+        peer: {user_id: PEER_ID},
+        max_id: MID - 1
+      });
+      expect(mockStore.setReadCursor).toHaveBeenCalledWith(CONVERSATION_ID, MID - 1);
+
+      mockStore.countUnread.mockResolvedValueOnce(1);
+      const after = await server.handleMethod('messages.getDialogs', {});
+      expect(after.dialogs[0].unread_count).toBe(1);
     });
   });
 

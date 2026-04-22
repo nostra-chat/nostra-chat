@@ -395,11 +395,18 @@ export class NostraMTProtoServer {
             isOutgoing
           });
 
+          const readCursor = await store.getReadCursor(convId);
+          const unreadCount = this.ownPubkey ?
+            await store.countUnread(convId, this.ownPubkey) :
+            0;
+
           const dialog = this.mapper.createTwebDialog({
             peerId,
             topMessage: mid,
             topMessageDate: latest.timestamp,
-            unreadCount: 0
+            unreadCount,
+            readInboxMaxId: readCursor,
+            readOutboxMaxId: readCursor
           });
 
           dialogs.push(dialog);
@@ -1251,7 +1258,24 @@ export class NostraMTProtoServer {
     };
   }
 
-  private readHistory(_params: any): any {
+  private async readHistory(params: any): Promise<any> {
+    const peerId = extractPeerId(params?.peer);
+    const maxId = Number(params?.max_id ?? 0);
+
+    if(peerId !== null && maxId > 0 && this.ownPubkey) {
+      try {
+        const absPeerId = Math.abs(peerId);
+        const pubkey = await getPubkey(absPeerId);
+        if(pubkey) {
+          const store = getMessageStore();
+          const convId = store.getConversationId(this.ownPubkey, pubkey);
+          await store.setReadCursor(convId, maxId);
+        }
+      } catch(err) {
+        console.warn(LOG_PREFIX, 'readHistory: failed to advance cursor', err);
+      }
+    }
+
     return {
       _: 'messages.affectedMessages',
       pts: 1,

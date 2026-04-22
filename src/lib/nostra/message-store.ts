@@ -83,8 +83,9 @@ export type PartialStoredMessage = Omit<StoredMessage, 'mid' | 'twebPeerId'> & {
 // ─── Constants ─────────────────────────────────────────────────────
 
 const DB_NAME = 'nostra-messages';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'messages';
+const CURSOR_STORE = 'read-cursors';
 const DEFAULT_LIMIT = 50;
 
 // ─── Singleton ─────────────────────────────────────────────────────
@@ -137,6 +138,9 @@ export class MessageStore {
           store.createIndex('conversationId', 'conversationId', {unique: false});
           store.createIndex('timestamp', 'timestamp', {unique: false});
           store.createIndex('eventId', 'eventId', {unique: true});
+        }
+        if(!db.objectStoreNames.contains(CURSOR_STORE)) {
+          db.createObjectStore(CURSOR_STORE, {keyPath: 'conversationId'});
         }
       };
     });
@@ -433,6 +437,72 @@ export class MessageStore {
         }
       };
     });
+  }
+
+  /**
+   * Read the stored read-cursor for a conversation.
+   * Returns 0 when no cursor has ever been written.
+   */
+  async getReadCursor(conversationId: string): Promise<number> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(CURSOR_STORE, 'readonly');
+      const store = tx.objectStore(CURSOR_STORE);
+      const req = store.get(conversationId);
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const row = req.result as {conversationId: string; lastReadMid: number} | undefined;
+        resolve(row?.lastReadMid ?? 0);
+      };
+    });
+  }
+
+  /**
+   * Upsert the read-cursor for a conversation.
+   * Monotonic: a write with `mid` below the stored value is a silent no-op so
+   * late-arriving `readHistory` calls from out-of-order bubble scrollers can't
+   * walk the cursor backwards.
+   */
+  async setReadCursor(conversationId: string, mid: number): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(CURSOR_STORE, 'readwrite');
+      const store = tx.objectStore(CURSOR_STORE);
+      const getReq = store.get(conversationId);
+      getReq.onerror = () => reject(getReq.error);
+      getReq.onsuccess = () => {
+        const existing = getReq.result as {conversationId: string; lastReadMid: number} | undefined;
+        if(existing && existing.lastReadMid >= mid) {
+          resolve();
+          return;
+        }
+        const putReq = store.put({conversationId, lastReadMid: mid});
+        putReq.onerror = () => reject(putReq.error);
+        putReq.onsuccess = () => resolve();
+      };
+    });
+  }
+
+  /**
+   * Count unread incoming messages in a conversation.
+   *
+   * Unread = `mid > cursor` AND message is incoming (not authored by `ownPubkey`)
+   * AND not a synthetic `contact-init-` seed row. Uses the existing
+   * `conversationId` index via `getMessages` for simplicity; caller must not
+   * pass conversations with more messages than the soft limit below.
+   */
+  async countUnread(conversationId: string, ownPubkey: string): Promise<number> {
+    const cursor = await this.getReadCursor(conversationId);
+    const msgs = await this.getMessages(conversationId, 10000);
+    let n = 0;
+    for(const m of msgs) {
+      if(m.eventId.startsWith('contact-init-')) continue;
+      if(m.mid == null || m.mid <= cursor) continue;
+      const isOutgoing = m.isOutgoing ?? (m.senderPubkey === ownPubkey);
+      if(isOutgoing) continue;
+      n++;
+    }
+    return n;
   }
 
   async destroy(): Promise<void> {

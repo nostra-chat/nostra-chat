@@ -39,6 +39,8 @@ export interface CreateDialogOpts {
   topMessageDate: number;
   unreadCount?: number;
   isGroup?: boolean;
+  readInboxMaxId?: number;
+  readOutboxMaxId?: number;
 }
 
 export class NostraPeerMapper {
@@ -157,8 +159,8 @@ export class NostraPeerMapper {
       peer,
       peerId,
       top_message: opts.topMessage,
-      read_inbox_max_id: 0,
-      read_outbox_max_id: 0,
+      read_inbox_max_id: opts.readInboxMaxId ?? 0,
+      read_outbox_max_id: opts.readOutboxMaxId ?? 0,
       unread_count: opts.unreadCount ?? 0,
       unread_mentions_count: 0,
       unread_reactions_count: 0,
