@@ -115,12 +115,35 @@ function buildIntegrityDetailsBlock(details: IntegritySourceDetail[]): HTMLDivEl
   const block = document.createElement('div');
   block.className = 'update-integrity-details';
   block.style.cssText = 'display:flex;flex-direction:column;gap:0.375rem;padding:0.25rem 1.5rem 0.75rem 4.5rem;font-size:0.875rem';
+
+  // Flag fields that disagree across the `ok` sources. The cross-source
+  // verdict keys on {version, gitSha, swUrl} — on localhost all three rows
+  // can look green with the same version yet the overall verdict is
+  // `conflict` because gitSha/swUrl differ (your dev build vs prod).
+  // Showing the disagreeing fields inline is what makes the conflict legible.
+  const okSources = details.filter((s) => s.status === 'ok');
+  const disagrees = (pick: (s: IntegritySourceDetail) => string | undefined): boolean => {
+    if(okSources.length < 2) return false;
+    const seen = new Set<string>();
+    for(const s of okSources) { const v = pick(s); if(v) seen.add(v); }
+    return seen.size > 1;
+  };
+  const versionConflict = disagrees((s) => s.version);
+  const shaConflict = disagrees((s) => s.gitSha);
+  const swConflict = disagrees((s) => s.swUrl);
+  const shortSha = (sha?: string) => sha ? sha.slice(0, 8) : '';
+
   for(const s of details) {
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap';
     const icon = s.status === 'ok' ? '✅' : s.status === 'error' ? '❌' : '⚠️';
     const label = document.createElement('span');
-    label.textContent = `${icon} ${s.name}: ${s.status}${s.version ? ' v' + s.version : ''}${s.error ? ' — ' + s.error : ''}`;
+    const parts: string[] = [`${icon} ${s.name}: ${s.status}`];
+    if(s.version) parts.push(`${versionConflict ? '⚠ ' : ''}v${s.version}`);
+    if(s.gitSha) parts.push(`${shaConflict ? '⚠ ' : ''}@${shortSha(s.gitSha)}`);
+    if(s.swUrl && swConflict) parts.push(`sw=${s.swUrl}`);
+    if(s.error) parts.push(`— ${s.error}`);
+    label.textContent = parts.join(' ');
     label.style.cssText = 'flex:1;min-width:0;word-break:break-word;color:var(--secondary-text-color)';
     row.appendChild(label);
     const url = urlByName.get(s.name);
@@ -308,6 +331,7 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
         renderDiagnostics(latest);
         refreshInstallBtn();
         await renderSignatureBlock();
+        if(verdictNeedsDetails(latest.lastIntegrityResult)) setDiagnosticsVisible(true);
         toast(I18n.format('Update.Action.CheckComplete', true));
       } catch(err) {
         toast(I18n.format('Update.Action.CheckFailed', true, [err instanceof Error ? err.message : String(err)]));
@@ -330,20 +354,33 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
     diagnosticsSection.container.style.display = 'none';
 
     const diagToggleSection = new SettingSection({});
+    const setDiagnosticsVisible = (visible: boolean) => {
+      diagnosticsSection.container.style.display = visible ? '' : 'none';
+      diagToggleRow.title.textContent = I18n.format(
+        visible ? 'Update.Row.HideDiagnostics' : 'Update.Row.ShowDiagnostics',
+        true
+      );
+    };
     const diagToggleRow = new Row({
       titleLangKey: 'Update.Row.ShowDiagnostics',
       icon: 'info',
       clickable: () => {
-        const hidden = diagnosticsSection.container.style.display === 'none';
-        diagnosticsSection.container.style.display = hidden ? '' : 'none';
-        diagToggleRow.title.textContent = I18n.format(
-          hidden ? 'Update.Row.HideDiagnostics' : 'Update.Row.ShowDiagnostics',
-          true
-        );
+        setDiagnosticsVisible(diagnosticsSection.container.style.display === 'none');
       },
       listenerSetter: this.listenerSetter
     });
     diagToggleSection.content.append(diagToggleRow.container);
+
+    // Auto-expand Diagnostics when the verdict surfaces a problem. The
+    // per-source breakdown is the only place that explains *why* we got
+    // `conflict` / `error` / `insufficient` (and with the gitSha shown
+    // inline, the mismatch is legible). Leaving Diagnostics collapsed in
+    // that state means the user sees a bare "Conflict detected" with no
+    // follow-up.
+    const verdictNeedsDetails = (v: string | null | undefined): boolean => {
+      return v === 'conflict' || v === 'error' || v === 'insufficient';
+    };
+    if(verdictNeedsDetails(snap.lastIntegrityResult)) setDiagnosticsVisible(true);
 
     const swUrlRow = new Row({
       titleLangKey: 'Update.Row.InstalledSwUrl',
