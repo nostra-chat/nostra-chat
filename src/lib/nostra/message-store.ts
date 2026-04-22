@@ -66,6 +66,17 @@ export interface StoredMessage {
   appMessageId?: string;
   /** Unix timestamp (seconds) of the most recent edit. Absent on never-edited messages. */
   editedAt?: number;
+  /**
+   * Service message type (e.g. group creation). When set, VMT renders this row
+   * as a tweb `messageService` with the corresponding action instead of a
+   * regular text bubble. Synthesized locally — never transmitted over the wire.
+   */
+  serviceType?: 'chatCreate';
+  /** Opaque payload for service messages (e.g. title/memberPeerIds for chatCreate). */
+  servicePayload?: {
+    title?: string;
+    memberPeerIds?: number[];
+  };
 }
 
 /**

@@ -14,6 +14,7 @@ import {getGroupStore} from './group-store';
 import {groupIdToPeerId} from './group-types';
 import {wrapGroupMessage} from './nostr-crypto';
 import {broadcastGroupControl} from './group-control-messages';
+import {writeGroupCreateServiceMessage} from './group-service-messages';
 import {GroupDeliveryTracker} from './group-delivery-tracker';
 import type {GroupStore} from './group-store';
 import type {GroupRecord, GroupControlPayload} from './group-types';
@@ -77,6 +78,21 @@ export class GroupAPI {
     };
 
     await this.store.save(record);
+
+    // Seed a synthetic service row so tweb's dialog validation sees a real
+    // top_message for the group. The row is local-only (never transmitted).
+    try {
+      await writeGroupCreateServiceMessage({
+        groupId,
+        peerId,
+        timestamp: Math.floor(record.createdAt / 1000),
+        adminPubkey: this.ownPubkey,
+        title: name,
+        isOutgoing: true
+      });
+    } catch(err) {
+      this.log.warn('[GroupAPI] failed to seed chatCreate service row (creator):', err);
+    }
 
     // Broadcast group_create control message
     const payload: GroupControlPayload = {
@@ -303,6 +319,22 @@ export class GroupAPI {
       updatedAt: Date.now()
     };
     await this.store.save(record);
+
+    // Seed a local-only service row so receivers also get a valid top_message
+    // in their group dialog before any real message lands.
+    try {
+      await writeGroupCreateServiceMessage({
+        groupId: record.groupId,
+        peerId,
+        timestamp: Math.floor(record.createdAt / 1000),
+        adminPubkey: record.adminPubkey,
+        title: record.name,
+        isOutgoing: false
+      });
+    } catch(err) {
+      this.log.warn('[GroupAPI] failed to seed chatCreate service row (receiver):', err);
+    }
+
     this.log('[GroupAPI] group_create received:', payload.groupId);
   }
 

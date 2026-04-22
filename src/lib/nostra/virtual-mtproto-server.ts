@@ -348,7 +348,6 @@ export class NostraMTProtoServer {
 
     try {
       const conversationIds = await store.getAllConversationIds();
-      console.log(LOG_PREFIX, 'getDialogs: found', conversationIds.length, 'conversations:', conversationIds.slice(0, 5));
 
       for(const convId of conversationIds) {
         try {
@@ -377,7 +376,6 @@ export class NostraMTProtoServer {
 
           // Read display name from peer mapping (nickname saved at add-contact time)
           const mapping = await getMapping(peerPubkey);
-          console.log(LOG_PREFIX, 'getDialogs: peer hex=', peerPubkey.slice(0, 16), 'mapping=', mapping ? {dn: mapping.displayName, pk: mapping.pubkey?.slice(0, 16)} : 'NOT_FOUND');
           const user = this.mapper.createTwebUser({
             peerId,
             firstName: mapping?.displayName,
@@ -452,18 +450,38 @@ export class NostraMTProtoServer {
             topDate = latest.timestamp;
 
             const isOutgoing = latest.isOutgoing ?? (latest.senderPubkey === this.ownPubkey);
-            const fromPeerId = isOutgoing ? undefined :
+            const fromUserId = isOutgoing ? 0 :
               await this.mapper.mapPubkey(latest.senderPubkey);
 
-            const msg = this.mapper.createTwebMessage({
-              mid,
-              peerId,
-              fromPeerId,
-              date: latest.timestamp,
-              text: latest.content,
-              isOutgoing
-            });
-            messages.push(msg);
+            if(latest.serviceType === 'chatCreate') {
+              // Emit a tweb service message so the dialog preview reads "Group
+              // created" instead of an empty bubble. See group-service-messages.ts.
+              const serviceMsg = {
+                _: 'messageService',
+                pFlags: isOutgoing ? {out: true} : {},
+                id: mid,
+                peer_id: {_: 'peerChat', chat_id: Math.abs(peerId)},
+                from_id: {_: 'peerUser', user_id: fromUserId},
+                date: latest.timestamp,
+                action: {
+                  _: 'messageActionChatCreate',
+                  title: latest.servicePayload?.title ?? group.name,
+                  users: latest.servicePayload?.memberPeerIds ?? []
+                }
+              };
+              messages.push(serviceMsg);
+            } else {
+              const fromPeerId = isOutgoing ? undefined : fromUserId;
+              const msg = this.mapper.createTwebMessage({
+                mid,
+                peerId,
+                fromPeerId,
+                date: latest.timestamp,
+                text: latest.content,
+                isOutgoing
+              });
+              messages.push(msg);
+            }
           }
 
           const dialog = this.mapper.createTwebDialog({

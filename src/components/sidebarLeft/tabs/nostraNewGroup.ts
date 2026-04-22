@@ -18,6 +18,7 @@ import SettingSection from '@components/settingSection';
 import toggleDisability from '@helpers/dom/toggleDisability';
 import {getGroupAPI} from '@lib/nostra/group-api';
 import {getGroupStore} from '@lib/nostra/group-store';
+import {writeGroupCreateServiceMessage} from '@lib/nostra/group-service-messages';
 import rootScope from '@lib/rootScope';
 
 export default class AppNostraNewGroupTab extends SliderSuperTab {
@@ -95,11 +96,22 @@ export default class AppNostraNewGroupTab extends SliderSuperTab {
             if(appChatsManager?.saveApiChat) {
               appChatsManager.saveApiChat(chat, true);
             }
+            // Re-derive the service message mid (idempotent — same row was
+            // already upserted by GroupAPI.createGroup). Using the real mid
+            // avoids tweb's `something strange with dialog` warning.
+            const service = await writeGroupCreateServiceMessage({
+              groupId: group.groupId,
+              peerId: group.peerId,
+              timestamp: Math.floor(group.createdAt / 1000),
+              adminPubkey: group.adminPubkey,
+              title: group.name,
+              isOutgoing: true
+            });
             const dialog: any = {
               _: 'dialog',
               flags: 0,
               peer: {_: 'peerChat', chat_id: chatId},
-              top_message: 0,
+              top_message: service.mid,
               read_inbox_max_id: 0,
               read_outbox_max_id: 0,
               unread_count: 0,
