@@ -444,19 +444,19 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
     const {runProbeIfDue} = await import('@lib/update/update-popup-controller');
     void runProbeIfDue().catch((e) => console.warn('[update] probe failed', e));
 
-    // First-install info banner — show once after fresh install
+    // First-install info popup — show once after fresh install
     try {
-      const {shouldShowFirstInstall} = await import('@components/banners/firstInstallInfo');
+      const {shouldShowFirstInstall} = await import('@components/popups/firstInstallInfo');
       if(shouldShowFirstInstall()) {
         const {getActiveVersion} = await import('@lib/serviceWorker/shell-cache');
         const active = await getActiveVersion();
         if(active) {
-          const {mountFirstInstallBanner} = await import('@components/banners/firstInstallInfo.mount');
-          mountFirstInstallBanner(active.keyFingerprint, active.version);
+          const {showFirstInstallInfoPopup} = await import('@components/popups/firstInstallInfo/mount');
+          showFirstInstallInfoPopup(active.keyFingerprint, active.version);
         }
       }
     } catch(e) {
-      console.warn('[update] first-install banner failed', e);
+      console.warn('[update] first-install popup failed', e);
     }
   } else if(import.meta.env.DEV) {
     // Local simulation hook: exposes window.__triggerUpdatePopup() so the update

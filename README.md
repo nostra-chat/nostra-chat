@@ -59,9 +59,13 @@ Keys are stored locally in IndexedDB with AES-GCM encryption, protected by an op
 
 Tor integration runs entirely in the browser via a WASM build of [Arti](https://gitlab.torproject.org/tpo/core/arti) (webtor-rs). When enabled, all relay connections are routed through Tor circuits using Snowflake bridges, hiding your IP address from relay operators and bypassing national firewalls. If Tor fails, the app asks before falling back to a direct connection — there is no silent privacy degradation.
 
-### Controlled updates (no silent code injection)
+### Consent-gated updates (signed, no silent code injection)
 
-Starting from v0.8.0, Nostra.chat does **not** auto-update. When a new release is available, the app shows a popup with the changelog and asks for explicit consent before downloading or activating any new code. Before the prompt is shown, each release is **cross-verified against 3 independent distribution origins** (Cloudflare, GitHub Releases, IPFS) — if any of them disagrees on the published hashes, the update is blocked and a warning is shown. A compromised Service Worker also cannot lie about its own integrity because the check uses the browser-native `registration.update()` which bypasses the SW fetch handler. See [`docs/TRUST-MINIMIZED-UPDATES.md`](docs/TRUST-MINIMIZED-UPDATES.md) for the full threat model and [`docs/superpowers/specs/2026-04-16-phase-a-controlled-updates-design.md`](docs/superpowers/specs/2026-04-16-phase-a-controlled-updates-design.md) for the design.
+Starting from v0.12.0, Nostra.chat uses a **consent-gated, cryptographically signed** update system. The app-shell is served **only from cache** after the first install — the Service Worker never fetches new code from the network on its own. Every release manifest is signed with an **Ed25519** key whose public fingerprint is baked into the release that installed on your device; any unsigned or wrong-key-signed manifest is silently dropped. Before applying an update, the client cross-verifies the manifest across 3 independent origins (Cloudflare, GitHub Releases, IPFS) and verifies the signature against the pubkey pinned during your first install.
+
+On first install, a one-time popup shows the signing-key fingerprint so you can record it and verify future rotations. When a new release is available, the app shows a second popup with the changelog, the new version's fingerprint, and (if applicable) a key-rotation cross-certificate — no new code runs without your explicit consent. During download, each chunk is SHA-256 verified; on any mismatch the pending cache is discarded atomically and the active version stays untouched.
+
+See [`docs/UPDATE-SYSTEM.md`](docs/UPDATE-SYSTEM.md) for the operator runbook and [`docs/superpowers/specs/2026-04-21-consent-gated-update-design.md`](docs/superpowers/specs/2026-04-21-consent-gated-update-design.md) for the full threat model and design.
 
 ### Features
 
@@ -91,7 +95,7 @@ Starting from v0.8.0, Nostra.chat does **not** auto-update. When a new release i
 - Read receipts privacy toggle
 - Group invite privacy (Everyone / Contacts / Nobody)
 - Passcode lock screen
-- User-controlled PWA updates with cross-source integrity verification (3 independent origins, hash-verified bundle, consent popup, compromise alert) — see [controlled updates](#controlled-updates-no-silent-code-injection)
+- Consent-gated, Ed25519-signed PWA updates with cache-only app-shell, per-chunk SHA-256 verification, multi-origin manifest consensus, and key-rotation cross-certificates — see [consent-gated updates](#consent-gated-updates-signed-no-silent-code-injection)
 
 **Infrastructure**
 - Multi-relay pool with configurable relay list and NIP-65 publication
