@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.12.0](https://github.com/nostra-chat/nostra-chat/compare/v0.11.2...v0.12.0) (2026-04-22)
+
+
+### Features
+
+* **update:** consent-gated update system with Ed25519 signing ([0891caa](https://github.com/nostra-chat/nostra-chat/commit/0891caa4778bfe840ee83cfc339064466e0d1b1f))
+
+
+### Bug Fixes
+
+* **build:** force NODE_ENV=production + --mode production for correct tree-shaking ([2ed5b63](https://github.com/nostra-chat/nostra-chat/commit/2ed5b63175e43ae0b7ece0bc6949f329808ae076))
+* **nostra:** reactions use rumor id as e-tag (closes FIND-4e18d35d) ([#63](https://github.com/nostra-chat/nostra-chat/issues/63)) ([241cd05](https://github.com/nostra-chat/nostra-chat/commit/241cd0552c781b42ba87c42cec308f44e89d5e76))
+* **sw:** cache-only fetch handler must not gate on import.meta.env.PROD + static imports for SW resilience ([a212e1e](https://github.com/nostra-chat/nostra-chat/commit/a212e1e81674a52739efdc47622c97e8d75a5282))
+* **sw:** cache.match uses ignoreSearch to handle asset query-string cache-busters (e.g. site.webmanifest?v=xyz) ([854a605](https://github.com/nostra-chat/nostra-chat/commit/854a6053f7002e3a9abf6371e1a70db75d7185bb))
+* **sw:** install uses cache.addAll for parallel precache (4275 files in ~4s) ([60e16c2](https://github.com/nostra-chat/nostra-chat/commit/60e16c2f62a09cb88a1ae507f2db3ebfa00b2036))
+* **sw:** persist active-version in IDB during install (not activate) ([fb56a9d](https://github.com/nostra-chat/nostra-chat/commit/fb56a9d9ee52aae21d5dc826854689ee0a3ed320))
+* **ui:** popup inline styles + register listener in module side-effect + setActiveVersion in install ([09a3b16](https://github.com/nostra-chat/nostra-chat/commit/09a3b1631163f85f3a4c51c94962c0375a8adf55))
+* **update:** full accept flow (sign verify + chunk download + atomic swap) ([19d11cb](https://github.com/nostra-chat/nostra-chat/commit/19d11cbe6cced951c07aa2d4f370de4656574cf9))
+
 ## [0.11.2](https://github.com/nostra-chat/nostra-chat/compare/v0.11.1...v0.11.2) (2026-04-21)
 
 
