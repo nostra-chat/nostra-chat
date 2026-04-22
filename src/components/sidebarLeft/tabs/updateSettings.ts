@@ -387,7 +387,7 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
     const resetRow = new Row({
       titleLangKey: 'Update.Action.ResetBaseline',
       subtitleLangKey: 'Update.Row.ResetBaseline.Subtitle',
-      icon: 'restore',
+      icon: 'replace',
       clickable: async() => {
         try {
           await confirmationPopup({
