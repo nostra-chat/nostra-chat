@@ -1,7 +1,7 @@
 /*
- * App Update Settings tab — diagnostics for the update / integrity subsystem
- * plus the "Reset baseline" recovery action and an inline explanation of the
- * compromise-detection mechanism. Opened from the main Settings tab.
+ * App Update Settings tab — user-facing controls for the update and integrity
+ * subsystem, plus a Diagnostics block for support/debugging and the Reset
+ * baseline recovery action. Opened from the main Settings tab.
  */
 
 import {SliderSuperTab} from '@components/slider';
@@ -51,6 +51,7 @@ function verdictLabel(verdict: string): string {
   if(verdict === 'conflict') return I18n.format('Update.Verdict.Conflict', true);
   if(verdict === 'insufficient') return I18n.format('Update.Verdict.Insufficient', true);
   if(verdict === 'offline') return I18n.format('Update.Verdict.Offline', true);
+  if(verdict === 'error') return I18n.format('Update.Verdict.Error', true);
   return verdict;
 }
 
@@ -150,6 +151,8 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
     const snap: UpdateStateSnapshot = await getUpdateStateSnapshot();
 
     // ── Installed ────────────────────────────────────────────────────────
+    // High-signal rows only: what you have and whether there's something newer.
+    // The Service Worker URLs that used to live here are under Diagnostics now.
     const infoSection = new SettingSection({name: 'Update.Section.Installed'});
 
     const versionRow = new Row({
@@ -166,23 +169,10 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
     });
     infoSection.content.append(latestVersionRow.container);
 
-    const swUrlRow = new Row({
-      titleLangKey: 'Update.Row.InstalledSwUrl',
-      subtitle: snap.installedSwUrl || I18n.format('Update.Value.NotSet', true),
-      clickable: false
-    });
-    applyFullUrlStyle(swUrlRow);
-    infoSection.content.append(swUrlRow.container);
-
-    const activeRow = new Row({
-      titleLangKey: 'Update.Row.ActiveSw',
-      subtitle: snap.activeScriptUrl || I18n.format('Update.Value.NotSet', true),
-      clickable: false
-    });
-    applyFullUrlStyle(activeRow);
-    infoSection.content.append(activeRow.container);
-
     // ── Integrity ────────────────────────────────────────────────────────
+    // User-facing verdict + when it was last computed + signature of any
+    // pending update. Per-source breakdown + waiting-SW plumbing lives in
+    // Diagnostics so the main view stays readable.
     const integritySection = new SettingSection({name: 'Update.Section.Integrity'});
 
     const lastCheckText = snap.lastIntegrityCheck && snap.lastIntegrityCheck > 0 ?
@@ -202,37 +192,8 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
     });
     integritySection.content.append(integrityRow.container);
 
-    let detailsBlock: HTMLDivElement | null = null;
-    const renderDetails = (details: IntegritySourceDetail[] | null) => {
-      detailsBlock?.remove();
-      detailsBlock = null;
-      if(details?.length) {
-        detailsBlock = buildIntegrityDetailsBlock(details);
-        integrityRow.container.after(detailsBlock);
-      }
-    };
-    renderDetails(snap.lastIntegrityDetails);
-
-    const waitingRow = new Row({
-      titleLangKey: 'Update.Row.WaitingSw',
-      subtitle: snap.waitingScriptUrl || I18n.format('Update.Value.None', true),
-      clickable: false
-    });
-    applyFullUrlStyle(waitingRow);
-    integritySection.content.append(waitingRow.container);
-
-    const pendingRow = new Row({
-      titleLangKey: 'Update.Row.PendingFinalization',
-      subtitle: snap.pendingFinalization ?
-        (snap.pendingManifest ? I18n.format('Update.Value.PendingYesWithVersion', true, [snap.pendingManifest.version]) : I18n.format('Update.Value.Yes', true)) :
-        I18n.format('Update.Value.No', true),
-      clickable: false
-    });
-    integritySection.content.append(pendingRow.container);
-
-    // Signature block — only rendered when a signed update is stashed in memory
-    // (i.e. after a probe detected a new version this session). The active
-    // installed version's key fingerprint comes from `getActiveVersion()`.
+    // Signature block — only when a signed update is stashed in memory
+    // (populated by `update-popup-controller` after a successful probe).
     let signatureRow: Row | null = null;
     let signatureBlock: HTMLDivElement | null = null;
     const renderSignatureBlock = async() => {
@@ -301,9 +262,6 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
     // ── Actions ──────────────────────────────────────────────────────────
     const actionsSection = new SettingSection({name: 'Update.Section.Actions'});
 
-    // "Install now" — visible only when a signed manifest is stashed in memory
-    // (populated by `update-popup-controller` on `update_available_signed`).
-    // Falls back to a toast if the user hasn't run a check yet this session.
     const installBtn = Button('btn-primary btn-color-primary');
     installBtn.textContent = I18n.format('Update.Action.InstallNow', true);
     installBtn.style.marginBottom = '0.5rem';
@@ -337,9 +295,6 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
       checkBtn.textContent = I18n.format('Update.Action.Checking', true);
       try {
         await runNetworkChecks({force: true});
-        // Also trigger consent-gated probe (signature verify + downgrade check).
-        // If this finds an update, it dispatches `update_available_signed` which
-        // populates `window.__nostraPendingUpdate` — making "Install now" actionable.
         const {runProbeIfDue} = await import('@lib/update/update-popup-controller');
         await runProbeIfDue(true).catch((e) => console.warn('[update] probe failed', e));
         const latest = await getUpdateStateSnapshot();
@@ -350,7 +305,7 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
           integrityRow.subtitle.textContent = verdictLabel(latest.lastIntegrityResult);
         }
         latestVersionRow.subtitle.textContent = latestVersionSubtitle(latest);
-        renderDetails(latest.lastIntegrityDetails);
+        renderDiagnostics(latest);
         refreshInstallBtn();
         await renderSignatureBlock();
         toast(I18n.format('Update.Action.CheckComplete', true));
@@ -363,21 +318,89 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
     }, {listenerSetter: this.listenerSetter});
     actionsSection.content.append(checkBtn);
 
-    // ── Verification sources ────────────────────────────────────────────
-    const sourcesSection = new SettingSection({
-      name: 'Update.Section.Sources',
-      caption: 'Update.Sources.Caption'
+    // ── Diagnostics ─────────────────────────────────────────────────────
+    // Technical rows moved out of the main sections. Toggled off by default;
+    // a row above it flips visibility. Useful when debugging "why did the
+    // check say offline / error / conflict" — shows the per-source breakdown
+    // and the underlying SW URLs the baseline is guarding.
+    const diagnosticsSection = new SettingSection({
+      name: 'Update.Section.Diagnostics',
+      caption: 'Update.Diagnostics.Caption'
     });
-    for(const s of MANIFEST_SOURCES) {
-      const row = new Row({
-        title: s.name,
-        subtitle: s.url,
-        clickable: () => window.open(s.url, '_blank', 'noopener,noreferrer'),
-        listenerSetter: this.listenerSetter
-      });
-      applyFullUrlStyle(row);
-      sourcesSection.content.append(row.container);
-    }
+    diagnosticsSection.container.style.display = 'none';
+
+    const diagToggleSection = new SettingSection({});
+    const diagToggleRow = new Row({
+      titleLangKey: 'Update.Row.ShowDiagnostics',
+      icon: 'info',
+      clickable: () => {
+        const hidden = diagnosticsSection.container.style.display === 'none';
+        diagnosticsSection.container.style.display = hidden ? '' : 'none';
+        diagToggleRow.title.textContent = I18n.format(
+          hidden ? 'Update.Row.HideDiagnostics' : 'Update.Row.ShowDiagnostics',
+          true
+        );
+      },
+      listenerSetter: this.listenerSetter
+    });
+    diagToggleSection.content.append(diagToggleRow.container);
+
+    const swUrlRow = new Row({
+      titleLangKey: 'Update.Row.InstalledSwUrl',
+      subtitle: snap.installedSwUrl || I18n.format('Update.Value.NotSet', true),
+      clickable: false
+    });
+    applyFullUrlStyle(swUrlRow);
+    diagnosticsSection.content.append(swUrlRow.container);
+
+    const activeRow = new Row({
+      titleLangKey: 'Update.Row.ActiveSw',
+      subtitle: snap.activeScriptUrl || I18n.format('Update.Value.NotSet', true),
+      clickable: false
+    });
+    applyFullUrlStyle(activeRow);
+    diagnosticsSection.content.append(activeRow.container);
+
+    const waitingRow = new Row({
+      titleLangKey: 'Update.Row.WaitingSw',
+      subtitle: snap.waitingScriptUrl || I18n.format('Update.Value.None', true),
+      clickable: false
+    });
+    applyFullUrlStyle(waitingRow);
+    diagnosticsSection.content.append(waitingRow.container);
+
+    const pendingRow = new Row({
+      titleLangKey: 'Update.Row.PendingFinalization',
+      subtitle: snap.pendingFinalization ?
+        (snap.pendingManifest ? I18n.format('Update.Value.PendingYesWithVersion', true, [snap.pendingManifest.version]) : I18n.format('Update.Value.Yes', true)) :
+        I18n.format('Update.Value.No', true),
+      clickable: false
+    });
+    diagnosticsSection.content.append(pendingRow.container);
+
+    const sourcesHeader = new Row({
+      titleLangKey: 'Update.Row.SourceBreakdown',
+      subtitleLangKey: 'Update.Row.SourceBreakdown.Subtitle',
+      clickable: false
+    });
+    diagnosticsSection.content.append(sourcesHeader.container);
+
+    let detailsBlock: HTMLDivElement | null = null;
+    const renderDiagnostics = (latest: UpdateStateSnapshot) => {
+      swUrlRow.subtitle.textContent = latest.installedSwUrl || I18n.format('Update.Value.NotSet', true);
+      activeRow.subtitle.textContent = latest.activeScriptUrl || I18n.format('Update.Value.NotSet', true);
+      waitingRow.subtitle.textContent = latest.waitingScriptUrl || I18n.format('Update.Value.None', true);
+      pendingRow.subtitle.textContent = latest.pendingFinalization ?
+        (latest.pendingManifest ? I18n.format('Update.Value.PendingYesWithVersion', true, [latest.pendingManifest.version]) : I18n.format('Update.Value.Yes', true)) :
+        I18n.format('Update.Value.No', true);
+      detailsBlock?.remove();
+      detailsBlock = null;
+      if(latest.lastIntegrityDetails?.length) {
+        detailsBlock = buildIntegrityDetailsBlock(latest.lastIntegrityDetails);
+        sourcesHeader.container.after(detailsBlock);
+      }
+    };
+    renderDiagnostics(snap);
 
     // ── Advanced (recovery) ─────────────────────────────────────────────
     const advancedSection = new SettingSection({
@@ -430,7 +453,8 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
       integritySection.container,
       notificationsSection.container,
       actionsSection.container,
-      sourcesSection.container,
+      diagToggleSection.container,
+      diagnosticsSection.container,
       advancedSection.container,
       helpSection.container
     );

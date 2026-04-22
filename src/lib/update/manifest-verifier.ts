@@ -20,19 +20,41 @@ function getSources(): ManifestSource[] {
   return MANIFEST_SOURCES;
 }
 
-const SUPPORTED_SCHEMA = 1;
+const SUPPORTED_SCHEMAS: ReadonlyArray<number> = [1, 2];
 
-async function fetchOne(source: ManifestSource): Promise<Manifest> {
-  const res = await updateTransport.fetch(source.url, {cache: 'no-store'});
-  if(!res.ok) throw new Error(`HTTP ${res.status}`);
-  const m = await res.json() as Manifest;
-  if(m.schemaVersion !== SUPPORTED_SCHEMA) {
-    throw new Error(`unsupported schemaVersion ${m.schemaVersion}`);
+// `fetchOne` returns a tagged result instead of throwing so the caller can
+// tell network failures apart from validation failures. Before this split,
+// any error at a source — HTTP 500, invalid JSON, or unsupported schema —
+// produced the same `offline` top-level verdict, which made the 0.15.0
+// "offline → unsupported schemaVersion 2" report look like network trouble
+// when the real cause was a client pinned to schema 1 while the release
+// manifest had moved to 2.
+type FetchOneResult =
+  | {kind: 'ok'; manifest: Manifest}
+  | {kind: 'network'; error: string}
+  | {kind: 'validation'; error: string};
+
+async function fetchOne(source: ManifestSource): Promise<FetchOneResult> {
+  let res: Response;
+  try {
+    res = await updateTransport.fetch(source.url, {cache: 'no-store'});
+  } catch(err) {
+    return {kind: 'network', error: err instanceof Error ? err.message : String(err)};
+  }
+  if(!res.ok) return {kind: 'network', error: `HTTP ${res.status}`};
+  let m: Manifest;
+  try {
+    m = await res.json() as Manifest;
+  } catch(err) {
+    return {kind: 'validation', error: `invalid JSON: ${err instanceof Error ? err.message : String(err)}`};
+  }
+  if(!SUPPORTED_SCHEMAS.includes(m.schemaVersion)) {
+    return {kind: 'validation', error: `unsupported schemaVersion ${m.schemaVersion}`};
   }
   if(!m.version || !m.swUrl || !m.bundleHashes || !m.bundleHashes[m.swUrl]) {
-    throw new Error('malformed manifest');
+    return {kind: 'validation', error: 'malformed manifest'};
   }
-  return m;
+  return {kind: 'ok', manifest: m};
 }
 
 function keyFields(m: Manifest): string {
@@ -46,25 +68,29 @@ function keyFields(m: Manifest): string {
 
 export async function verifyManifestsAcrossSources(): Promise<IntegrityResult> {
   const sources = getSources();
-  const results = await Promise.allSettled(sources.map(fetchOne));
+  const results = await Promise.all(sources.map(fetchOne));
 
   const sourcesBreakdown: IntegrityResult['sources'] = sources.map((src, i) => {
     const r = results[i];
-    if(r.status === 'fulfilled') {
-      const m = r.value;
-      return {name: src.name, status: 'ok', version: m.version, gitSha: m.gitSha, swUrl: m.swUrl};
+    if(r.kind === 'ok') {
+      return {name: src.name, status: 'ok', version: r.manifest.version, gitSha: r.manifest.gitSha, swUrl: r.manifest.swUrl};
     }
-    return {name: src.name, status: 'error', error: String((r.reason as Error)?.message || r.reason)};
+    return {name: src.name, status: 'error', error: r.error};
   });
 
   const ok = results
-  .map((r, i) => r.status === 'fulfilled' ? {source: sources[i].name, manifest: r.value} : null)
+  .map((r, i) => r.kind === 'ok' ? {source: sources[i].name, manifest: r.manifest} : null)
   .filter((x): x is {source: string; manifest: Manifest} => x !== null);
 
   const checkedAt = Date.now();
 
   if(ok.length === 0) {
-    return {verdict: 'offline', sources: sourcesBreakdown, checkedAt};
+    // Distinguish a pure network outage (every source errored at the network
+    // level) from a deployment/config issue (at least one source responded
+    // but the manifest it served failed schema or shape validation).
+    const anyValidation = results.some((r) => r.kind === 'validation');
+    const verdict: IntegrityVerdict = anyValidation ? 'error' : 'offline';
+    return {verdict, sources: sourcesBreakdown, checkedAt};
   }
 
   if(ok.length === 1) {

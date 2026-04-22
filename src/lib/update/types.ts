@@ -14,7 +14,7 @@ export interface Manifest {
   alternateSources?: Record<string, unknown>;
 }
 
-export type IntegrityVerdict = 'verified' | 'verified-partial' | 'conflict' | 'insufficient' | 'offline';
+export type IntegrityVerdict = 'verified' | 'verified-partial' | 'conflict' | 'insufficient' | 'offline' | 'error';
 
 export interface IntegrityResult {
   verdict: IntegrityVerdict;
