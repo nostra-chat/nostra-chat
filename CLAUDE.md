@@ -278,7 +278,7 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 
 - `pnpm fuzz --duration=2h` — overnight run
 - `pnpm fuzz --replay=FIND-<sig>` — deterministic replay of a finding
-- `pnpm fuzz --replay-baseline` — 30s regression check. **Baseline `baseline-seed42-v2b2.json` NOT emitted** — blocked by open bug `FIND-4e18d35d` (see Phase 2b.3 note below + `docs/PROMPTS/bug-3-reactions-eventid-next-session.md`).
+- `pnpm fuzz --replay-baseline` — 30s regression check against the committed baseline (see Phase 2b.3 note below for emit status).
 - `pnpm fuzz --headed --slowmo=200` — watch the fuzzer in a real browser
 - `pnpm fuzz` runs preserve `docs/FUZZ-FINDINGS.md` curation automatically (T1 of 2b.2b). No `git restore` workaround needed.
 - Spec Phase 1: `docs/superpowers/specs/2026-04-17-bug-fuzzer-design.md`
@@ -308,7 +308,7 @@ Carry-forward open FIND (`FIND-chrono-v2`) — `INV-bubble-chronological` flake 
 
 **Phase 2b.2b closed** reporter clobber bug (curated Fixed sections preserved automatically via parse-merge), cold-start races (`FIND-cold-deleteWhileSending`, `FIND-cold-reactPeerSeesEmoji`) via multi-kind deterministic warmup in `bootHarness`, same-second tempMid race (`FIND-chrono-v2`) via `mid` tiebreaker, added UI-driven `reactViaUI` action + `INV-reactions-picker-nonempty` (would have caught PR #47 empty-stub bug), profile scope (editName/editBio/uploadAvatar/setNip05 + Blossom mock + 3 invariants + 3 postconditions). Groups scope moves to **Phase 2b.3**.
 
-**Phase 2b.3 open**: eventId mismatch between sender (`eventId = messageId`, format `chat-XXX-N`) and receiver (`eventId = rumor_id`, 64-hex) breaks NIP-25 reactions bilateral propagation. PR #62 attempted fix via `appMessageId` was REVERTED — it violated NIP-01's fixed-size `e`-tag requirement (strfry rejects with `"invalid: unexpected size for fixed-size tag: e"`). Real fix requires extracting `rumor.id` from `wrapNip17Message` (`src/lib/nostra/nostr-crypto.ts`) and storing it sender-side in `chat-api.ts::sendMessage`. Full plan in `docs/PROMPTS/bug-3-reactions-eventid-next-session.md`. `FIND-4e18d35d` remains Open; baseline v2b2 emit blocked until resolved.
+**Phase 2b.3 closed** (PR #63) the reactions eventId mismatch: sender now keys its own outgoing rows by `rumor.id` (extracted from `wrapNip17Message` in `src/lib/nostra/nostr-crypto.ts`), matching the receiver's keying. NIP-01 fixed-size `e`-tag preserved — earlier attempt (PR #62) that tagged with `appMessageId` was reverted because strfry rejected oversized tags (`"invalid: unexpected size for fixed-size tag: e"`). Permanent regression lives at `src/tests/e2e/e2e-reactions-bilateral.ts`. `FIND-4e18d35d` resolved; baseline v2b2 emit unblocked.
 
 ### Bubble Rendering
 - Kind 0 profile must be PUBLISHED during onboarding (not just saved locally) for other users to fetch it.
