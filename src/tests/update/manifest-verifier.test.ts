@@ -77,12 +77,25 @@ describe('verifyManifestsAcrossSources', () => {
     expect(result.manifest).toBeUndefined();
   });
 
-  it('rejects manifests with unknown schemaVersion', async() => {
+  it('rejects manifests with unknown schemaVersion with verdict error (not offline)', async() => {
     const m = validManifest({schemaVersion: 99});
     mockBySource({'cdn': m, 'github-pages': m, 'ipfs': m});
 
     const result = await verifyManifestsAcrossSources();
-    expect(result.verdict).toBe('offline');
+    // Historically this returned 'offline', conflating network failure with
+    // schema rejection — the symptom surfaced in 0.15.0 when clients pinned
+    // to schema 1 met manifests that had moved to schema 2.
+    expect(result.verdict).toBe('error');
+    expect(result.sources.every((s) => s.status === 'error')).toBe(true);
+    expect(result.sources[0].error).toMatch(/unsupported schemaVersion 99/);
+  });
+
+  it('accepts schemaVersion 2 (current release shape)', async() => {
+    const m = validManifest({schemaVersion: 2});
+    mockBySource({'cdn': m, 'github-pages': m, 'ipfs': m});
+
+    const result = await verifyManifestsAcrossSources();
+    expect(result.verdict).toBe('verified');
   });
 
   it('tolerates changelog differences across sources (whitespace etc.)', async() => {
