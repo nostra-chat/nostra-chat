@@ -296,7 +296,6 @@ export type BroadcastEvents = {
   'nostra_recovery_requested': void,
   'nostra_read_receipts_toggle': boolean,
 
-  'update_available': import('@lib/update/types').Manifest,
   'update_state_changed': import('@lib/update/types').UpdateFlowState,
   'update_download_progress': {completed: number; total: number},
   'update_completed': string,

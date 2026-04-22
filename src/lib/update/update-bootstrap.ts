@@ -178,12 +178,9 @@ export async function updateBootstrap(opts: BootstrapOptions = {}): Promise<void
 
   const rs = (await import('@lib/rootScope')).default;
   rs.dispatchEventSingle('update_integrity_check_completed', result);
-
-  if(result.manifest && (result.verdict === 'verified' || result.verdict === 'verified-partial')) {
-    if(semverGt(result.manifest.version, installedVersion)) {
-      rs.dispatchEventSingle('update_available', result.manifest);
-    }
-  }
+  // Note: `update_available` was the pre-Phase-A event. Phase A wires the
+  // signed-manifest probe in `update-popup-controller.runProbeIfDue()` which
+  // dispatches `update_available_signed` (consent-gated) instead.
 }
 
 export async function runNetworkChecks(opts: {force?: boolean} = {}): Promise<void> {
@@ -216,13 +213,8 @@ export async function runNetworkChecks(opts: {force?: boolean} = {}): Promise<vo
 
     const rs = (await import('@lib/rootScope')).default;
     rs.dispatchEventSingle('update_integrity_check_completed', result);
-
-    if(result.manifest && (result.verdict === 'verified' || result.verdict === 'verified-partial')) {
-      const installedVer = localStorage.getItem(LS.installedVersion);
-      if(installedVer && semverGt(result.manifest.version, installedVer)) {
-        rs.dispatchEventSingle('update_available', result.manifest);
-      }
-    }
+    // See note in `updateBootstrap()` above — `update_available` was the
+    // legacy event; Phase A uses `update_available_signed` via the probe.
 
     _bootGate = BootGate.AllVerified;
   } finally {
