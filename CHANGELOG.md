@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.18.0](https://github.com/nostra-chat/nostra-chat/compare/v0.17.0...v0.18.0) (2026-04-22)
+
+
+### Features
+
+* **settings:** replace Reset baseline + dev Force reload with unified "Reinstall app" ([#82](https://github.com/nostra-chat/nostra-chat/issues/82)) ([3d7e5dd](https://github.com/nostra-chat/nostra-chat/commit/3d7e5dd9ee86e8041bc280ad7223f6ad656396f9))
+
+
+### Bug Fixes
+
+* **vmt:** add static stubs for attach-menu-bots, stars-status, promo-data ([#80](https://github.com/nostra-chat/nostra-chat/issues/80)) ([4bd7727](https://github.com/nostra-chat/nostra-chat/commit/4bd772791e591e2b9769874423b71208e7ef7a50))
+
 ## [0.17.0](https://github.com/nostra-chat/nostra-chat/compare/v0.16.0...v0.17.0) (2026-04-22)
 
 
