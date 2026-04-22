@@ -360,6 +360,17 @@ const onChangeState = () => {
   ctx.onfetch = onFetch;
 };
 
+// Paths skipped at install-time precache and fetched on-demand instead.
+// Currently emoji PNGs: 3700+ tiny images used only when the emoji picker opens.
+// Precaching them blocks navigator.serviceWorker.ready for 20-30s on first install,
+// and they carry near-zero exploit surface (decoded by native sandboxed image code,
+// no script execution). They still appear in manifest.bundleHashes so the Phase A
+// integrity model is intact — they're just lazy-loaded. The fetch handler serves
+// them from network on first use and CacheStorage caches them automatically.
+const SKIP_PRECACHE_PATTERNS: RegExp[] = [
+  /^assets\/img\/emoji\//
+];
+
 ctx.addEventListener('install', (event) => {
   log('installing');
   event.waitUntil((async() => {
@@ -371,7 +382,9 @@ ctx.addEventListener('install', (event) => {
       const bundleHashes = manifest.bundleHashes as Record<string, string>;
       const cacheName = `shell-v${version}`;
       const cache = await caches.open(cacheName);
-      const paths = Object.keys(bundleHashes);
+      const allPaths = Object.keys(bundleHashes);
+      const paths = allPaths.filter((p) => !SKIP_PRECACHE_PATTERNS.some((re) => re.test(p)));
+      const skippedCount = allPaths.length - paths.length;
       // First install is TOFU — no signature verification possible (no baked pubkey yet
       // on fresh machines, OR the manifest is the same-origin bundle that served us the SW).
       // Parallel fetch in batches: avoids 30s install timeout. Per-path fetches tolerate
@@ -405,7 +418,7 @@ ctx.addEventListener('install', (event) => {
       } catch(err) {
         console.error('[sw] setActiveVersion during install failed:', err);
       }
-      log('pre-cached full bundle for version', version, paths.length, 'files');
+      log('pre-cached shell for version', version, paths.length, 'files (skipped', skippedCount, 'on-demand)');
     } catch(e) {
       console.error('[sw] install failed:', e);
       throw e;
