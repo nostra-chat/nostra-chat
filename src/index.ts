@@ -425,8 +425,22 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
     // NOTE: the `update_available_signed` → window.__nostraPendingUpdate stash
     // listener is registered as a module-load side effect inside
     // update-popup-controller.ts (so it fires before runProbeIfDue on the same
-    // import). Do NOT register a second listener here — a duplicate without the
-    // manifestText field would overwrite and break the accept flow.
+    // import). Do NOT register a second stash listener here — a duplicate
+    // without the manifestText field would overwrite and break the accept flow.
+
+    // Auto-show consent popup when the probe finds a new signed version.
+    // Without this, the popup only appears via the staleness banner (7 declines)
+    // or a manual visit to the Updates tab — users never get prompted on boot.
+    // De-dup per version so multi-probes in the same session don't stack popups.
+    let autoShownVersion: string | undefined;
+    rootScope.addEventListener('update_available_signed', async({manifest, signature}: any) => {
+      if(!manifest || autoShownVersion === manifest.version) return;
+      const {isSnoozed} = await import('@lib/update/update-popup-controller');
+      if(isSnoozed(manifest.version)) return;
+      autoShownVersion = manifest.version;
+      const {showUpdateConsentPopup} = await import('@components/popups/updateConsent/mount');
+      await showUpdateConsentPopup(manifest, signature);
+    });
 
     // Staleness banner: persistent top banner after 7 consecutive declines
     rootScope.addEventListener('update_staleness_banner', async({version}) => {

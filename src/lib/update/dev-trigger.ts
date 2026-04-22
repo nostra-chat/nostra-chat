@@ -1,16 +1,20 @@
-// Dev-only helper for simulating the update-available flow in localhost without
-// a mainnet deploy. updateBootstrap() is guarded by import.meta.env.PROD, so
-// the popup controller never fires during `pnpm start`. This module registers
-// the controller's listeners AND exposes a window.__triggerUpdatePopup() that
-// dispatches a fake `update_integrity_check_completed` + `update_available`
-// pair. Only loaded when import.meta.env.DEV is true — no prod footprint.
+// Dev-only helper for simulating the signed-update flow in localhost without
+// a mainnet deploy. updateBootstrap() + runProbeIfDue() are guarded by
+// import.meta.env.PROD so they never fire during `pnpm start`. This module
+// registers the popup controller's listeners AND exposes
+// window.__triggerUpdatePopup() that dispatches a fake `update_available_signed`
+// (to populate window.__nostraPendingUpdate the same way probe() does) and
+// then opens the UpdateConsent popup. Only loaded when import.meta.env.DEV
+// is true — no prod footprint.
+//
+// Caveat: `acceptUpdate()` triggered from the dev popup will fail signature
+// verification (the signature is a stub). Use for UI/UX testing only.
 import rootScope from '@lib/rootScope';
-import type {IntegrityResult, Manifest} from '@lib/update/types';
+import type {Manifest} from '@lib/update/types';
 
 export interface TriggerOptions {
   version?: string;
   changelog?: string;
-  verdict?: 'verified' | 'verified-partial' | 'conflict';
   swUrl?: string;
 }
 
@@ -19,8 +23,7 @@ export async function install(): Promise<void> {
   // dispatched events go nowhere.
   await import('@lib/update/update-popup-controller');
 
-  (window as any).__triggerUpdatePopup = (opts: TriggerOptions = {}) => {
-    const verdict = opts.verdict ?? 'verified';
+  (window as any).__triggerUpdatePopup = async(opts: TriggerOptions = {}) => {
     const version = opts.version ?? '99.0.0';
     const swUrl = opts.swUrl ?? '/sw.js';
     const manifest: Manifest = {
@@ -32,19 +35,17 @@ export async function install(): Promise<void> {
       bundleHashes: {},
       changelog: opts.changelog ?? '## What\'s new\n- Dev trigger\n- Second item'
     };
-    const integrity: IntegrityResult = {
-      verdict,
-      checkedAt: Date.now(),
-      sources: [
-        {name: 'cdn', status: 'ok', version, swUrl},
-        {name: 'ipfs', status: 'ok', version, swUrl},
-        {name: 'github', status: 'ok', version, swUrl}
-      ],
-      manifest
-    };
-    rootScope.dispatchEventSingle('update_integrity_check_completed', integrity);
-    rootScope.dispatchEventSingle('update_available', manifest);
-    return {manifest, integrity};
+    const signature = 'DEV_STUB_SIGNATURE';
+    const manifestText = JSON.stringify(manifest);
+
+    // Dispatch the same event probe() emits in prod so the stash listener
+    // in update-popup-controller populates window.__nostraPendingUpdate.
+    rootScope.dispatchEventSingle('update_available_signed', {manifest, signature, manifestText} as any);
+
+    const {showUpdateConsentPopup} = await import('@components/popups/updateConsent/mount');
+    await showUpdateConsentPopup(manifest, signature);
+
+    return {manifest, signature};
   };
 
   console.info('[DEV] update popup trigger ready — call __triggerUpdatePopup() from the console');

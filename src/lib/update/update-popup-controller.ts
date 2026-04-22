@@ -23,7 +23,7 @@ if(typeof window !== 'undefined') {
   });
 }
 
-function isSnoozed(version: string): boolean {
+export function isSnoozed(version: string): boolean {
   const snoozedVersion = localStorage.getItem(SNOOZE_VERSION_KEY);
   const snoozedUntil = parseInt(localStorage.getItem(SNOOZE_UNTIL_KEY) || '0', 10);
   return snoozedVersion === version && snoozedUntil > now();
