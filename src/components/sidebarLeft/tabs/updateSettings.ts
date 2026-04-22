@@ -244,7 +244,7 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
       const manifest = stash?.manifest;
       if(!manifest) return;
       const {getActiveVersion} = await import('@lib/serviceWorker/shell-cache');
-      const active = await getActiveVersion().catch(() => null);
+      const active = await getActiveVersion().catch((): null => null);
       signatureRow = new Row({
         titleLangKey: 'Update.Row.PendingSignature',
         subtitle: I18n.format('Update.Value.PendingSignatureFor', true, [manifest.version ?? '—']),
