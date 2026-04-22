@@ -34,6 +34,11 @@ pnpm lint           # ESLint on src/**/*.{ts,tsx}
 
 **Debug query params:** `?test=1` (test DCs), `?debug=1` (verbose logging), `?noSharedWorker=1` (disable shared worker).
 
+**Build/test gotchas:**
+- `pnpm test run <file>` (NOT `pnpm test <file>`) for one-shot vitest — `pnpm test` opens watch mode that hangs subagents and CI.
+- Build script forces `NODE_ENV=production && vite build --mode production` — without these, `import.meta.env.PROD` evaluates to `false` in main bundle and entire prod-only blocks (banners, listeners, `update_available_signed` handler) silently disappear from output. Don't strip these flags from `package.json` `build` script.
+- `pnpm preview` rebuilds and serves on `:8080`. Vite preview's SPA fallback returns `index.html` for any unmatched URL — including URL-encoded paths to existing files (e.g. `%23` not decoded). This hides production bugs; test URL-sensitive behavior against a real static server (Cloudflare Pages preview), not `vite preview`.
+
 **Dev-mode gotchas (`pnpm start` only, do NOT fight them):**
 - `updateBootstrap()` in `src/index.ts:405` is guarded by `import.meta.env.PROD` — Vite HMR regenerates the SW hash each session, so running the Phase A bootstrap in dev false-positives Step 1a and shows the "possibile compromissione rilevata" alert. Build + serve from `dist/` to test the update flow.
 - `resetLocalData.ts` lazy-imports `confirmationPopup` and `clearAllExceptSeed`. Static imports pull in `popups/index` → `popups/peer`, causing a circular-init race: `ReferenceError: Cannot access 'PopupPeer' before initialization`.
@@ -186,6 +191,7 @@ For deep subsystem notes (Tor runtime, Vitest/E2E test quirks, profile sync inte
 - `getSelf()` returns `undefined` in Nostra mode (no MTProto auth) — guard all `.id` access.
 - `rootScope.myId === NULL_PEER_ID` (0) → `isOurMessage()` uses `pFlags.out` as fallback.
 - Worker `rootScope` events don't cross to main thread (separate instances). Only `message_sent`/`messages_pending` are mirrored via MessagePort.
+- **Vite worker build does NOT inject `import.meta.env.PROD`** — guards inside `src/lib/serviceWorker/*` evaluate `PROD` to `false` and tree-shake the gated block out of the SW bundle entirely. Use a different gate (e.g. `'serviceWorker' in self`, runtime feature check) instead. Same applies to dynamic imports inside SW: prefer static imports for SW dependencies — Vite chunk splits make `await import(...)` unreliable in SW context.
 
 ### Peer Mirroring
 Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `this.mirrorUser(user)` to sync to `apiManagerProxy.mirrors.peers` and the Solid `peers` store. Without mirroring, `getPeer()`/`usePeer()` return `undefined` on main thread.
