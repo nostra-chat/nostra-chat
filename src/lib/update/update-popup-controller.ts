@@ -29,6 +29,18 @@ export function isSnoozed(version: string): boolean {
   return snoozedVersion === version && snoozedUntil > now();
 }
 
+export function getSnoozeInfo(): {version: string; until: number} | null {
+  const version = localStorage.getItem(SNOOZE_VERSION_KEY);
+  const until = parseInt(localStorage.getItem(SNOOZE_UNTIL_KEY) || '0', 10);
+  if(!version || until <= now()) return null;
+  return {version, until};
+}
+
+export function clearSnooze(): void {
+  localStorage.removeItem(SNOOZE_VERSION_KEY);
+  localStorage.removeItem(SNOOZE_UNTIL_KEY);
+}
+
 function recordDecline(version: string): number {
   const key = `${DECLINE_COUNT_KEY}.${version}`;
   const count = parseInt(localStorage.getItem(key) || '0', 10) + 1;
