@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/nostra-chat/nostra-chat/compare/v0.12.0...v0.12.1) (2026-04-22)
+
+
+### Bug Fixes
+
+* **sw:** tolerant install precache (skip individual fetch failures) ([71ece8b](https://github.com/nostra-chat/nostra-chat/commit/71ece8b5774de1d3aacb182b55907acd7597eaa4))
+
 ## [0.12.0](https://github.com/nostra-chat/nostra-chat/compare/v0.11.2...v0.12.0) (2026-04-22)
 
 
