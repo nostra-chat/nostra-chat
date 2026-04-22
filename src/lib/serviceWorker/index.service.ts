@@ -398,29 +398,47 @@ ctx.addEventListener('install', (event) => {
       const skippedCount = allPaths.length - paths.length;
       // First install is TOFU — no signature verification possible (no baked pubkey yet
       // on fresh machines, OR the manifest is the same-origin bundle that served us the SW).
-      // Parallel fetch in batches: avoids 30s install timeout. Per-path fetches tolerate
-      // failures of optional asset paths (e.g. paths with URL-reserved chars like `#`
-      // in changelog filenames that old manifests still include).
+      // Parallel fetch in batches to avoid the 30s install timeout. Each path is
+      // retried with exponential backoff to tolerate transient CDN/network failures.
+      // After retries, ANY missing path fails the install — emoji PNGs are already
+      // excluded via SKIP_PRECACHE_PATTERNS, so every remaining path is load-bearing.
+      // A partial precache would leave CACHE-ONLY fetches returning 404 at runtime,
+      // which the 0.14.1 field report surfaced as a broken Settings → App Updates tab.
       const BATCH_SIZE = 32;
+      const RETRY_DELAYS_MS = [200, 500, 1000];
+      const failedPaths: string[] = [];
       let successCount = 0;
       for(let i = 0; i < paths.length; i += BATCH_SIZE) {
         const batch = paths.slice(i, i + BATCH_SIZE);
         await Promise.all(batch.map(async(p) => {
-          try {
-            // Encode URL-reserved chars (`#`, `?`) that fetch would treat as
-            // fragment/query separators and silently strip.
-            const encoded = p.replace(/#/g, '%23').replace(/\?/g, '%3F');
-            const url = new URL(encoded, self.location.href).href;
-            const res = await fetch(url, {cache: 'no-cache'});
-            if(!res.ok) return;
-            await cache.put(p, res);
-            successCount++;
-          } catch{
-            // best-effort: skip paths that fail to fetch or cache
+          // Encode URL-reserved chars (`#`, `?`) that fetch would treat as
+          // fragment/query separators and silently strip.
+          const encoded = p.replace(/#/g, '%23').replace(/\?/g, '%3F');
+          const url = new URL(encoded, self.location.href).href;
+          let lastErr: string = 'unknown';
+          for(let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+            try {
+              const res = await fetch(url, {cache: 'no-cache'});
+              if(res.ok) {
+                await cache.put(p, res);
+                successCount++;
+                return;
+              }
+              lastErr = `HTTP ${res.status}`;
+            } catch(err) {
+              lastErr = err instanceof Error ? err.message : String(err);
+            }
+            if(attempt < RETRY_DELAYS_MS.length) {
+              await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+            }
           }
+          failedPaths.push(`${p} (${lastErr})`);
         }));
       }
-      if(successCount === 0) throw new Error('[sw] install: no paths cached');
+      if(failedPaths.length > 0) {
+        console.error('[sw] install: incomplete precache —', failedPaths.length, 'of', paths.length, 'paths missing:', failedPaths);
+        throw new Error(`[sw] install: incomplete precache (${failedPaths.length}/${paths.length} failed)`);
+      }
       // Persist version+fingerprint directly here in install — activate handler
       // cannot rely on self.__INSTALL_* globals because some browsers recycle
       // the worker scope between install and activate.

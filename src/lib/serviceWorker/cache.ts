@@ -56,6 +56,18 @@ async function currentShellCacheName(): Promise<string> {
   return `shell-v${active.version}`;
 }
 
+async function notifyCacheMiss(url: string): Promise<void> {
+  try {
+    const swCtx = self as any as ServiceWorkerGlobalScope;
+    const clients = await swCtx.clients.matchAll({type: 'window', includeUncontrolled: true});
+    for(const client of clients) {
+      try {
+        client.postMessage({type: 'SW_CACHE_MISS', url});
+      } catch{}
+    }
+  } catch{}
+}
+
 export async function requestCacheStrict(event: FetchEvent): Promise<Response> {
   const cache = await caches.open(await currentShellCacheName());
   // ignoreSearch: vite/release assets often carry a cache-buster querystring
@@ -70,6 +82,15 @@ export async function requestCacheStrict(event: FetchEvent): Promise<Response> {
     }
   }
   if(hit) return hit;
-  const body = '<!DOCTYPE html><meta charset=utf-8><title>Nostra.chat — cache corrupted</title><style>body{font-family:system-ui;padding:2rem;max-width:40rem;margin:auto}button{padding:0.5rem 1rem;font-size:1rem;cursor:pointer}</style><h1>Nostra.chat — cache corrupted</h1><p>An app-shell asset is missing from the local cache. Reinstall the app to continue. Your identity seed is safe.</p><p><strong>Missing:</strong> <code>' + event.request.url + '</code></p><button onclick="caches.keys().then(k=>Promise.all(k.map(c=>caches.delete(c)))).then(()=>navigator.serviceWorker.getRegistration()).then(r=>r&&r.unregister()).then(()=>location.reload())">Reinstall</button>';
-  return new Response(body, {status: 503, headers: {'content-type': 'text/html; charset=utf-8'}});
+  // Cache miss on a required shell asset. Notify controlled clients so the
+  // main-thread listener (initCacheMissOverlay) can render the reinstall UI.
+  // For navigation requests we still return an inline-HTML fallback: the miss
+  // may be on the root document itself, in which case the main thread has no
+  // JS running yet to react to the postMessage.
+  notifyCacheMiss(event.request.url);
+  if(event.request.mode === 'navigate') {
+    const body = '<!DOCTYPE html><meta charset=utf-8><title>Nostra.chat — cache corrupted</title><style>body{font-family:system-ui;padding:2rem;max-width:40rem;margin:auto}button{padding:0.5rem 1rem;font-size:1rem;cursor:pointer}</style><h1>Nostra.chat — cache corrupted</h1><p>An app-shell asset is missing from the local cache. Reinstall the app to continue. Your identity seed is safe.</p><p><strong>Missing:</strong> <code>' + event.request.url + '</code></p><button onclick="caches.keys().then(k=>Promise.all(k.map(c=>caches.delete(c)))).then(()=>navigator.serviceWorker.getRegistration()).then(r=>r&&r.unregister()).then(()=>location.reload())">Reinstall</button>';
+    return new Response(body, {status: 503, headers: {'content-type': 'text/html; charset=utf-8'}});
+  }
+  return new Response(`cache-miss: ${event.request.url}`, {status: 503, headers: {'content-type': 'text/plain; charset=utf-8'}});
 }

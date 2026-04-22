@@ -59,6 +59,14 @@ import {preventCrossTabDynamicImportDeadlock} from '@helpers/preventDeadlock';
 import noop from '@helpers/noop';
 import {updateBootstrap} from '@lib/update/update-bootstrap';
 import {CompromiseAlertError} from '@lib/update/types';
+import {initCacheMissOverlay} from '@lib/serviceWorker/cacheMissOverlay';
+
+// Register as early as possible: if the SW's CACHE-ONLY precache is missing
+// an asset, requestCacheStrict (see serviceWorker/cache.ts) posts a
+// SW_CACHE_MISS message. We must be listening before any dynamic import
+// could fail so the reinstall overlay renders instead of a silent chunk
+// load error.
+initCacheMissOverlay();
 
 // import commonStateStorage from '@lib/commonStateStorage';
 // import { STATE_INIT } from '@config/state';
