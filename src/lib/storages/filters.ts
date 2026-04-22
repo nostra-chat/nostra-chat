@@ -245,7 +245,11 @@ export default class FiltersStorage extends AppManager {
 
     const {peerId} = dialog;
 
-    if(REAL_FOLDERS.has(filter.id)) {
+    // Only the Telegram-style folder ids (All=0, Archive=1) are stored on
+    // dialog.folder_id. Persons (2) / Groups (3) are locally-seeded system
+    // folders whose membership is computed from pFlags below — do NOT
+    // short-circuit them here, otherwise they always appear empty.
+    if(filter.id === FOLDER_ID_ALL || filter.id === FOLDER_ID_ARCHIVE) {
       return dialog.folder_id === filter.id && this.dialogsStorage.canSaveDialog(peerId, dialog);
     }
 

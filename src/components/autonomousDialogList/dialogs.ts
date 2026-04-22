@@ -238,7 +238,11 @@ export class AutonomousDialogList extends AutonomousDialogListBase<Dialog> {
   }
 
   public testDialogForFilter(dialog: Dialog) {
-    if(!REAL_FOLDERS.has(this.filterId) ? getDialogIndex(dialog, this.indexKey) === undefined : this.filterId !== dialog.folder_id) {
+    // Persons (2) / Groups (3) are locally-seeded system folders — no dialog
+    // carries folder_id 2 or 3, so treat them like custom filters and use the
+    // per-filter index key for membership.
+    const isTgFolder = this.filterId === FOLDER_ID_ALL || this.filterId === FOLDER_ID_ARCHIVE;
+    if(!isTgFolder ? getDialogIndex(dialog, this.indexKey) === undefined : this.filterId !== dialog.folder_id) {
       return false;
     }
 
