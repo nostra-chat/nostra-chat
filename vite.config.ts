@@ -171,6 +171,9 @@ export default defineConfig({
   },
   server: serverOptions,
   base: '',
+  optimizeDeps: {
+    entries: ['index.html']
+  },
   build: {
     target: 'es2020',
     sourcemap: false,
