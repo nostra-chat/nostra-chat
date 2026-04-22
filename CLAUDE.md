@@ -43,6 +43,7 @@ pnpm lint           # ESLint on src/**/*.{ts,tsx}
 - `updateBootstrap()` in `src/index.ts:405` is guarded by `import.meta.env.PROD` — Vite HMR regenerates the SW hash each session, so running the Phase A bootstrap in dev false-positives Step 1a and shows the "possibile compromissione rilevata" alert. Build + serve from `dist/` to test the update flow.
 - `resetLocalData.ts` lazy-imports `confirmationPopup` and `clearAllExceptSeed`. Static imports pull in `popups/index` → `popups/peer`, causing a circular-init race: `ReferenceError: Cannot access 'PopupPeer' before initialization`.
 - **Multi-instance rootScope**: HMR/dynamic imports can create separate `rootScope` instances. Listeners registered on one won't receive dispatches on another. Before adding defenses for a "missing listener" bug, verify the listeners actually exist on the rootScope the app dispatches on. Production builds don't hit this.
+- **Boot splash (`index.html` + `src/index.ts`)**: the inline splash is revealed until `window.__hideBootSplash()` is called. Do NOT add a MutationObserver for `#auth-pages` / `#main-columns` / `#page-chats` — those IDs are shipped as static wireframe wrappers by the tweb fork, so the observer fires on the first microtask and tears the splash down before paint (0.14.0 ship bug). The authoritative signal is the explicit call in `src/index.ts` after `preventCrossTabDynamicImportDeadlock`. A 120s safety timer force-removes the splash if the main bundle throws before reaching the hook.
 - Regression coverage: `src/tests/e2e/e2e-dev-boot-smoke.ts` asserts the dev server boots without TDZ or the compromise banner.
 
 ## Directory Structure
@@ -222,6 +223,11 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 
 **P2P edit protocol**: edits are new NIP-17 gift-wraps carrying `['nostra-edit', '<originalAppMessageId>']` — the `chat-XXX-N` form, NOT rumor hex. Sender rows use it as `eventId`, receiver rows as `appMessageId`, so a single `getByAppMessageId` lookup works on both sides. Receive handler upserts the original row preserving `mid`/`twebPeerId`/`timestamp`; only `content` + `editedAt` change. Author verification mandatory: drop edits where `rumor.pubkey !== original.senderPubkey`.
 
+### Service Worker Install Precache
+- `SKIP_PRECACHE_PATTERNS` (in `src/lib/serviceWorker/index.service.ts`) filters paths out of the install-time fetch loop so first-install finishes in ~3-4s instead of ~27s. Emoji PNGs (3788 files, 22MB) are the current entry. Skipped paths still appear in `bundleHashes` — they're just lazy-loaded via the fetch handler on first use.
+- **Manifest path format trap**: `update-manifest.json` paths ship with a leading `./` prefix (release-pipeline quirk, not Vite). Any regex against bundle paths MUST normalize via `p.replace(/^\.?\//, '')` first — use the `normalizeManifestPath()` helper next to the filter. A no-op filter shipped undetected in 0.14.1 because Vite local builds don't emit the manifest; writing unit tests against the live manifest (or a fixture of it) is the right safety net.
+- The install handler is tolerant of per-path fetch failures (catches URL-reserved chars like `#` in changelog filenames). It throws only when `successCount === 0`.
+
 ### Message Receive Pipeline
 - `initGlobalSubscription()` in `chat-api.ts` subscribes to kind 1059 on all relays at boot. Without it, only peers from `chatAPI.connect()` are heard.
 - **Receive chain**: relay WS → `NostrRelay.handleEvent()` → gift-wrap decrypt → `RelayPool.handleIncomingMessage()` → `ChatAPI.handleRelayMessage()` → `NostraSync.onIncomingMessage()` → `message-store` → `nostra_new_message` → `history_append` → bubble.
@@ -249,6 +255,12 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 - `bubbles.ts` is 11000+ lines. `appMessagesManager.ts` is 8500+ lines. Changes to these files risk cascading side effects.
 - All `notDirect` flags were removed from `contextMenu.ts` — all chats are Nostra, there are no Telegram DMs. The type field, invocation logic, and all 10 button properties were deleted.
 - Hamburger profile entry (`buildNostraProfileMenuContent` in `sidebarLeft/index.ts`): the async storage-read path must generate a dicebear avatar from the stored npub *before* calling `fetchOwnKind0`, otherwise fresh-onboarding (no cache, no kind 0 picture) leaves `avatar.src=""` until the user opens the profile tab.
+
+### Phase A Update Popup Wiring
+- **Live event is `update_available_signed`** — NOT `update_available`. The latter is legacy (pre-consent-gate) with no listeners; `src/components/popups/updateAvailable/` is dead code, retained only until the cleanup pass. Dispatches from `update-bootstrap.ts:180,184,218,223` go nowhere.
+- Auto-show consent popup lives in `src/index.ts` PROD branch: listener reads `isSnoozed` from `update-popup-controller.ts`, dedups per version, then calls `showUpdateConsentPopup`. Runs BEFORE `runProbeIfDue()` so the dispatch is caught on first probe.
+- Dev test: `__triggerUpdatePopup({version, changelog})` from the browser console — only installed under `import.meta.env.DEV` by `src/lib/update/dev-trigger.ts`. Accept will fail signature check (stub); use for UI/UX testing only.
+- The `UpdateConsent` component (`src/components/popups/updateConsent/index.tsx`) must tolerate missing `rotation` / `signingKeyFingerprint` on the manifest — real manifests don't always carry them, and a strict `!== null` check crashed the popup in 0.14.0 (caught only because the new auto-show exposed a popup that had never actually rendered in prod before).
 
 ### Nostra Module Architecture
 `nostra-onboarding-integration.ts` is a thin orchestrator (~240 lines) wiring: `nostra-message-handler.ts` (incoming message builder), `nostra-pending-flush.ts` (queue for closed-chat peers), `nostra-read-receipts.ts` (batch on peer open), `nostra-delivery-ui.ts` (bubble sent/delivered/read icons). `chat-api-receive.ts` extracts `handleRelayMessage` with `ReceiveContext` DI as pure step functions (`isDeleteNotification`, `parseMessageContent`, `extractFileMetadata`, `isDuplicate`). All Nostra rootScope events are typed in `BroadcastEvents` (rootScope.ts) — no `as any` casts.
