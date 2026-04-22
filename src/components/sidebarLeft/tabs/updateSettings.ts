@@ -468,6 +468,35 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
     });
     advancedSection.content.append(resetRow.container);
 
+    // Dev-only shortcut that unregisters the Service Worker and wipes
+    // CacheStorage, then reloads. Same blast radius as DevTools "Clear
+    // site data" MINUS localStorage/IndexedDB — the Nostra identity and
+    // account data stay put. Gated at build time so the branch is
+    // dead-code-eliminated from the prod bundle.
+    if(!import.meta.env.PROD) {
+      const devResetRow = new Row({
+        titleLangKey: 'Update.Action.DevForceReload',
+        subtitleLangKey: 'Update.Row.DevForceReload.Subtitle',
+        clickable: async() => {
+          try {
+            if('serviceWorker' in navigator) {
+              const regs = await navigator.serviceWorker.getRegistrations();
+              await Promise.all(regs.map((r) => r.unregister()));
+            }
+            if('caches' in window) {
+              const names = await caches.keys();
+              await Promise.all(names.map((n) => caches.delete(n)));
+            }
+          } catch(err) {
+            console.warn('[dev force reload] cleanup failed', err);
+          }
+          window.location.reload();
+        },
+        listenerSetter: this.listenerSetter
+      });
+      advancedSection.content.append(devResetRow.container);
+    }
+
     // ── About this protection ───────────────────────────────────────────
     const helpSection = new SettingSection({name: 'Update.Section.About'});
     const helpRow = new Row({

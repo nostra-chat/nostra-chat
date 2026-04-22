@@ -19,7 +19,13 @@ const Modes = {
   asServiceWorker: !!import.meta.env.VITE_MTPROTO_SW,
   transport: 'websocket' as TransportType,
   noSharedWorker: true, // Nostra.chat: force main-thread managers for API stub interception
-  noServiceWorker: location.search.indexOf('noServiceWorker=1') > 0,
+  // Skip the Service Worker in `pnpm start` (dev). Vite HMR + cache-only SW
+  // fetch handler fight each other: rebuilds don't get picked up until
+  // DevTools "Clear site data", and the Phase A update flow false-positives
+  // a compromise banner because HMR regenerates the SW hash. For realistic
+  // SW behaviour use `pnpm preview` (PROD bundle) — the flag is forced on
+  // only when `import.meta.env.PROD === false`.
+  noServiceWorker: location.search.indexOf('noServiceWorker=1') > 0 || !import.meta.env.PROD,
   multipleTransports: !!(import.meta.env.VITE_MTPROTO_AUTO && import.meta.env.VITE_MTPROTO_HAS_HTTP && import.meta.env.VITE_MTPROTO_HAS_WS) && location.search.indexOf('noMultipleTransports=1') === -1,
   noPfs: true || location.search.indexOf('noPfs=1') > 0
 };
