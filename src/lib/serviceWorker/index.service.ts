@@ -367,9 +367,17 @@ const onChangeState = () => {
 // no script execution). They still appear in manifest.bundleHashes so the Phase A
 // integrity model is intact — they're just lazy-loaded. The fetch handler serves
 // them from network on first use and CacheStorage caches them automatically.
+//
+// NOTE: manifest entries are emitted with a leading "./" (e.g. "./assets/img/emoji/…"),
+// so we normalize the path before regex-testing. The 0.14.1 build shipped a non-normalized
+// filter that never matched anything — all 3788 emojis were still precached.
 const SKIP_PRECACHE_PATTERNS: RegExp[] = [
   /^assets\/img\/emoji\//
 ];
+
+function normalizeManifestPath(p: string): string {
+  return p.replace(/^\.?\//, '');
+}
 
 ctx.addEventListener('install', (event) => {
   log('installing');
@@ -383,7 +391,10 @@ ctx.addEventListener('install', (event) => {
       const cacheName = `shell-v${version}`;
       const cache = await caches.open(cacheName);
       const allPaths = Object.keys(bundleHashes);
-      const paths = allPaths.filter((p) => !SKIP_PRECACHE_PATTERNS.some((re) => re.test(p)));
+      const paths = allPaths.filter((p) => {
+        const n = normalizeManifestPath(p);
+        return !SKIP_PRECACHE_PATTERNS.some((re) => re.test(n));
+      });
       const skippedCount = allPaths.length - paths.length;
       // First install is TOFU — no signature verification possible (no baked pubkey yet
       // on fresh machines, OR the manifest is the same-origin bundle that served us the SW).
