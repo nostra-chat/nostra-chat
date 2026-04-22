@@ -68,6 +68,33 @@ async function notifyCacheMiss(url: string): Promise<void> {
   } catch{}
 }
 
+// Lazy-built set of pathnames that were precached at install. A miss for a path
+// NOT in this set means the browser requested something we never owned (e.g. the
+// auto `/favicon.ico` implicitly requested when opening a non-HTML tab at the
+// same origin). Those are not corruption — they must NOT trigger the reinstall
+// overlay. A miss for a path IN this set means the shell entry was evicted or
+// tampered with — genuine corruption, keep the overlay broadcast.
+let _precachedPathnamesPromise: Promise<Set<string>> | null = null;
+async function getPrecachedPathnames(cache: Cache): Promise<Set<string>> {
+  if(!_precachedPathnamesPromise) {
+    _precachedPathnamesPromise = (async() => {
+      try {
+        const reqs = await cache.keys();
+        const set = new Set<string>();
+        for(const req of reqs) {
+          try {
+            set.add(new URL(req.url).pathname);
+          } catch{}
+        }
+        return set;
+      } catch{
+        return new Set<string>();
+      }
+    })();
+  }
+  return _precachedPathnamesPromise;
+}
+
 export async function requestCacheStrict(event: FetchEvent): Promise<Response> {
   const cache = await caches.open(await currentShellCacheName());
   // ignoreSearch: vite/release assets often carry a cache-buster querystring
@@ -82,13 +109,32 @@ export async function requestCacheStrict(event: FetchEvent): Promise<Response> {
     }
   }
   if(hit) return hit;
-  // Cache miss on a required shell asset. Notify controlled clients so the
-  // main-thread listener (initCacheMissOverlay) can render the reinstall UI.
-  // For navigation requests we still return an inline-HTML fallback: the miss
-  // may be on the root document itself, in which case the main thread has no
-  // JS running yet to react to the postMessage.
+
+  const url = new URL(event.request.url);
+  const isNavigation = event.request.mode === 'navigate';
+
+  if(!isNavigation) {
+    const precached = await getPrecachedPathnames(cache);
+    if(!precached.has(url.pathname)) {
+      // Browser auto-request for a path that was never part of our shell
+      // (e.g. `/favicon.ico` requested by any raw-JSON tab opened at our
+      // origin). Try network silently, fall back to 404 — no overlay.
+      try {
+        return await fetch(event.request);
+      } catch{
+        return new Response('', {status: 404});
+      }
+    }
+  }
+
+  // Cache miss on a path we DID precache (or a navigation with no index.html
+  // fallback) → genuine corruption. Notify controlled clients so the main-
+  // thread listener (initCacheMissOverlay) can render the reinstall UI. For
+  // navigation requests we still return an inline-HTML fallback: the miss may
+  // be on the root document itself, in which case the main thread has no JS
+  // running yet to react to the postMessage.
   notifyCacheMiss(event.request.url);
-  if(event.request.mode === 'navigate') {
+  if(isNavigation) {
     const body = '<!DOCTYPE html><meta charset=utf-8><title>Nostra.chat — cache corrupted</title><style>body{font-family:system-ui;padding:2rem;max-width:40rem;margin:auto}button{padding:0.5rem 1rem;font-size:1rem;cursor:pointer}</style><h1>Nostra.chat — cache corrupted</h1><p>An app-shell asset is missing from the local cache. Reinstall the app to continue. Your identity seed is safe.</p><p><strong>Missing:</strong> <code>' + event.request.url + '</code></p><button onclick="caches.keys().then(k=>Promise.all(k.map(c=>caches.delete(c)))).then(()=>navigator.serviceWorker.getRegistration()).then(r=>r&&r.unregister()).then(()=>location.reload())">Reinstall</button>';
     return new Response(body, {status: 503, headers: {'content-type': 'text/html; charset=utf-8'}});
   }
