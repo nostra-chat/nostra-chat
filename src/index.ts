@@ -489,6 +489,12 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
   // If this value is cached, and a different tab locks/unlocks, we'll see the wrong state of the app.
   await preventCrossTabDynamicImportDeadlock();
 
+  // Boot plumbing is complete — reveal whatever the app wants to render next
+  // (passcode screen, onboarding, or the chat list). The splash was mounted
+  // inline in index.html; see the comment there for why we rely on an explicit
+  // hook rather than MutationObserver.
+  requestAnimationFrame(() => (window as any).__hideBootSplash?.());
+
   await PasscodeLockScreenController.waitForUnlock(async() => {
     rootScope.settings = await commonStateStorage.get('settings');
     themeController.setThemeListener();

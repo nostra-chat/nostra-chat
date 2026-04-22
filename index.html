@@ -81,28 +81,29 @@
       </div>
     </div>
     <script>
+      // Splash stays visible until src/index.ts calls window.__hideBootSplash().
+      // Early versions tried to MutationObserver for app-ready DOM markers, but
+      // Telegram Web K ships #auth-pages / #main-columns / #page-chats as static
+      // HTML wireframe wrappers in the body — the observer fired instantly,
+      // dropped the splash before the app had even parsed, and prod users saw a
+      // blank page. The explicit hook is the authoritative signal. 120s safety
+      // timer catches the pathological case where the main bundle never calls
+      // the hook (e.g. unhandled boot rejection); in that case the splash fades
+      // so the user is not trapped forever.
       (function(){
         var splash=document.getElementById('nostra-boot-splash');
         if(!splash)return;
-        var sel='#auth-pages,#main-columns,.sidebar-header,#page-chats,#page-signImport,#page-signQr';
-        var observer=null,slow=null,safety=null;
+        var slow=null,safety=null;
         function remove(){
           if(slow)clearTimeout(slow);
           if(safety)clearTimeout(safety);
-          if(observer)observer.disconnect();
+          if(!splash.parentNode)return;
           splash.classList.add('fade-out');
           setTimeout(function(){if(splash.parentNode)splash.parentNode.removeChild(splash);},300);
-        }
-        function check(){
-          if(document.querySelector(sel)){remove();return true;}
-          return false;
         }
         slow=setTimeout(function(){splash.classList.add('slow');},5000);
         safety=setTimeout(remove,120000);
         window.__hideBootSplash=remove;
-        if(check())return;
-        observer=new MutationObserver(check);
-        observer.observe(document.body,{childList:true,subtree:true});
       })();
     </script>
     <svg style="position: absolute; top: -10000px; left: -10000px;">
