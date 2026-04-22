@@ -69,6 +69,46 @@ function latestVersionSubtitle(snap: UpdateStateSnapshot): string {
   return I18n.format('Update.Value.UpToDate', true, [latest]);
 }
 
+function shortFingerprint(fp: string): string {
+  if(!fp) return '';
+  const clean = fp.replace(/\s/g, '');
+  if(clean.length <= 20) return clean;
+  return `${clean.slice(0, 8)}…${clean.slice(-8)}`;
+}
+
+function buildSignatureBlock(manifest: any, installedFingerprint: string | null): HTMLDivElement {
+  const block = document.createElement('div');
+  block.className = 'update-signature-block';
+  block.style.cssText = 'display:flex;flex-direction:column;gap:0.375rem;padding:0.25rem 1.5rem 0.75rem 4.5rem;font-size:0.875rem;color:var(--secondary-text-color)';
+
+  const fp: string | undefined = manifest?.signingKeyFingerprint;
+  const rotation: {newFingerprint?: string; effectiveAt?: string} | null = manifest?.rotation ?? null;
+
+  const makeRow = (icon: string, text: string): HTMLDivElement => {
+    const r = document.createElement('div');
+    r.style.cssText = 'display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;word-break:break-all';
+    r.textContent = `${icon} ${text}`;
+    return r;
+  };
+
+  if(fp) {
+    const matches = installedFingerprint && fp === installedFingerprint;
+    const icon = matches ? '✅' : (rotation ? '⚠️' : '🔑');
+    const suffix = matches ?
+      I18n.format('Update.Signature.MatchesInstalled', true) :
+      (installedFingerprint ? I18n.format('Update.Signature.DifferentFromInstalled', true) : '');
+    block.appendChild(makeRow(icon, `${I18n.format('Update.Signature.Fingerprint', true)}: ${shortFingerprint(fp)}${suffix ? ' — ' + suffix : ''}`));
+  } else {
+    block.appendChild(makeRow('ℹ️', I18n.format('Update.Signature.NoFingerprint', true)));
+  }
+
+  if(rotation?.newFingerprint) {
+    block.appendChild(makeRow('🔄', `${I18n.format('Update.Signature.Rotation', true)}: ${shortFingerprint(rotation.newFingerprint)}${rotation.effectiveAt ? ' (' + rotation.effectiveAt + ')' : ''}`));
+  }
+
+  return block;
+}
+
 function buildIntegrityDetailsBlock(details: IntegritySourceDetail[]): HTMLDivElement {
   const urlByName = new Map(MANIFEST_SOURCES.map((s) => [s.name, s.url]));
   const block = document.createElement('div');
@@ -190,6 +230,32 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
     });
     integritySection.content.append(pendingRow.container);
 
+    // Signature block — only rendered when a signed update is stashed in memory
+    // (i.e. after a probe detected a new version this session). The active
+    // installed version's key fingerprint comes from `getActiveVersion()`.
+    let signatureRow: Row | null = null;
+    let signatureBlock: HTMLDivElement | null = null;
+    const renderSignatureBlock = async() => {
+      signatureBlock?.remove();
+      signatureBlock = null;
+      signatureRow?.container.remove();
+      signatureRow = null;
+      const stash = (window as any).__nostraPendingUpdate;
+      const manifest = stash?.manifest;
+      if(!manifest) return;
+      const {getActiveVersion} = await import('@lib/serviceWorker/shell-cache');
+      const active = await getActiveVersion().catch(() => null);
+      signatureRow = new Row({
+        titleLangKey: 'Update.Row.PendingSignature',
+        subtitle: I18n.format('Update.Value.PendingSignatureFor', true, [manifest.version ?? '—']),
+        clickable: false
+      });
+      integritySection.content.append(signatureRow.container);
+      signatureBlock = buildSignatureBlock(manifest, active?.keyFingerprint ?? null);
+      signatureRow.container.after(signatureBlock);
+    };
+    renderSignatureBlock();
+
     // ── Notifications (snooze state) ────────────────────────────────────
     const notificationsSection = new SettingSection({name: 'Update.Section.Notifications'});
 
@@ -286,6 +352,7 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
         latestVersionRow.subtitle.textContent = latestVersionSubtitle(latest);
         renderDetails(latest.lastIntegrityDetails);
         refreshInstallBtn();
+        await renderSignatureBlock();
         toast(I18n.format('Update.Action.CheckComplete', true));
       } catch(err) {
         toast(I18n.format('Update.Action.CheckFailed', true, [err instanceof Error ? err.message : String(err)]));
@@ -296,26 +363,50 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
     }, {listenerSetter: this.listenerSetter});
     actionsSection.content.append(checkBtn);
 
-    const resetBtn = Button('btn-primary btn-color-primary danger');
-    resetBtn.textContent = I18n.format('Update.Action.ResetBaseline', true);
-    resetBtn.style.marginTop = '0.5rem';
-    attachClickEvent(resetBtn, async() => {
-      try {
-        await confirmationPopup({
-          titleLangKey: 'Update.Action.ResetBaseline',
-          descriptionLangKey: 'Update.Reset.Description',
-          button: {
-            text: document.createTextNode(I18n.format('Update.Action.ResetAndReload', true)),
-            isDanger: true
-          }
-        });
-      } catch{
-        return; // user canceled
-      }
-      resetBaseline();
-      window.location.reload();
-    }, {listenerSetter: this.listenerSetter});
-    actionsSection.content.append(resetBtn);
+    // ── Verification sources ────────────────────────────────────────────
+    const sourcesSection = new SettingSection({
+      name: 'Update.Section.Sources',
+      caption: 'Update.Sources.Caption'
+    });
+    for(const s of MANIFEST_SOURCES) {
+      const row = new Row({
+        title: s.name,
+        subtitle: s.url,
+        clickable: () => window.open(s.url, '_blank', 'noopener,noreferrer'),
+        listenerSetter: this.listenerSetter
+      });
+      applyFullUrlStyle(row);
+      sourcesSection.content.append(row.container);
+    }
+
+    // ── Advanced (recovery) ─────────────────────────────────────────────
+    const advancedSection = new SettingSection({
+      name: 'Update.Section.Advanced',
+      caption: 'Update.Advanced.Caption'
+    });
+    const resetRow = new Row({
+      titleLangKey: 'Update.Action.ResetBaseline',
+      subtitleLangKey: 'Update.Row.ResetBaseline.Subtitle',
+      icon: 'restore',
+      clickable: async() => {
+        try {
+          await confirmationPopup({
+            titleLangKey: 'Update.Action.ResetBaseline',
+            descriptionLangKey: 'Update.Reset.Description',
+            button: {
+              text: document.createTextNode(I18n.format('Update.Action.ResetAndReload', true)),
+              isDanger: true
+            }
+          });
+        } catch{
+          return;
+        }
+        resetBaseline();
+        window.location.reload();
+      },
+      listenerSetter: this.listenerSetter
+    });
+    advancedSection.content.append(resetRow.container);
 
     // ── About this protection ───────────────────────────────────────────
     const helpSection = new SettingSection({name: 'Update.Section.About'});
@@ -339,6 +430,8 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
       integritySection.container,
       notificationsSection.container,
       actionsSection.container,
+      sourcesSection.container,
+      advancedSection.container,
       helpSection.container
     );
   }
