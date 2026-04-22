@@ -198,6 +198,7 @@ export class NostraOnboarding {
     grid.classList.add('nostra-seed-grid');
 
     const inputs: HTMLInputElement[] = [];
+    const fields: HTMLDivElement[] = [];
     const words: string[] = Array(12).fill('');
 
     for(let i = 0; i < 12; i++) {
@@ -211,12 +212,15 @@ export class NostraOnboarding {
       const input = document.createElement('input');
       input.type = 'text';
       input.autocomplete = 'off';
+      input.spellcheck = false;
       input.setAttribute('autocapitalize', 'none');
+      input.setAttribute('autocorrect', 'off');
       input.classList.add('nostra-seed-input');
 
       field.append(label, input);
       grid.append(field);
       inputs.push(input);
+      fields.push(field);
     }
 
     const errorEl = document.createElement('div');
@@ -238,6 +242,9 @@ export class NostraOnboarding {
       const allFilled = words.every(w => w.length > 0);
       const valid = allFilled && validateMnemonic(mnemonic);
       btnContinue.disabled = !valid;
+      for(let i = 0; i < 12; i++) {
+        fields[i].classList.toggle('is-filled', words[i].length > 0);
+      }
       if(allFilled && !valid) {
         errorEl.textContent = 'Invalid seed phrase. Please check your words.';
       } else {
