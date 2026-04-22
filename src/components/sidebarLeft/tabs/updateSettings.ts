@@ -20,6 +20,18 @@ import {
   type IntegritySourceDetail
 } from '@lib/update/update-baseline';
 import {MANIFEST_SOURCES} from '@lib/update/manifest-verifier';
+import {getSnoozeInfo, clearSnooze} from '@lib/update/update-popup-controller';
+
+function formatAbsoluteDateTime(tsMs: number): string {
+  try {
+    return new Date(tsMs).toLocaleString(undefined, {
+      year: 'numeric', month: 'short', day: '2-digit',
+      hour: '2-digit', minute: '2-digit'
+    });
+  } catch{
+    return new Date(tsMs).toISOString();
+  }
+}
 
 function formatRelativeTime(tsMs: number): string {
   const diff = Date.now() - tsMs;
@@ -178,8 +190,78 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
     });
     integritySection.content.append(pendingRow.container);
 
+    // ── Notifications (snooze state) ────────────────────────────────────
+    const notificationsSection = new SettingSection({name: 'Update.Section.Notifications'});
+
+    const snoozeSubtitle = () => {
+      const info = getSnoozeInfo();
+      return info ?
+        I18n.format('Update.Value.SnoozeActive', true, [info.version, formatAbsoluteDateTime(info.until)]) :
+        I18n.format('Update.Value.SnoozeInactive', true);
+    };
+    const snoozeRow = new Row({
+      titleLangKey: 'Update.Row.SnoozeStatus',
+      subtitle: snoozeSubtitle(),
+      clickable: false
+    });
+    snoozeRow.subtitle.style.whiteSpace = 'normal';
+    notificationsSection.content.append(snoozeRow.container);
+
+    const clearSnoozeBtn = Button('btn-primary btn-color-primary');
+    clearSnoozeBtn.textContent = I18n.format('Update.Action.ClearSnooze', true);
+    clearSnoozeBtn.style.marginTop = '0.5rem';
+    const refreshSnoozeUI = () => {
+      const info = getSnoozeInfo();
+      snoozeRow.subtitle.textContent = snoozeSubtitle();
+      clearSnoozeBtn.style.display = info ? '' : 'none';
+    };
+    refreshSnoozeUI();
+    attachClickEvent(clearSnoozeBtn, async() => {
+      try {
+        await confirmationPopup({
+          titleLangKey: 'Update.Confirm.ClearSnoozeTitle',
+          descriptionLangKey: 'Update.Confirm.ClearSnoozeDescription',
+          button: {text: document.createTextNode(I18n.format('Update.Action.ClearSnooze', true))}
+        });
+      } catch{
+        return;
+      }
+      clearSnooze();
+      refreshSnoozeUI();
+      toast(I18n.format('Update.Action.SnoozeCleared', true));
+    }, {listenerSetter: this.listenerSetter});
+    notificationsSection.content.append(clearSnoozeBtn);
+
     // ── Actions ──────────────────────────────────────────────────────────
     const actionsSection = new SettingSection({name: 'Update.Section.Actions'});
+
+    // "Install now" — visible only when a signed manifest is stashed in memory
+    // (populated by `update-popup-controller` on `update_available_signed`).
+    // Falls back to a toast if the user hasn't run a check yet this session.
+    const installBtn = Button('btn-primary btn-color-primary');
+    installBtn.textContent = I18n.format('Update.Action.InstallNow', true);
+    installBtn.style.marginBottom = '0.5rem';
+    const refreshInstallBtn = () => {
+      const stash = (window as any).__nostraPendingUpdate;
+      const hasStash = !!(stash && stash.manifest && stash.signature);
+      installBtn.style.display = hasStash ? '' : 'none';
+    };
+    refreshInstallBtn();
+    attachClickEvent(installBtn, async() => {
+      const stash = (window as any).__nostraPendingUpdate;
+      if(!stash || !stash.manifest || !stash.signature) {
+        toast(I18n.format('Update.Action.InstallNoneAvailable', true));
+        refreshInstallBtn();
+        return;
+      }
+      try {
+        const {showUpdateConsentPopup} = await import('@components/popups/updateConsent/mount');
+        await showUpdateConsentPopup(stash.manifest, stash.signature);
+      } catch(err) {
+        toast(I18n.format('Update.Action.InstallFailed', true, [err instanceof Error ? err.message : String(err)]));
+      }
+    }, {listenerSetter: this.listenerSetter});
+    actionsSection.content.append(installBtn);
 
     const checkBtnLabel = I18n.format('Update.Action.CheckForUpdates', true);
     const checkBtn = Button('btn-primary btn-color-primary');
@@ -189,7 +271,9 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
       checkBtn.textContent = I18n.format('Update.Action.Checking', true);
       try {
         await runNetworkChecks({force: true});
-        // Also trigger consent-gated probe (signature verify + downgrade check)
+        // Also trigger consent-gated probe (signature verify + downgrade check).
+        // If this finds an update, it dispatches `update_available_signed` which
+        // populates `window.__nostraPendingUpdate` — making "Install now" actionable.
         const {runProbeIfDue} = await import('@lib/update/update-popup-controller');
         await runProbeIfDue(true).catch((e) => console.warn('[update] probe failed', e));
         const latest = await getUpdateStateSnapshot();
@@ -201,6 +285,7 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
         }
         latestVersionRow.subtitle.textContent = latestVersionSubtitle(latest);
         renderDetails(latest.lastIntegrityDetails);
+        refreshInstallBtn();
         toast(I18n.format('Update.Action.CheckComplete', true));
       } catch(err) {
         toast(I18n.format('Update.Action.CheckFailed', true, [err instanceof Error ? err.message : String(err)]));
@@ -252,6 +337,7 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
     this.scrollable.append(
       infoSection.container,
       integritySection.container,
+      notificationsSection.container,
       actionsSection.container,
       helpSection.container
     );
