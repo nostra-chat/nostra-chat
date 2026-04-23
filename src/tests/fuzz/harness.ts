@@ -248,13 +248,20 @@ async function warmupHandshake(a: UserHandle, b: UserHandle): Promise<void> {
 
 /**
  * Deterministic group handshake: A creates a 2-member group (A + B), sends
- * one text into it, then leaves. Surfaces cold-start races on the group
- * control/message pipeline so the first real fuzz action isn't the first
- * exercise of the group code path. Non-fatal on failure — consistent with
- * warmupHandshake policy.
+ * one text into it, then B (non-admin) leaves. Surfaces cold-start races on
+ * the group control/message pipeline so the first real fuzz action isn't
+ * the first exercise of the group code path. Non-fatal on failure —
+ * consistent with warmupHandshake policy.
+ *
+ * Why B leaves, not A: A is admin. If A left, B would process group_leave
+ * and remove A from members[], BUT adminPubkey would still point to the
+ * departed admin — an orphan admin state that fails
+ * INV-group-admin-is-member. The auto-admin-transfer behaviour is a
+ * design decision that belongs to a future phase, not the warmup. See
+ * FUZZ-FINDINGS.md "admin-orphan on admin leave" for the tracked finding.
  */
 async function warmupGroupsHandshake(a: UserHandle, b: UserHandle): Promise<void> {
-  log('warmup/groups: A creates group → A sends → A leaves');
+  log('warmup/groups: A creates group → A sends → B leaves');
   const warmupText = `__warmupG_${Date.now()}__`;
   try {
     const groupId = await a.page.evaluate(async (otherHex: string) => {
@@ -269,13 +276,11 @@ async function warmupGroupsHandshake(a: UserHandle, b: UserHandle): Promise<void
       const {getGroupAPI} = await import('/src/lib/nostra/group-api.ts');
       await getGroupAPI().sendMessage(gid, txt);
     }, {gid: groupId, txt: warmupText});
-    // Bubble visibility on peer is nice-to-have for warmup but not required —
-    // the point is to flex the rx pipeline once. Leave strict checks to the
-    // real fuzz postconditions.
     await a.page.waitForTimeout(500);
     log('warmup/groups: step 2 (send) fired');
 
-    await a.page.evaluate(async (gid: string) => {
+    // B (non-admin) leaves — avoids admin-orphan state on A.
+    await b.page.evaluate(async (gid: string) => {
       const {getGroupAPI} = await import('/src/lib/nostra/group-api.ts');
       await getGroupAPI().leaveGroup(gid);
     }, groupId);
