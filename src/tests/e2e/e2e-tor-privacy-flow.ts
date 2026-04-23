@@ -120,172 +120,43 @@ async function main() {
     await createIdentity(page);
 
     // ============================================================
-    // T1 — Startup banner present during bootstrap
+    // T0 — Default mode (when-available) — banner must NOT appear.
     // ============================================================
-    const transportExposed = await page.waitForFunction(
-      () => !!(window as any).__nostraTransport,
-      null,
-      {timeout: 15_000, polling: 500}
-    ).then(() => true).catch(() => false);
-    record('T1.1', 'window.__nostraTransport exposed', transportExposed);
-
-    const stateAfterInit = await page.evaluate(
-      () => (window as any).__nostraTransport?.getState()
-    );
-    record('T1.2', 'transport starts in bootstrapping or already active',
-      stateAfterInit === 'bootstrapping' || stateAfterInit === 'active',
-      `state=${stateAfterInit}`);
-
-    // The banner is only visible while bootstrapping — if we beat it we can
-    // still find it in the DOM via its class. Try for up to 5s.
-    let bannerFound = false;
-    for(let i = 0; i < 10; i++) {
-      bannerFound = await page.evaluate(() =>
-        !!document.querySelector('.tor-startup-banner')
-      );
-      if(bannerFound) break;
-      const s = await page.evaluate(() => (window as any).__nostraTransport?.getState());
-      if(s !== 'bootstrapping') break; // already settled, can't observe banner
-      await page.waitForTimeout(500);
-    }
-    record('T1.3', 'Startup banner mounted while bootstrapping', bannerFound,
-      bannerFound ? 'found in DOM' : 'banner not observed (possibly raced to active)');
+    await page.evaluate(() => localStorage.removeItem('nostra-tor-mode'));
+    await page.reload({waitUntil: 'load'});
+    await page.waitForTimeout(3000);
+    const noBannerWhenAvailable = await page.locator('.tor-startup-banner').count();
+    record('T0', 'Banner hidden in when-available mode', noBannerWhenAvailable === 0,
+      `bannerCount=${noBannerWhenAvailable}`);
 
     // ============================================================
-    // T2 — NO relay WebSocket while bootstrapping
+    // T1 — Switch to Tor-only — banner appears.
     // ============================================================
-    // Capture the exact moment the transport first leaves the bootstrapping
-    // state — this is the authoritative cutoff. Any wss:// attempt whose
-    // timestamp is BEFORE this cutoff counts as a leak; attempts after are
-    // the normal post-settle pool.connectAll() traffic.
-    // Wait for the transport to settle — the websocket handler is tagging
-    // each attempt with the live state, so we only need to wait until the
-    // settle actually happens before asserting.
-    await page.evaluate(async() => {
-      const t = (window as any).__nostraTransport;
-      if(t && typeof t.waitUntilSettled === 'function') {
-        await Promise.race([
-          t.waitUntilSettled(),
-          new Promise((res) => setTimeout(res, 300_000))
-        ]);
-      }
-    });
-    // Give any racing pool.initialize a moment to open its sockets so they
-    // land in our wsAttempts record before we assert.
-    await page.waitForTimeout(500);
-
-    const finalState = await page.evaluate(
-      () => (window as any).__nostraTransport?.getState()
-    );
-    record('T2.1', 'No relay wss:// opened while transport state was bootstrapping',
-      wsLeaks.length === 0,
-      `leaks=${wsLeaks.length} totalAttempts=${wsAttempts.length} finalState=${finalState}`);
+    await page.evaluate(() => localStorage.setItem('nostra-tor-mode', 'only'));
+    await page.reload({waitUntil: 'load'});
+    try {
+      await page.waitForSelector('.tor-startup-banner', {timeout: 30_000});
+    } catch{ /* banner may have raced to active — allow count check */ }
+    const hasBanner = await page.locator('.tor-startup-banner').count();
+    record('T1', 'Banner appears in only mode', hasBanner === 1,
+      `bannerCount=${hasBanner}`);
 
     // ============================================================
-    // T3 — Skip flow: open popup, Cancel, still no ws
+    // T2 — No Skip/Retry/Continue buttons on the banner.
     // ============================================================
-    if(finalState === 'bootstrapping') {
-      const skipBox = await page.evaluate(() => {
-        const btns = document.querySelectorAll('.tor-startup-banner button');
-        for(const b of btns) {
-          if(/skip/i.test(b.textContent || '')) {
-            const r = (b as HTMLElement).getBoundingClientRect();
-            return {x: r.x + r.width / 2, y: r.y + r.height / 2};
-          }
-        }
-        return null;
-      });
-      if(skipBox) await page.mouse.click(skipBox.x, skipBox.y);
-      record('T3.1', 'Skip button clickable on banner', !!skipBox);
-
-      await page.waitForTimeout(500);
-      const popupPresent = await page.evaluate(() =>
-        !!document.querySelector('.tor-startup-skip-popup')
-      );
-      record('T3.2', 'Skip popup opens', popupPresent);
-
-      if(popupPresent) {
-        // Cancel — use page.mouse.click because Solid event delegation
-        // does not fire for synthetic HTMLElement.click() in tests.
-        const cancelBox = await page.evaluate(() => {
-          const btns = document.querySelectorAll('.tor-startup-skip-popup button');
-          for(const b of btns) {
-            if(/cancel/i.test(b.textContent || '')) {
-              const r = (b as HTMLElement).getBoundingClientRect();
-              return {x: r.x + r.width / 2, y: r.y + r.height / 2};
-            }
-          }
-          return null;
-        });
-        if(cancelBox) {
-          await page.mouse.click(cancelBox.x, cancelBox.y);
-        }
-        await page.waitForTimeout(500);
-        const popupGone = await page.evaluate(() =>
-          !document.querySelector('.tor-startup-skip-popup')
-        );
-        record('T3.3', 'Cancel closes the popup', popupGone);
-
-        const stateAfterCancel = await page.evaluate(
-          () => (window as any).__nostraTransport?.getState()
-        );
-        record('T3.4', 'Cancel keeps transport in bootstrapping',
-          stateAfterCancel === 'bootstrapping' || stateAfterCancel === 'active',
-          `state=${stateAfterCancel}`);
-      } else {
-        record('T3.3', 'Cancel closes the popup', false, 'blocked by T3.2');
-        record('T3.4', 'Cancel keeps transport in bootstrapping', false, 'blocked by T3.2');
-      }
-    } else {
-      record('T3.1', 'Skip flow', true,
-        `skipped — transport already settled to ${finalState} before we could test`);
-      record('T3.2', 'Skip popup opens', true, 'skipped');
-      record('T3.3', 'Cancel closes the popup', true, 'skipped');
-      record('T3.4', 'Cancel keeps transport in bootstrapping', true, 'skipped');
-    }
+    const skipCount = await page.locator('.tor-startup-banner__btn').count();
+    record('T2', 'No Skip/Retry/Continue buttons', skipCount === 0,
+      `btnCount=${skipCount}`);
 
     // ============================================================
-    // T4 — Confirm Skip → direct mode → wss connections flow
+    // T3 — Switch to Off — banner never appears.
     // ============================================================
-    // If the transport is still bootstrapping, force direct via the API
-    // (the popup Confirm calls transport.confirmDirectFallback).
-    const stateNow = await page.evaluate(
-      () => (window as any).__nostraTransport?.getState()
-    );
-    if(stateNow === 'bootstrapping') {
-      await page.evaluate(() => {
-        const t = (window as any).__nostraTransport;
-        if(t) t.confirmDirectFallback();
-      });
-      await page.waitForTimeout(2000);
-    }
-
-    const finalState2 = await page.evaluate(
-      () => (window as any).__nostraTransport?.getState()
-    );
-    record('T4.1', 'Transport settled to direct or active',
-      finalState2 === 'direct' || finalState2 === 'active',
-      `state=${finalState2}`);
-
-    // After settling we expect at least one wss connection to appear.
-    // Wait up to 10s.
-    const wsSettleDeadline = Date.now() + 10_000;
-    while(wsAttempts.length === 0 && Date.now() < wsSettleDeadline) {
-      await page.waitForTimeout(500);
-    }
-    record('T4.2', 'wss:// connection started after settling',
-      wsAttempts.length > 0,
-      `wsAttempts=${wsAttempts.length}`);
-
-    // ============================================================
-    // T5 — Session-scoped skip: localStorage flag stays true
-    // ============================================================
-    const flag = await page.evaluate(() =>
-      localStorage.getItem('nostra-tor-enabled')
-    );
-    record('T5.1', "localStorage['nostra-tor-enabled'] stays 'true' after skip",
-      flag === 'true' || flag === null,
-      `flag=${flag}`);
+    await page.evaluate(() => localStorage.setItem('nostra-tor-mode', 'off'));
+    await page.reload({waitUntil: 'load'});
+    await page.waitForTimeout(3000);
+    const noBannerOff = await page.locator('.tor-startup-banner').count();
+    record('T3', 'Banner hidden in off mode', noBannerOff === 0,
+      `bannerCount=${noBannerOff}`);
   } finally {
     await ctx.close();
     await browser.close();

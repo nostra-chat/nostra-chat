@@ -175,34 +175,6 @@ describe('PrivacyTransport circuit event dispatch', () => {
   });
 });
 
-describe('PrivacyTransport.setTorEnabled()', () => {
-  it('should persist tor enabled state to localStorage', () => {
-    localStorage.setItem('nostra-tor-enabled', 'true');
-    expect(localStorage.getItem('nostra-tor-enabled')).toBe('true');
-
-    localStorage.setItem('nostra-tor-enabled', 'false');
-    expect(localStorage.getItem('nostra-tor-enabled')).toBe('false');
-
-    localStorage.removeItem('nostra-tor-enabled');
-  });
-
-  it('should read isTorEnabled() from localStorage defaulting to true', async() => {
-    localStorage.removeItem('nostra-tor-enabled');
-
-    const {PrivacyTransport} = await import('@lib/nostra/privacy-transport');
-
-    expect(PrivacyTransport.isTorEnabled()).toBe(true);
-
-    localStorage.setItem('nostra-tor-enabled', 'false');
-    expect(PrivacyTransport.isTorEnabled()).toBe(false);
-
-    localStorage.setItem('nostra-tor-enabled', 'true');
-    expect(PrivacyTransport.isTorEnabled()).toBe(true);
-
-    localStorage.removeItem('nostra-tor-enabled');
-  });
-});
-
 describe('PrivacyTransport.readMode — migration shim', () => {
   beforeEach(() => {
     localStorage.removeItem('nostra-tor-mode');
@@ -307,6 +279,7 @@ describe('PrivacyTransport (with mocked rootScope)', () => {
     vi.resetModules();
     vi.restoreAllMocks();
     localStorage.removeItem('nostra-tor-enabled');
+    localStorage.removeItem('nostra-tor-mode');
   });
 
   beforeEach(() => {
@@ -334,76 +307,7 @@ describe('PrivacyTransport (with mocked rootScope)', () => {
     };
 
     localStorage.removeItem('nostra-tor-enabled');
-  });
-
-  // ── setTorEnabled() ──────────────────────────────────────────────────────
-
-  it('setTorEnabled(false) calls confirmDirectFallback which calls pool.setDirectMode()', async() => {
-    const transport = new PrivacyTransport(mockPool, mockQueue, mockWebtorClient);
-    await transport.setTorEnabled(false);
-
-    expect(mockPool.setDirectMode).toHaveBeenCalled();
-    expect(transport.getState()).toBe('direct');
-  });
-
-  it('setTorEnabled(false) persists false to localStorage', async() => {
-    const transport = new PrivacyTransport(mockPool, mockQueue, mockWebtorClient);
-    await transport.setTorEnabled(false);
-
-    expect(localStorage.getItem('nostra-tor-enabled')).toBe('false');
-  });
-
-  it('setTorEnabled(true) persists true to localStorage', async() => {
-    // setTorEnabled(true) → retryTor() which calls new WebtorClient() internally.
-    // We pass a pre-made mockWebtorClient as the 3rd constructor arg so
-    // the initial transport uses it. retryTor() however creates a NEW WebtorClient.
-    // We can't easily override the constructor via ES module live binding.
-    // Instead: verify localStorage is written before retryTor's async work completes.
-    const transport = new PrivacyTransport(mockPool, mockQueue, mockWebtorClient);
-
-    // setTorEnabled writes to localStorage synchronously before calling retryTor
-    // We spy on retryTor to prevent the actual bootstrap attempt
-    const retryTorSpy = vi.spyOn(transport, 'retryTor').mockResolvedValue(undefined);
-
-    await transport.setTorEnabled(true);
-    expect(localStorage.getItem('nostra-tor-enabled')).toBe('true');
-    expect(retryTorSpy).toHaveBeenCalled();
-  });
-
-  it('setTorEnabled(true) calls retryTor()', async() => {
-    const transport = new PrivacyTransport(mockPool, mockQueue, mockWebtorClient);
-    const retryTorSpy = vi.spyOn(transport, 'retryTor').mockResolvedValue(undefined);
-
-    await transport.setTorEnabled(true);
-
-    expect(retryTorSpy).toHaveBeenCalled();
-  });
-
-  it('setTorEnabled(true) with mocked retryTor that succeeds sets state to active', async() => {
-    const transport = new PrivacyTransport(mockPool, mockQueue, mockWebtorClient);
-
-    vi.spyOn(transport, 'retryTor').mockImplementation(async() => {
-      (transport as any).state = 'active';
-      mockPool.setTorMode(vi.fn());
-    });
-
-    await transport.setTorEnabled(true);
-
-    expect(transport.getState()).toBe('active');
-    expect(mockPool.setTorMode).toHaveBeenCalled();
-  });
-
-  it('setTorEnabled(true) with mocked retryTor that fails sets state to failed', async() => {
-    const transport = new PrivacyTransport(mockPool, mockQueue, mockWebtorClient);
-
-    vi.spyOn(transport, 'retryTor').mockImplementation(async() => {
-      (transport as any).state = 'failed';
-    });
-
-    await transport.setTorEnabled(true);
-
-    expect(transport.getState()).toBe('failed');
-    expect(mockPool.setTorMode).not.toHaveBeenCalled();
+    localStorage.removeItem('nostra-tor-mode');
   });
 
   // ── circuit event wiring ────────────────────────────────────────────────
@@ -447,74 +351,16 @@ describe('PrivacyTransport (with mocked rootScope)', () => {
     );
   });
 
-  // ── state transitions ───────────────────────────────────────────────────
+  // ── runtime state transitions ──────────────────────────────────────────
+  // Legacy `state` / `confirmDirectFallback` / `retryTor` tests removed —
+  // see tor-bootstrap.test.ts for the mode-dispatched runtime-state tests.
 
-  it('bootstrap() success transitions offline → bootstrapping → active', async() => {
+  it('disconnect() resets runtime state to offline and calls pool.disconnect()', () => {
     const transport = new PrivacyTransport(mockPool, mockQueue, mockWebtorClient);
-    expect(transport.getState()).toBe('offline');
-
-    await transport.bootstrap();
-
-    expect(transport.getState()).toBe('active');
-    // dispatchEvent called for bootstrapping then active
-    const calls = mockRootScope.dispatchEvent.mock.calls
-    .filter(c => c[0] === 'nostra_tor_state')
-    .map(c => c[1].state);
-    expect(calls).toContain('bootstrapping');
-    expect(calls).toContain('active');
-  });
-
-  it('bootstrap() failure transitions offline → bootstrapping → failed', async() => {
-    const failingClient = {
-      ...mockWebtorClient,
-      bootstrap: vi.fn().mockRejectedValue(new Error('Network timeout'))
-    };
-    const transport = new PrivacyTransport(mockPool, mockQueue, failingClient);
-
-    await transport.bootstrap();
-
-    expect(transport.getState()).toBe('failed');
-  });
-
-  it('confirmDirectFallback() sets state to direct and calls pool.setDirectMode()', () => {
-    const transport = new PrivacyTransport(mockPool, mockQueue, mockWebtorClient);
-    transport.confirmDirectFallback();
-
-    expect(transport.getState()).toBe('direct');
-    expect(mockPool.setDirectMode).toHaveBeenCalled();
-  });
-
-  it('disconnect() sets state to offline and calls pool.disconnect()', () => {
-    const transport = new PrivacyTransport(mockPool, mockQueue, mockWebtorClient);
-    // Force non-offline state so setState fires
-    (transport as any).state = 'direct';
-
     transport.disconnect();
 
-    expect(transport.getState()).toBe('offline');
+    expect(transport.getRuntimeState()).toBe('offline');
     expect(mockPool.disconnect).toHaveBeenCalled();
-  });
-
-  it('bootstrap() with isReady()=false sets state to failed without calling setTorMode', async() => {
-    const notReadyClient = {
-      ...mockWebtorClient,
-      bootstrap: vi.fn().mockResolvedValue(undefined),
-      isReady: vi.fn().mockReturnValue(false)
-    };
-    const transport = new PrivacyTransport(mockPool, mockQueue, notReadyClient);
-
-    await transport.bootstrap();
-
-    expect(transport.getState()).toBe('failed');
-    expect(mockPool.setTorMode).not.toHaveBeenCalled();
-  });
-
-  it('bootstrap() success calls pool.setTorMode with a fetch function', async() => {
-    const transport = new PrivacyTransport(mockPool, mockQueue, mockWebtorClient);
-
-    await transport.bootstrap();
-
-    expect(mockPool.setTorMode).toHaveBeenCalledWith(expect.any(Function));
   });
 });
 

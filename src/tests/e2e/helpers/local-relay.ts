@@ -130,7 +130,10 @@ export class LocalRelay {
       // initGlobalSubscription gated on a promise that never resolves. Without
       // this, the receiving peer's relay pool never comes up and receive-side
       // tests flake. Tor-specific tests (e2e-tor-*) do not use LocalRelay.
-      try { localStorage.setItem('nostra-tor-enabled', 'false'); } catch(e) {}
+      try {
+        localStorage.setItem('nostra-tor-mode', 'off');
+        localStorage.removeItem('nostra-tor-enabled');
+      } catch(e) {}
     `);
   }
 

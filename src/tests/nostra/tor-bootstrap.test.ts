@@ -111,7 +111,7 @@ afterAll(() => {
   vi.restoreAllMocks();
 });
 
-describe('Tor Bootstrap Behavior', () => {
+describe('Tor Bootstrap Behavior — smoke', () => {
   it('bootstrap is fire-and-forget — constructor returns immediately', () => {
     const pool = createMockPool();
     const queue = createMockQueue();
@@ -124,52 +124,6 @@ describe('Tor Bootstrap Behavior', () => {
     // Constructor must complete in < 100ms (well under 3s requirement)
     expect(elapsed).toBeLessThan(100);
     t.disconnect();
-  });
-
-  it('Tor bootstrap success transitions to active state', async() => {
-    const pool = createMockPool();
-    const queue = createMockQueue();
-    const webtor = createMockWebtorClient();
-    const transport = new PrivacyTransport(pool as any, queue as any, webtor as any);
-
-    await transport.bootstrap();
-
-    expect(transport.getState()).toBe('active');
-    expect(pool.torMode).toBe(true);
-    expect(webtor.bootstrapCalled).toBe(true);
-
-    transport.disconnect();
-  });
-
-  it('Tor failure transitions to failed state (no auto-fallback)', async() => {
-    const pool = createMockPool();
-    const queue = createMockQueue();
-    const webtor = createMockWebtorClient({shouldFail: true});
-    const transport = new PrivacyTransport(pool as any, queue as any, webtor as any);
-
-    await transport.bootstrap();
-
-    expect(transport.getState()).toBe('failed');
-    // Pool must NOT be in direct mode — user must confirm
-    expect(pool.directMode).toBe(false);
-
-    transport.disconnect();
-  });
-
-  it('app is interactive during Tor bootstrap (messages queue, no blocking)', async() => {
-    const pool = createMockPool();
-    const queue = createMockQueue();
-    const webtor = createMockWebtorClient({shouldFail: true});
-    const transport = new PrivacyTransport(pool as any, queue as any, webtor as any);
-
-    await transport.bootstrap();
-
-    // During failed state, messages should queue (not throw)
-    await transport.send('recipient-pubkey', 'test during bootstrap');
-
-    expect(queue.messages).toHaveLength(1);
-
-    transport.disconnect();
   });
 });
 

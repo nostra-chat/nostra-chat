@@ -69,7 +69,7 @@ async function createIdentity(page) {
 
 async function waitForState(page, target: string, timeoutMs: number) {
   return page.waitForFunction(
-    (t) => (window as any).__nostraTransport?.getState() === t,
+    (t) => (window as any).__nostraTransport?.getRuntimeState() === t,
     target,
     {timeout: timeoutMs, polling: 1000}
   );
@@ -151,29 +151,29 @@ async function main() {
     ).then(() => true).catch(() => false);
     record('T2.1', 'window.__nostraTransport exposed within 15s', transportExposed);
 
-    // The state should be either 'bootstrapping' or 'active' (if very fast) within 10s
+    // The state should be either 'booting' or 'tor-active' (if very fast) within 10s
     let firstObservedState: string | null = null;
     try {
       await page.waitForFunction(
         () => {
-          const s = (window as any).__nostraTransport?.getState();
-          return s === 'bootstrapping' || s === 'active' || s === 'failed';
+          const s = (window as any).__nostraTransport?.getRuntimeState();
+          return s === 'booting' || s === 'tor-active' || s === 'direct-active';
         },
         null,
         {timeout: 10_000, polling: 250}
       );
-      firstObservedState = await page.evaluate(() => (window as any).__nostraTransport?.getState());
+      firstObservedState = await page.evaluate(() => (window as any).__nostraTransport?.getRuntimeState());
     } catch{}
-    record('T2.2', 'Bootstrap initiated (state ∈ {bootstrapping, active, failed}) within 10s',
+    record('T2.2', 'Bootstrap initiated (state ∈ {booting, tor-active, direct-active}) within 10s',
       firstObservedState !== null && firstObservedState !== 'offline',
       `state=${firstObservedState}`);
 
     // ============================================================
-    // T3 — Real Tor circuit reaches "active"
+    // T3 — Real Tor circuit reaches "tor-active"
     // ============================================================
     let reachedActive = false;
     try {
-      await waitForState(page, 'active', BOOTSTRAP_TIMEOUT_MS);
+      await waitForState(page, 'tor-active', BOOTSTRAP_TIMEOUT_MS);
       reachedActive = true;
     } catch(err) {
       // Capture diagnostic info on timeout
@@ -181,7 +181,7 @@ async function main() {
         const t = (window as any).__nostraTransport;
         const w = t?.webtorClient;
         return {
-          transportState: t?.getState?.() ?? 'no-transport',
+          transportState: t?.getRuntimeState?.() ?? 'no-transport',
           webtorState: w?.getStatus?.() ?? 'no-webtor',
           webtorReady: w?.isReady?.() ?? false,
           circuitDetails: w?.getCircuitDetails?.() ?? null,
@@ -280,16 +280,16 @@ async function main() {
     // T5 — Toggle off → direct fallback
     // ============================================================
     if(reachedActive) {
-      await page.evaluate(() => (window as any).__nostraTransport.setTorEnabled(false));
+      await page.evaluate(() => (window as any).__nostraTransport.setMode('off'));
       let reachedDirect = false;
       try {
-        await waitForState(page, 'direct', 5_000);
+        await waitForState(page, 'direct-active', 5_000);
         reachedDirect = true;
       } catch{}
-      record('T5.1', 'setTorEnabled(false) → state=direct within 5s', reachedDirect);
+      record('T5.1', "setMode('off') → state=direct-active within 5s", reachedDirect);
 
-      const lsValue = await page.evaluate(() => localStorage.getItem('nostra-tor-enabled'));
-      record('T5.2', "localStorage['nostra-tor-enabled'] === 'false'", lsValue === 'false',
+      const lsValue = await page.evaluate(() => localStorage.getItem('nostra-tor-mode'));
+      record('T5.2', "localStorage['nostra-tor-mode'] === 'off'", lsValue === 'off',
         `value=${lsValue}`);
     } else {
       record('T5.1', 'Toggle off → direct', false, 'blocked by T3.1');
@@ -302,27 +302,27 @@ async function main() {
     if(reachedActive) {
       // Don't await — retry is async and we want to observe transitions
       await page.evaluate(() => {
-        void (window as any).__nostraTransport.setTorEnabled(true);
+        void (window as any).__nostraTransport.setMode('only');
       });
 
       let reachedBootstrapping = false;
       try {
-        await waitForState(page, 'bootstrapping', 5_000);
+        await waitForState(page, 'booting', 5_000);
         reachedBootstrapping = true;
       } catch{
-        // It may have raced through bootstrapping straight to active — accept that too
-        const cur = await page.evaluate(() => (window as any).__nostraTransport?.getState());
-        if(cur === 'active') reachedBootstrapping = true;
+        // It may have raced through booting straight to tor-active — accept that too
+        const cur = await page.evaluate(() => (window as any).__nostraTransport?.getRuntimeState());
+        if(cur === 'tor-active') reachedBootstrapping = true;
       }
-      record('T6.1', 'setTorEnabled(true) → state=bootstrapping (or active) within 5s',
+      record('T6.1', "setMode('only') → state=booting (or tor-active) within 5s",
         reachedBootstrapping);
 
       let retryActive = false;
       try {
-        await waitForState(page, 'active', BOOTSTRAP_TIMEOUT_MS);
+        await waitForState(page, 'tor-active', BOOTSTRAP_TIMEOUT_MS);
         retryActive = true;
       } catch{}
-      record('T6.2', 'Retry reaches active again', retryActive);
+      record('T6.2', 'Retry reaches tor-active again', retryActive);
     } else {
       record('T6.1', 'Retry → bootstrapping', false, 'blocked by T3.1');
       record('T6.2', 'Retry → active', false, 'blocked by T3.1');
