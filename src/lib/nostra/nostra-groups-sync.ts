@@ -1,35 +1,42 @@
 /**
  * NostraGroupsSync
  *
- * Bridges GroupAPI ↔ display pipeline. Installs two callbacks on the
- * GroupAPI singleton:
+ * Bridges GroupAPI ↔ display pipeline for multi-party group messages.
+ * Installs two callbacks on the GroupAPI singleton:
  *
- *   - `onGroupMessage(groupId, rumor, senderPubkey)` — fired when an
- *     incoming gift-wrapped group message passes the sender/dedup checks
- *     in GroupAPI.handleIncomingGroupMessage. Persists the message to the
- *     IndexedDB message-store and dispatches `nostra_new_message` so the
- *     existing bubble-render pipeline (bubbles.ts listens) renders it.
+ *   - `onGroupMessage(groupId, rumor, senderPubkey)` — incoming group
+ *     messages from other members. Persists + renders the bubble on the
+ *     receiver side.
  *
- *   - `onOutgoingMessage({groupId, messageId, rumorId, …})` — fired
- *     synchronously from GroupAPI.sendMessage AFTER the wraps are built
- *     but BEFORE the relay publish completes. Persists the sender's own
- *     row with `isOutgoing: true` and dispatches the same ui event so
- *     the bubble appears immediately (parallel to the optimistic render
- *     path for DMs in appMessagesManager.sendText).
+ *   - `onOutgoingMessage({groupId, messageId, rumorId, …})` — own sends.
+ *     Persists + renders the sender-side optimistic bubble. The self-wrap
+ *     relay echo is dropped by GroupAPI.sentMessageIds dedup, so this
+ *     callback is the sole sender-side render path.
+ *
+ * Render pipeline (both paths):
+ *   1. Persist to IndexedDB message-store (keyed by eventId = rumor id).
+ *   2. Build a tweb Message via NostraPeerMapper (peerId = group peerId,
+ *      fromPeerId = sender's user peerId).
+ *   3. Write to `apiManagerProxy.mirrors.messages[<groupPeerId>_history][mid]`.
+ *   4. Push to Worker storage via `appMessagesManager.setMessageToStorage`.
+ *   5. `invalidateHistoryCache(groupPeerId)` so reopen-chat refetches.
+ *   6. Dispatch `history_append` for live render when chat is open.
+ *   7. Build tweb Dialog, dispatch `dialogs_multiupdate` TWICE (required
+ *      by the two-dispatch rule for synthetic dialogs).
  *
  * Before this module existed, `GroupAPI.onGroupMessage` was declared on
  * the class but never assigned anywhere — group messages reached
- * handleIncomingGroupMessage via chat-api-receive routing but were
- * silently dropped. FIND-dbe8fdd2 (POST-sendInGroup-bubble-on-sender)
- * documented this bug.
+ * `handleIncomingGroupMessage` but were silently dropped. FIND-dbe8fdd2.
  *
  * Call `initGroupsSync(ownPubkey, dispatch)` once GroupAPI has been
- * initialized. Safe to call again — idempotent overwrite of the callbacks.
+ * initialized.
  */
 
 import {NostraPeerMapper} from './nostra-peer-mapper';
 import {getMessageStore} from './message-store';
 import {groupIdToPeerId} from './group-types';
+import {MOUNT_CLASS_TO} from '@config/debug';
+import rootScope from '@lib/rootScope';
 
 const LOG_PREFIX = '[NostraGroupsSync]';
 
@@ -57,12 +64,64 @@ function parseGroupRumorContent(raw: string): ParsedGroupRumor | null {
   }
 }
 
+async function injectGroupMessageIntoMirrors(
+  groupPeerId: number,
+  msg: any
+): Promise<void> {
+  const proxy = MOUNT_CLASS_TO.apiManagerProxy as any;
+  if(proxy?.mirrors?.messages) {
+    const storageKey = `${groupPeerId}_history`;
+    if(!proxy.mirrors.messages[storageKey]) proxy.mirrors.messages[storageKey] = {};
+    proxy.mirrors.messages[storageKey][msg.mid || msg.id] = msg;
+  }
+
+  try {
+    const storageKey = `${groupPeerId}_history` as any;
+    await rootScope.managers.appMessagesManager.setMessageToStorage(storageKey, msg);
+  } catch(e: any) {
+    console.debug(LOG_PREFIX, 'setMessageToStorage non-critical:', e?.message);
+  }
+}
+
+async function invalidateGroupHistoryCache(groupPeerId: number): Promise<void> {
+  try {
+    await rootScope.managers.appMessagesManager.invalidateHistoryCache(groupPeerId);
+  } catch(e: any) {
+    console.debug(LOG_PREFIX, 'invalidateHistoryCache non-critical:', e?.message);
+  }
+}
+
+function dispatchGroupHistoryAppend(groupPeerId: number, msg: any): void {
+  try {
+    rootScope.dispatchEvent('history_append' as any, {
+      storageKey: `${groupPeerId}_history`,
+      message: msg,
+      peerId: groupPeerId
+    });
+  } catch(e: any) {
+    console.debug(LOG_PREFIX, 'history_append dispatch non-critical:', e?.message);
+  }
+}
+
+function dispatchGroupDialogUpdate(groupPeerId: number, dialog: any): void {
+  const toPeerId = (Number.prototype as any).toPeerId;
+  const asPeerId = toPeerId ? (groupPeerId as any).toPeerId(true) : groupPeerId;
+  const dispatchOnce = () => {
+    try {
+      rootScope.dispatchEvent('dialogs_multiupdate' as any, new Map([[asPeerId, dialog]]));
+    } catch(e: any) {
+      console.debug(LOG_PREFIX, 'dialogs_multiupdate dispatch non-critical:', e?.message);
+    }
+  };
+  // Two-dispatch rule (see CLAUDE.md): first dispatch adds via sortedList.add,
+  // second hits the existing-dialog branch and renders the preview text.
+  dispatchOnce();
+  setTimeout(dispatchOnce, 500);
+}
+
 export function initGroupsSync(ownPubkey: string, dispatch: DispatchFn): void {
   const mapper = new NostraPeerMapper();
   const store = getMessageStore();
-  // Read the GroupAPI instance from window to avoid module-instance mismatch
-  // in Vite dev where relative vs aliased imports can resolve to different
-  // modules — callbacks set on a different instance would never fire.
   const api = typeof window !== 'undefined' ? (window as any).__nostraGroupAPI : null;
   if(!api) {
     console.warn(LOG_PREFIX, 'GroupAPI instance missing on window; bridge not wired');
@@ -73,26 +132,25 @@ export function initGroupsSync(ownPubkey: string, dispatch: DispatchFn): void {
   api.onGroupMessage = async(groupId: string, rumor: any, senderPubkey: string) => {
     const parsed = parseGroupRumorContent(rumor.content);
     if(!parsed) {
-      console.warn(LOG_PREFIX, 'received group rumor with unparseable content; dropping', {groupId, rumorId: rumor?.id});
+      console.warn(LOG_PREFIX, 'rx: rumor content unparseable; dropping', {groupId, rumorId: rumor?.id});
       return;
     }
-
     const {content, type, messageId, timestamp: appTsMs} = parsed;
     const rumorId: string = rumor.id;
-    // rumor.created_at is unix seconds; fall back to the payload ms timestamp / 1000.
     const timestampSec = typeof rumor.created_at === 'number' ?
       rumor.created_at :
       Math.floor((appTsMs || Date.now()) / 1000);
 
-    let peerId: number;
+    let groupPeerId: number;
     try {
-      peerId = await groupIdToPeerId(groupId);
+      groupPeerId = await groupIdToPeerId(groupId);
     } catch(err) {
-      console.warn(LOG_PREFIX, 'groupIdToPeerId failed; dropping', {groupId, err});
+      console.warn(LOG_PREFIX, 'rx: groupIdToPeerId failed; dropping', {groupId, err});
       return;
     }
 
     const mid = await mapper.mapEventId(rumorId, timestampSec);
+    const senderPeerId = await mapper.mapPubkey(senderPubkey);
 
     try {
       await store.saveMessage({
@@ -105,16 +163,39 @@ export function initGroupsSync(ownPubkey: string, dispatch: DispatchFn): void {
         timestamp: timestampSec,
         deliveryState: 'delivered',
         mid,
-        twebPeerId: peerId,
+        twebPeerId: groupPeerId,
         isOutgoing: false
       });
     } catch(err) {
-      console.warn(LOG_PREFIX, 'saveMessage (incoming) failed; dispatching anyway', {err});
+      console.warn(LOG_PREFIX, 'rx: saveMessage failed; continuing', {err});
     }
 
-    console.log(LOG_PREFIX, 'dispatching nostra_new_message (rx)', {peerId, mid, groupId: groupId.slice(0, 8)});
+    const msg = mapper.createTwebMessage({
+      mid,
+      peerId: groupPeerId,
+      fromPeerId: senderPeerId,
+      date: timestampSec,
+      text: content,
+      isOutgoing: false
+    });
+
+    await injectGroupMessageIntoMirrors(groupPeerId, msg);
+    await invalidateGroupHistoryCache(groupPeerId);
+    dispatchGroupHistoryAppend(groupPeerId, msg);
+
+    const dialog = mapper.createTwebDialog({
+      peerId: groupPeerId,
+      topMessage: mid,
+      topMessageDate: timestampSec,
+      unreadCount: 1
+    });
+    (dialog as any).topMessage = msg;
+    dispatchGroupDialogUpdate(groupPeerId, dialog);
+
+    // Also emit nostra_new_message for any downstream listeners (mesh signaling etc).
+    console.log(LOG_PREFIX, 'rx rendered', {groupPeerId, mid, groupId: groupId.slice(0, 8)});
     dispatch('nostra_new_message', {
-      peerId,
+      peerId: groupPeerId,
       mid,
       senderPubkey,
       message: {id: messageId, content, type, from: senderPubkey, timestamp: timestampSec, groupId},
@@ -134,11 +215,11 @@ export function initGroupsSync(ownPubkey: string, dispatch: DispatchFn): void {
     const {groupId, messageId, rumorId, content, timestamp, type} = info;
     const timestampSec = Math.floor((timestamp || Date.now()) / 1000);
 
-    let peerId: number;
+    let groupPeerId: number;
     try {
-      peerId = await groupIdToPeerId(groupId);
+      groupPeerId = await groupIdToPeerId(groupId);
     } catch(err) {
-      console.warn(LOG_PREFIX, 'groupIdToPeerId failed on outgoing; skipping', {groupId, err});
+      console.warn(LOG_PREFIX, 'tx: groupIdToPeerId failed; skipping', {groupId, err});
       return;
     }
 
@@ -146,7 +227,7 @@ export function initGroupsSync(ownPubkey: string, dispatch: DispatchFn): void {
     try {
       mid = await mapper.mapEventId(rumorId, timestampSec);
     } catch(err) {
-      console.warn(LOG_PREFIX, 'mapEventId failed on outgoing; skipping', {err});
+      console.warn(LOG_PREFIX, 'tx: mapEventId failed; skipping', {err});
       return;
     }
 
@@ -161,16 +242,38 @@ export function initGroupsSync(ownPubkey: string, dispatch: DispatchFn): void {
         timestamp: timestampSec,
         deliveryState: 'sent',
         mid,
-        twebPeerId: peerId,
+        twebPeerId: groupPeerId,
         isOutgoing: true
       });
     } catch(err) {
-      console.warn(LOG_PREFIX, 'saveMessage (outgoing) failed; dispatching anyway', {err});
+      console.warn(LOG_PREFIX, 'tx: saveMessage failed; continuing', {err});
     }
 
-    console.log(LOG_PREFIX, 'dispatching nostra_new_message (tx)', {peerId, mid, groupId: groupId.slice(0, 8)});
+    const msg = mapper.createTwebMessage({
+      mid,
+      peerId: groupPeerId,
+      // fromPeerId omitted for outgoing — pFlags.out = true is the signal.
+      date: timestampSec,
+      text: content,
+      isOutgoing: true
+    });
+
+    await injectGroupMessageIntoMirrors(groupPeerId, msg);
+    await invalidateGroupHistoryCache(groupPeerId);
+    dispatchGroupHistoryAppend(groupPeerId, msg);
+
+    const dialog = mapper.createTwebDialog({
+      peerId: groupPeerId,
+      topMessage: mid,
+      topMessageDate: timestampSec,
+      unreadCount: 0
+    });
+    (dialog as any).topMessage = msg;
+    dispatchGroupDialogUpdate(groupPeerId, dialog);
+
+    console.log(LOG_PREFIX, 'tx rendered', {groupPeerId, mid, groupId: groupId.slice(0, 8)});
     dispatch('nostra_new_message', {
-      peerId,
+      peerId: groupPeerId,
       mid,
       senderPubkey: ownPubkey,
       message: {id: messageId, content, type, from: ownPubkey, timestamp: timestampSec, groupId},
