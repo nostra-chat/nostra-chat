@@ -16,6 +16,7 @@ interface StoredGroup {
   adminPubkey: string;
   members: string[];
   peerId: number;
+  createdAt: number;
 }
 
 async function listGroups(user: UserHandle): Promise<StoredGroup[]> {
@@ -28,7 +29,8 @@ async function listGroups(user: UserHandle): Promise<StoredGroup[]> {
         name: g.name,
         adminPubkey: g.adminPubkey,
         members: g.members,
-        peerId: g.peerId
+        peerId: g.peerId,
+        createdAt: g.createdAt || 0
       }));
     } catch {
       return [];
@@ -98,12 +100,16 @@ export const groupStoreUniqueIds: Invariant = {
 // ─── INV-group-bilateral-membership ─────────────────────────────────
 // Medium: if A has a group whose members include B's pubkeyHex, B should
 // have that group in its store (within a reasonable propagation window).
-// We allow a 5s grace period by using the latest-seen groupId from either
-// side: if A just added a group, B may not have processed the gift-wrap
-// yet. The check only fires on groups older than 5s — which is plenty
-// under fuzz pacing (one action ~1s and medium invariants run every 10).
+// The grace window uses the group's own `createdAt` timestamp — cleaner
+// than snapshot-based approximation because the warmup path bypasses
+// postconditions entirely and never sets `lastGroupCreateAt`.
+//
+// 30s window covers the worst-case cold-start relay-sub propagation we've
+// seen in warmup (which itself runs up to 15s). In steady state, group
+// control messages propagate in <1s, so this window is effectively gating
+// only the cold-start grace — not masking real bugs.
 
-const MEMBERSHIP_GRACE_MS = 5000;
+const MEMBERSHIP_GRACE_MS = 30_000;
 
 export const groupBilateralMembership: Invariant = {
   id: 'INV-group-bilateral-membership',
@@ -121,15 +127,12 @@ export const groupBilateralMembership: Invariant = {
     for(const g of aGroups) {
       if(!g.members.includes(bPk)) continue;
       if(bByGroupId.has(g.groupId)) continue;
-      // Group may be too fresh — skip this check if we just created it. We
-      // approximate "too fresh" by looking at ctx.snapshots for the most
-      // recent createGroup action. If unavailable, err on the side of grace.
-      const freshSnapshot = ctx.snapshots.get('lastGroupCreateAt') as number | undefined;
-      if(freshSnapshot && now - freshSnapshot < MEMBERSHIP_GRACE_MS) continue;
+      // Skip fresh groups — peer propagation may legitimately still be in flight.
+      if(g.createdAt && now - g.createdAt < MEMBERSHIP_GRACE_MS) continue;
       return {
         ok: false,
         message: `group ${g.groupId.slice(0, 8)}: A has B as member but B has no record`,
-        evidence: {groupId: g.groupId, name: g.name, admin: g.adminPubkey}
+        evidence: {groupId: g.groupId, name: g.name, admin: g.adminPubkey, ageMs: g.createdAt ? now - g.createdAt : null}
       };
     }
 
@@ -137,12 +140,11 @@ export const groupBilateralMembership: Invariant = {
     for(const g of bGroups) {
       if(!g.members.includes(aPk)) continue;
       if(aByGroupId.has(g.groupId)) continue;
-      const freshSnapshot = ctx.snapshots.get('lastGroupCreateAt') as number | undefined;
-      if(freshSnapshot && now - freshSnapshot < MEMBERSHIP_GRACE_MS) continue;
+      if(g.createdAt && now - g.createdAt < MEMBERSHIP_GRACE_MS) continue;
       return {
         ok: false,
         message: `group ${g.groupId.slice(0, 8)}: B has A as member but A has no record`,
-        evidence: {groupId: g.groupId, name: g.name, admin: g.adminPubkey}
+        evidence: {groupId: g.groupId, name: g.name, admin: g.adminPubkey, ageMs: g.createdAt ? now - g.createdAt : null}
       };
     }
 

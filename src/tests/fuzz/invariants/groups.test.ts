@@ -101,26 +101,25 @@ describe('INV-group-store-unique-ids', () => {
 // ─── INV-group-bilateral-membership ─────────────────────────────────
 
 describe('INV-group-bilateral-membership', () => {
+  const ancient = Date.now() - 120_000; // past 30s grace
+  const fresh = Date.now() - 1000;      // inside grace
+
   it('passes when both users have the same group', async() => {
-    const group = {groupId: 'g1', name: 'n', adminPubkey: A_PK, members: [A_PK, B_PK], peerId: -2e15};
+    const group = {groupId: 'g1', name: 'n', adminPubkey: A_PK, members: [A_PK, B_PK], peerId: -2e15, createdAt: ancient};
     const r = await groupBilateralMembership.check(twoUserCtx([group], [group]));
     expect(r.ok).toBe(true);
   });
 
   it('passes during grace window (recent createGroup)', async() => {
-    const group = {groupId: 'g1', name: 'n', adminPubkey: A_PK, members: [A_PK, B_PK], peerId: -2e15};
+    const group = {groupId: 'g1', name: 'n', adminPubkey: A_PK, members: [A_PK, B_PK], peerId: -2e15, createdAt: fresh};
     const ctx = twoUserCtx([group], []);
-    // Simulate a createGroup that just happened.
-    ctx.snapshots.set('lastGroupCreateAt', Date.now());
     const r = await groupBilateralMembership.check(ctx);
     expect(r.ok).toBe(true);
   });
 
-  it('fails when A has group with B member but B has no record (no grace)', async() => {
-    const group = {groupId: 'g1', name: 'n', adminPubkey: A_PK, members: [A_PK, B_PK], peerId: -2e15};
+  it('fails when A has group with B member but B has no record (past grace)', async() => {
+    const group = {groupId: 'g1', name: 'n', adminPubkey: A_PK, members: [A_PK, B_PK], peerId: -2e15, createdAt: ancient};
     const ctx = twoUserCtx([group], []);
-    // Simulate an old createGroup (past grace window).
-    ctx.snapshots.set('lastGroupCreateAt', Date.now() - 60_000);
     const r = await groupBilateralMembership.check(ctx);
     expect(r.ok).toBe(false);
     expect(r.message).toMatch(/A has B/i);
@@ -128,9 +127,8 @@ describe('INV-group-bilateral-membership', () => {
 
   it('does not require bilateral for groups that exclude the peer', async() => {
     // A has an admin-only group (no B). B correctly has no record.
-    const group = {groupId: 'g1', name: 'n', adminPubkey: A_PK, members: [A_PK, SYN], peerId: -2e15};
+    const group = {groupId: 'g1', name: 'n', adminPubkey: A_PK, members: [A_PK, SYN], peerId: -2e15, createdAt: ancient};
     const ctx = twoUserCtx([group], []);
-    ctx.snapshots.set('lastGroupCreateAt', Date.now() - 60_000);
     const r = await groupBilateralMembership.check(ctx);
     expect(r.ok).toBe(true);
   });
