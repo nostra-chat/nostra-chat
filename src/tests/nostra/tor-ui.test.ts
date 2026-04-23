@@ -203,6 +203,60 @@ describe('PrivacyTransport.setTorEnabled()', () => {
   });
 });
 
+describe('PrivacyTransport.readMode — migration shim', () => {
+  beforeEach(() => {
+    localStorage.removeItem('nostra-tor-mode');
+    localStorage.removeItem('nostra-tor-enabled');
+  });
+  afterEach(() => {
+    localStorage.removeItem('nostra-tor-mode');
+    localStorage.removeItem('nostra-tor-enabled');
+  });
+
+  it('returns "when-available" when nothing is stored (fresh install default)', async() => {
+    const {PrivacyTransport} = await import('@lib/nostra/privacy-transport');
+    expect(PrivacyTransport.readMode()).toBe('when-available');
+  });
+
+  it('returns the stored new-key value verbatim', async() => {
+    const {PrivacyTransport} = await import('@lib/nostra/privacy-transport');
+    localStorage.setItem('nostra-tor-mode', 'only');
+    expect(PrivacyTransport.readMode()).toBe('only');
+    localStorage.setItem('nostra-tor-mode', 'off');
+    expect(PrivacyTransport.readMode()).toBe('off');
+    localStorage.setItem('nostra-tor-mode', 'when-available');
+    expect(PrivacyTransport.readMode()).toBe('when-available');
+  });
+
+  it('maps legacy "false" → "off"', async() => {
+    const {PrivacyTransport} = await import('@lib/nostra/privacy-transport');
+    localStorage.setItem('nostra-tor-enabled', 'false');
+    expect(PrivacyTransport.readMode()).toBe('off');
+  });
+
+  it('maps legacy "true" → "when-available" (UX-preserving migration)', async() => {
+    const {PrivacyTransport} = await import('@lib/nostra/privacy-transport');
+    localStorage.setItem('nostra-tor-enabled', 'true');
+    expect(PrivacyTransport.readMode()).toBe('when-available');
+  });
+
+  it('treats garbage in new key as unset and falls through to legacy/default', async() => {
+    const {PrivacyTransport} = await import('@lib/nostra/privacy-transport');
+    localStorage.setItem('nostra-tor-mode', 'yes');
+    expect(PrivacyTransport.readMode()).toBe('when-available');
+    localStorage.setItem('nostra-tor-enabled', 'false');
+    expect(PrivacyTransport.readMode()).toBe('off');
+  });
+
+  it('setMode writes the new key and clears the legacy key', async() => {
+    localStorage.setItem('nostra-tor-enabled', 'true');
+    const {PrivacyTransport: PT} = await import('@lib/nostra/privacy-transport');
+    PT.setModeStatic('only');
+    expect(localStorage.getItem('nostra-tor-mode')).toBe('only');
+    expect(localStorage.getItem('nostra-tor-enabled')).toBeNull();
+  });
+});
+
 describe('NostrRelay dual latency tracking', () => {
   it('should store directLatencyMs and torLatencyMs separately', async() => {
     const {NostrRelay} = await import('@lib/nostra/nostr-relay');

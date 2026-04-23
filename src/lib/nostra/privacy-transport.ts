@@ -29,6 +29,16 @@ export type PrivacyTransportState =
   | 'failed'              // Tor failed, awaiting user decision
   | 'offline';            // Disconnected
 
+export type TorMode = 'only' | 'when-available' | 'off';
+export type RuntimeState = 'booting' | 'tor-active' | 'direct-active' | 'offline';
+
+const LS_MODE_KEY = 'nostra-tor-mode';
+const LS_LEGACY_KEY = 'nostra-tor-enabled';
+
+function isTorMode(v: unknown): v is TorMode {
+  return v === 'only' || v === 'when-available' || v === 'off';
+}
+
 /**
  * PrivacyTransport — Tor-wrapped relay pool
  *
@@ -72,9 +82,36 @@ export class PrivacyTransport {
     }
   }
 
+  static readMode(): TorMode {
+    if(typeof localStorage === 'undefined') return 'when-available';
+    const stored = localStorage.getItem(LS_MODE_KEY);
+    if(isTorMode(stored)) return stored;
+    const legacy = localStorage.getItem(LS_LEGACY_KEY);
+    if(legacy === 'false') return 'off';
+    return 'when-available';
+  }
+
+  /**
+   * Static setter used by settings UI at boot before any transport instance
+   * exists. Normal runtime mode changes go through `instance.setMode()`
+   * (Task 3) which also re-routes the pool. Clears the legacy key so migration
+   * is one-way.
+   *
+   * @deprecated — prefer the instance method once a transport is available.
+   */
+  static setModeStatic(mode: TorMode): void {
+    if(typeof localStorage === 'undefined') return;
+    localStorage.setItem(LS_MODE_KEY, mode);
+    localStorage.removeItem(LS_LEGACY_KEY);
+  }
+
+  /**
+   * @deprecated — reads mode and checks !== 'off'. Kept as a shim so
+   * existing call sites in nostraStatus, tor-ui-state, and nostra-bridge
+   * compile during the cross-file migration. Removed in a follow-up PR.
+   */
   static isTorEnabled(): boolean {
-    const stored = localStorage.getItem('nostra-tor-enabled');
-    return stored !== 'false'; // default true
+    return PrivacyTransport.readMode() !== 'off';
   }
 
   async setTorEnabled(enabled: boolean) {
