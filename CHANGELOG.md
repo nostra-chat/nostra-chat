@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.2](https://github.com/nostra-chat/nostra-chat/compare/v0.18.1...v0.18.2) (2026-04-23)
+
+
+### Bug Fixes
+
+* **update:** dispatch update events via dispatchEventSingle on main thread ([dbe74b5](https://github.com/nostra-chat/nostra-chat/commit/dbe74b5d94073eab9ba2c4e85b34dee2c5091813))
+
 ## [0.18.1](https://github.com/nostra-chat/nostra-chat/compare/v0.18.0...v0.18.1) (2026-04-23)
 
 
