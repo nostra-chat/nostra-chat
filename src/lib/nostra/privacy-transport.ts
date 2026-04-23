@@ -59,6 +59,8 @@ export class PrivacyTransport {
   private mode: TorMode;
   private runtimeState: RuntimeState = 'offline';
   private retryLoop: TorBootstrapLoop | null = null;
+  private livenessTimer: ReturnType<typeof setInterval> | null = null;
+  private livenessFailStreak = 0;
 
   constructor(relayPool: NostrRelayPool, offlineQueue: OfflineQueue, webtorClient?: WebtorClient) {
     this.relayPool = relayPool;
@@ -356,12 +358,55 @@ export class PrivacyTransport {
   private stopRetryLoop(): void {
     this.retryLoop?.stop();
     this.retryLoop = null;
+    this.stopLivenessProbe();
   }
 
   private upgradeToTor(fetchFn: (url: string) => Promise<Response>): void {
     this.relayPool.setTorMode(fetchFn);
     this.setRuntimeState('tor-active');
     this.flushQueue();
+    this.startLivenessProbe();
+  }
+
+  private startLivenessProbe(): void {
+    this.stopLivenessProbe();
+    if(this.mode !== 'when-available') return; // only mode only needs it
+    this.livenessFailStreak = 0;
+    this.livenessTimer = setInterval(() => {
+      if(this.runtimeState !== 'tor-active') {
+        this.stopLivenessProbe();
+        return;
+      }
+      const alive = (() => {
+        try { return this.webtorClient.isReady(); } catch{ return false; }
+      })();
+      if(alive) {
+        this.livenessFailStreak = 0;
+        return;
+      }
+      this.livenessFailStreak += 1;
+      if(this.livenessFailStreak >= 2) {
+        this.downgradeToDirect();
+      }
+    }, 30_000);
+  }
+
+  private stopLivenessProbe(): void {
+    if(this.livenessTimer !== null) {
+      clearInterval(this.livenessTimer);
+      this.livenessTimer = null;
+    }
+    this.livenessFailStreak = 0;
+  }
+
+  private downgradeToDirect(): void {
+    if(this.mode !== 'when-available') return;
+    this.stopLivenessProbe();
+    this.relayPool.setDirectMode();
+    this.setRuntimeState('direct-active');
+    // Restart the bootstrap loop so we try to come back up.
+    this.stopRetryLoop();
+    this.startRetryLoop();
   }
 
   private flushQueue(): void {
