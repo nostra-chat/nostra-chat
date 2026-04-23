@@ -64,12 +64,16 @@ export async function runProbeIfDue(force = false): Promise<void> {
   }
   const result = await probe(installedPubkey, active?.version);
   if(result.outcome === 'update-available' && result.manifest && !isSnoozed(result.manifest.version)) {
-    rootScope.dispatchEvent('update_available_signed', {manifest: result.manifest, signature: result.signature || '', manifestText: result.manifestText || ''} as any);
+    // Main-thread-only: listeners live in update-popup-controller (stash) and
+    // src/index.ts (auto-show). Using dispatchEvent would forward via
+    // MTProtoMessagePort to the Worker where no listener exists and throw
+    // silently when the port isn't initialized. Matches dev-trigger.ts.
+    rootScope.dispatchEventSingle('update_available_signed', {manifest: result.manifest, signature: result.signature || '', manifestText: result.manifestText || ''} as any);
   }
   if(result.outcome === 'update-available' && result.manifest) {
     const count = parseInt(localStorage.getItem(`${DECLINE_COUNT_KEY}.${result.manifest.version}`) || '0', 10);
     if(count >= DECLINE_THRESHOLD_FOR_STALENESS) {
-      rootScope.dispatchEvent('update_staleness_banner', {version: result.manifest.version});
+      rootScope.dispatchEventSingle('update_staleness_banner', {version: result.manifest.version});
     }
   }
 }

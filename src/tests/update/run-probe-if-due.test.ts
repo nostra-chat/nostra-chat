@@ -44,11 +44,12 @@ describe('runProbeIfDue — dispatch wiring', () => {
     probeMock.mockReset();
     getActiveVersionMock.mockReset();
     getBakedPubkeyMock.mockReset();
-    // Mock impl (no-op) instead of letting real impl run — real dispatchEvent
-    // forwards via MTProtoMessagePort which isn't initialized in vitest and
-    // would throw an unhandled rejection after the assertion passes.
+    // Spy on dispatchEventSingle — the main-thread-only variant. Using
+    // dispatchEvent here would forward via MTProtoMessagePort which has no
+    // listener on the Worker side for this event (wasted) AND throws in
+    // vitest where the port is never initialized.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    dispatchSpy = vi.spyOn(rootScope as any, 'dispatchEvent').mockImplementation((): void => undefined);
+    dispatchSpy = vi.spyOn(rootScope as any, 'dispatchEventSingle').mockImplementation((): void => undefined);
     getActiveVersionMock.mockResolvedValue({version: '0.18.0', installedPubkey: 'test-pub-b64', keyFingerprint: 'ed25519:test', at: 0});
     getBakedPubkeyMock.mockReturnValue('baked-pub-b64');
   });
