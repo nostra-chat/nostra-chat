@@ -1,7 +1,7 @@
 # Fuzz Findings
 
 Last updated: 2026-04-23
-Open bugs: 2 (live) · Regression-watch: 2 (2b.3 fixes firing again in 2b.4 runs) · Fixed: 6+2 (Phase 2b.1) · Fixed in 2b.2a: 3 · Fixed in 2b.2b: 3 · Fixed in 2b.3: 2
+Open bugs: 2 (live) · Regression-watch: 2 (2b.3 fixes firing again in 2b.4 runs) · Fixed: 6+2 (Phase 2b.1) · Fixed in 2b.2a: 3 · Fixed in 2b.2b: 3 · Fixed in 2b.3: 2 · Fixed in 2b.4: 1 (admin-orphan)
 
 ## Open (sorted by occurrences desc)
 
@@ -46,10 +46,25 @@ Two findings marked "Fixed in Phase 2b.3" fired repeatedly in 2b.4 runs without 
 These were transient artifacts of a warmup/action configuration that was itself invalid — no production code change. Listed here so they are not re-added to Open on future runs.
 
 - `POST-sendText-bubble-appears` (text "e") — single iter-1 cold-start occurrence before the groups warmup landed. Not reproduced in iter 2–4.
-- `INV-group-admin-is-member` × 3 signatures (`3a55d85e`, `69055db3`, `ca210bdf`) — triggered when A (admin) left the warmup group, leaving remaining member B with `adminPubkey ∉ members`. **Real product bug.** 2b.4 avoids triggering it (warmup has B leave, `leaveGroup` action filters admin groups). Carry-forward to 2b.5 — fix needs a product design decision: **prevent admin leave**, **auto-transfer admin to first remaining member on `handleMemberLeave`**, or **mark group adminless**.
 - `INV-group-bilateral-membership` (signature `4f52549b`) — fired on warmup-residue group that B never received due to cold-start relay sub. Grace window bumped from 5s to 30s (using `group.createdAt`) in invariant check; no recurrence after fix.
 
 ## Fixed
+
+### Fixed in Phase 2b.4
+
+#### FIND-3a55d85e / FIND-69055db3 / FIND-ca210bdf — INV-group-admin-is-member (admin-orphan on admin leaveGroup)
+- **Status**: fixed in Phase 2b.4
+- **Tier**: cheap
+- **Occurrences**: 3 (same root cause, distinct group IDs → distinct dedup signatures)
+- **First seen**: 2026-04-23 16:34:19
+- **Last seen**: 2026-04-23 16:37:07
+- **Seeds**: 44, 45, 46
+- **Assertion**: `"group <gid> on userB: admin <admin-hex> not in members"`
+- **Root cause**: `GroupAPI.handleMemberLeave` on remaining members removed the departing admin from `members[]` but left `adminPubkey` pointing at the departed admin. The resulting record has `adminPubkey ∉ members`, violating INV-group-admin-is-member and breaking any downstream code that assumes admin is a current member (e.g. admin-gated actions addMember / removeMember).
+- **Fix**: `GroupAPI.handleMemberLeave` (`src/lib/nostra/group-api.ts`) — when the leaving member is the admin, auto-transfer admin to the **lex-smallest remaining pubkey**. Deterministic across peers: every remaining member independently sorts the same set and picks the same new admin, so no separate `group_admin_transfer` control-message round is needed. Edge case preserved: if `remaining.length === 0`, no save (nothing to promote to).
+- **Regression coverage**: `src/tests/nostra/group-management.test.ts` — 3 new cases: admin-with-remaining (auto-promote expected), non-admin-leave (admin unchanged, updateMembers path), sole-admin-leave (empty remaining → no save). Fuzz action `leaveGroup` now exercises admin-leave paths without filtering (previously skipped to avoid tripping the invariant).
+- **Artifacts**: [`docs/fuzz-reports/FIND-3a55d85e/`](../fuzz-reports/FIND-3a55d85e/), [`FIND-69055db3`](../fuzz-reports/FIND-69055db3/), [`FIND-ca210bdf`](../fuzz-reports/FIND-ca210bdf/)
+
 
 ### Fixed in Phase 2b.3
 
