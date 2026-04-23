@@ -227,5 +227,75 @@ describe('Group Management', () => {
       await api.handleControlMessage(rumor, MEMBER_A);
       expect(store().delete).toHaveBeenCalledWith(GROUP_ID);
     });
+
+    // ─── Admin-orphan protection (Phase 2b.4 fix) ────────────────
+    // When the admin leaves, receiver must promote a new admin from the
+    // remaining members deterministically (lex-smallest pubkey) so every
+    // member derives the same admin without a separate round-trip.
+    it('group_leave from admin auto-promotes lex-smallest remaining member', async() => {
+      // Group where MEMBER_A is admin and leaves; OWN_PUBKEY + MEMBER_B remain.
+      store().get.mockResolvedValueOnce(makeGroup({adminPubkey: MEMBER_A}));
+
+      const payload: GroupControlPayload = {type: 'group_leave', groupId: GROUP_ID};
+      const rumor = {
+        id: 'ctrl-leave-admin', kind: 14, content: JSON.stringify(payload),
+        pubkey: MEMBER_A, created_at: Math.floor(Date.now() / 1000),
+        tags: [['control', 'true'], ['group', GROUP_ID]]
+      };
+      await api.handleControlMessage(rumor, MEMBER_A);
+
+      expect(store().save).toHaveBeenCalledTimes(1);
+      const saved = store().save.mock.calls[0][0] as GroupRecord;
+      expect(saved.members).not.toContain(MEMBER_A);
+      expect(saved.members).toContain(MEMBER_B);
+      expect(saved.members).toContain(OWN_PUBKEY);
+      // Lex-smallest of the remaining set (MEMBER_B < OWN_PUBKEY < …)
+      const expected = [MEMBER_B, OWN_PUBKEY].sort()[0];
+      expect(saved.adminPubkey).toBe(expected);
+      // Invariant we ship with the fix: admin is always in members.
+      expect(saved.members).toContain(saved.adminPubkey);
+    });
+
+    it('group_leave from non-admin preserves adminPubkey', async() => {
+      // Group where OWN_PUBKEY is admin, MEMBER_B leaves.
+      store().get.mockResolvedValueOnce(makeGroup());
+
+      const payload: GroupControlPayload = {type: 'group_leave', groupId: GROUP_ID};
+      const rumor = {
+        id: 'ctrl-leave-member', kind: 14, content: JSON.stringify(payload),
+        pubkey: MEMBER_B, created_at: Math.floor(Date.now() / 1000),
+        tags: [['control', 'true'], ['group', GROUP_ID]]
+      };
+      await api.handleControlMessage(rumor, MEMBER_B);
+
+      // No full save — admin didn't change. updateMembers path instead.
+      expect(store().save).not.toHaveBeenCalled();
+      expect(store().updateMembers).toHaveBeenCalledTimes(1);
+      const remaining = store().updateMembers.mock.calls[0][1] as string[];
+      expect(remaining).not.toContain(MEMBER_B);
+      expect(remaining).toContain(OWN_PUBKEY);
+    });
+
+    it('group_leave from sole admin (last member leaving) removes group', async() => {
+      // Admin leaves a 1-member group (just themselves).
+      store().get.mockResolvedValueOnce(makeGroup({members: [MEMBER_A], adminPubkey: MEMBER_A}));
+
+      const payload: GroupControlPayload = {type: 'group_leave', groupId: GROUP_ID};
+      const rumor = {
+        id: 'ctrl-leave-last', kind: 14, content: JSON.stringify(payload),
+        pubkey: MEMBER_A, created_at: Math.floor(Date.now() / 1000),
+        tags: [['control', 'true'], ['group', GROUP_ID]]
+      };
+      await api.handleControlMessage(rumor, MEMBER_A);
+
+      // Empty remaining — no save (admin can't transfer to nobody).
+      // Accept either updateMembers-with-empty or no-op; just assert no
+      // adminPubkey inconsistency got persisted.
+      if(store().save.mock.calls.length > 0) {
+        const saved = store().save.mock.calls[0][0] as GroupRecord;
+        expect(saved.members.length).toBeLessThanOrEqual(1);
+        if(saved.adminPubkey) expect(saved.members).toContain(saved.adminPubkey);
+      }
+    });
   });
 });

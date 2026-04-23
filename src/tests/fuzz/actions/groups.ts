@@ -373,19 +373,16 @@ export const leaveGroup: ActionSpec = {
     const leaver = ctx.users[leaverId];
 
     const groups = await listOwnGroups(leaver);
-    // Skip groups the leaver is admin of — admin-leave triggers an orphan
-    // adminPubkey on remaining members. That's a real (known) bug tracked
-    // in FUZZ-FINDINGS.md as "admin-orphan on admin leave"; testing it in
-    // the fuzz action would flood INV-group-admin-is-member. Real fix needs
-    // a product design decision (prevent / auto-transfer / mark adminless).
-    const nonAdminGroups = groups.filter((g) => g.adminPubkey !== leaver.pubkeyHex);
-    if(!nonAdminGroups.length) {
+    // Admin-leave is supported: handleMemberLeave on remaining members
+    // auto-transfers adminPubkey to the lex-smallest remaining pubkey
+    // (Phase 2b.4 fix for the admin-orphan bug).
+    if(!groups.length) {
       action.skipped = true;
-      action.meta = {skipReason: groups.length ? 'admin-of-all-groups' : 'no-groups-available'};
+      action.meta = {skipReason: 'no-groups-available'};
       return action;
     }
 
-    const group = pickRandom(nonAdminGroups)!;
+    const group = pickRandom(groups)!;
 
     let result;
     try {

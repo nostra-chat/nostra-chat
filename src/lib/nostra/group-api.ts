@@ -405,7 +405,29 @@ export class GroupAPI {
     const group = await this.store.get(payload.groupId);
     if(group) {
       const remaining = group.members.filter(m => m !== senderPubkey);
-      await this.store.updateMembers(payload.groupId, remaining);
+
+      // Admin-orphan protection: if the departing member was the admin, the
+      // remaining record would keep `adminPubkey` pointing at the gone admin
+      // — violating INV-group-admin-is-member. Auto-transfer admin to the
+      // lex-smallest remaining pubkey so every member derives the same new
+      // admin deterministically without a separate control-message round.
+      const wasAdminLeaving = group.adminPubkey === senderPubkey;
+      const newAdmin = wasAdminLeaving && remaining.length > 0 ?
+        [...remaining].sort()[0] :
+        group.adminPubkey;
+
+      if(wasAdminLeaving && newAdmin !== group.adminPubkey) {
+        const updated = {
+          ...group,
+          members: remaining,
+          adminPubkey: newAdmin,
+          updatedAt: Date.now()
+        };
+        await this.store.save(updated);
+        this.log('[GroupAPI] admin left; auto-promoted new admin:', newAdmin.slice(0, 8), 'in group', payload.groupId.slice(0, 8));
+      } else {
+        await this.store.updateMembers(payload.groupId, remaining);
+      }
     }
     this.log('[GroupAPI] member left group:', senderPubkey.slice(0, 8));
   }
