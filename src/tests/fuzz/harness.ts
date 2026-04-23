@@ -48,6 +48,7 @@ export async function bootHarness(opts: HarnessOptions = {}): Promise<{
 
   await linkContacts(userA, userB);
   await warmupHandshake(userA, userB);
+  await warmupGroupsHandshake(userA, userB);
   log(`boot done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 
   const ctx: FuzzContext = {
@@ -161,12 +162,21 @@ async function createUser(
   const reloadTimes: number[] = [Date.now()];
   page.on('load', () => reloadTimes.push(Date.now()));
 
+  // Decode npub → hex once at boot so actions can use hex pubkeys without
+  // re-decoding on every call. GroupAPI takes hex pubkeys.
+  const pubkeyHex = await page.evaluate(async (nb: string) => {
+    const {nip19} = await import('nostr-tools');
+    const decoded = nip19.decode(nb);
+    return decoded.data as string;
+  }, npub);
+
   return {
     id,
     context,
     page,
     displayName,
     npub,
+    pubkeyHex,
     remotePeerId: 0, // set later in linkContacts
     consoleLog,
     reloadTimes
@@ -228,6 +238,62 @@ async function warmupHandshake(a: UserHandle, b: UserHandle): Promise<void> {
   } catch(err) {
     log(`warmup: non-fatal error — ${err instanceof Error ? err.message : String(err)}`);
   }
+}
+
+/**
+ * Deterministic group handshake: A creates a 2-member group (A + B), sends
+ * one text into it, then leaves. Surfaces cold-start races on the group
+ * control/message pipeline so the first real fuzz action isn't the first
+ * exercise of the group code path. Non-fatal on failure — consistent with
+ * warmupHandshake policy.
+ */
+async function warmupGroupsHandshake(a: UserHandle, b: UserHandle): Promise<void> {
+  log('warmup/groups: A creates group → A sends → A leaves');
+  const warmupText = `__warmupG_${Date.now()}__`;
+  try {
+    const groupId = await a.page.evaluate(async (otherHex: string) => {
+      const {getGroupAPI} = await import('/src/lib/nostra/group-api.ts');
+      return getGroupAPI().createGroup('Warmup', [otherHex]);
+    }, b.pubkeyHex);
+    // Wait for B to receive the group-create control message.
+    await waitForGroupOnUser(b, groupId, 10000);
+    log('warmup/groups: step 1 (create) ack');
+
+    await a.page.evaluate(async ({gid, txt}: any) => {
+      const {getGroupAPI} = await import('/src/lib/nostra/group-api.ts');
+      await getGroupAPI().sendMessage(gid, txt);
+    }, {gid: groupId, txt: warmupText});
+    // Bubble visibility on peer is nice-to-have for warmup but not required —
+    // the point is to flex the rx pipeline once. Leave strict checks to the
+    // real fuzz postconditions.
+    await a.page.waitForTimeout(500);
+    log('warmup/groups: step 2 (send) fired');
+
+    await a.page.evaluate(async (gid: string) => {
+      const {getGroupAPI} = await import('/src/lib/nostra/group-api.ts');
+      await getGroupAPI().leaveGroup(gid);
+    }, groupId);
+    log('warmup/groups: step 3 (leave) ack');
+  } catch(err) {
+    log(`warmup/groups: non-fatal error — ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function waitForGroupOnUser(user: UserHandle, groupId: string, timeoutMs: number): Promise<void> {
+  const start = Date.now();
+  while(Date.now() - start < timeoutMs) {
+    const has = await user.page.evaluate(async (gid: string) => {
+      try {
+        const {getGroupStore} = await import('/src/lib/nostra/group-store.ts');
+        return !!(await getGroupStore().get(gid));
+      } catch {
+        return false;
+      }
+    }, groupId);
+    if(has) return;
+    await user.page.waitForTimeout(250);
+  }
+  throw new Error(`warmup/groups: peer never received group ${groupId.slice(0, 8)} within ${timeoutMs}ms`);
 }
 
 async function sendTextViaUI(self: UserHandle, text: string): Promise<void> {

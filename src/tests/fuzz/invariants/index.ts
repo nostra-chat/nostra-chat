@@ -11,6 +11,7 @@ import {reactionDedupe, noKind7SelfEchoDrop, reactionBilateral, reactionAuthorCh
 import {reactionsPickerNonempty} from './reactions-ui';
 import {historyRehydratesIdentical, offlineQueuePersistence, noDupAfterDeleteRace, noOrphanTempMidPostReload} from './lifecycle';
 import {invProfileKind0SingleActive, invProfileCacheCoherent, invProfilePropagates} from './profile';
+import {groupAdminIsMember, groupStoreUniqueIds, groupBilateralMembership, groupPeerIdDeterministic, groupNoOrphanMirrorPeer} from './groups';
 
 export const ALL_INVARIANTS: Invariant[] = [
   consoleClean,
@@ -27,6 +28,7 @@ export const ALL_INVARIANTS: Invariant[] = [
   reactionAggregatedRender,
   reactionsPickerNonempty,
   invProfileKind0SingleActive,
+  groupAdminIsMember,
   // Medium tier
   mirrorsIdbCoherent,
   storedMessageIdentityComplete,
@@ -38,6 +40,8 @@ export const ALL_INVARIANTS: Invariant[] = [
   offlineQueuePersistence,
   noOrphanTempMidPostReload,
   invProfileCacheCoherent,
+  groupStoreUniqueIds,
+  groupBilateralMembership,
   // Regression tier
   noNip04,
   idbSeedEncrypted,
@@ -46,7 +50,9 @@ export const ALL_INVARIANTS: Invariant[] = [
   virtualPeerIdStable,
   reactionAuthorCheck,
   reactionRemoveKind,
-  invProfilePropagates
+  invProfilePropagates,
+  groupPeerIdDeterministic,
+  groupNoOrphanMirrorPeer
 ];
 
 const MEDIUM_EVERY = 10;

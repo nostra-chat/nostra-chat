@@ -10,6 +10,10 @@ export interface UserHandle {
   page: Page;
   displayName: string;
   npub: string;
+  /** 64-char hex pubkey, decoded from npub at boot. Needed for GroupAPI calls.
+   *  Optional so existing unit-test UserHandle fakes (reactions/bubbles/…)
+   *  keep compiling without forced backfill. */
+  pubkeyHex?: string;
   /** peerId the OTHER user sees when talking to this user */
   remotePeerId: number;
   /** Console lines captured since harness start (ring buffer). */
