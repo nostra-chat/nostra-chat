@@ -38,11 +38,10 @@ const HOP_META: Record<HopRole, {label: string; icon: string; desc: string}> = {
 };
 
 const STATE_META: Record<string, {label: string; className: string}> = {
-  bootstrapping: {label: 'Bootstrapping circuit…', className: 'tor-state-pill--bootstrapping'},
-  active: {label: 'Circuit active', className: 'tor-state-pill--active'},
-  direct: {label: 'Direct mode — Tor disabled', className: 'tor-state-pill--direct'},
-  failed: {label: 'Tor bootstrap failed', className: 'tor-state-pill--failed'},
-  offline: {label: 'Offline', className: 'tor-state-pill--direct'}
+  'booting': {label: 'Bootstrapping circuit…', className: 'tor-state-pill--bootstrapping'},
+  'tor-active': {label: 'Circuit active', className: 'tor-state-pill--active'},
+  'direct-active': {label: 'Direct mode — Tor not in use', className: 'tor-state-pill--direct'},
+  'offline': {label: 'Offline', className: 'tor-state-pill--direct'}
 };
 
 export default class AppNostraTorDashboardTab extends SliderSuperTab {
@@ -169,7 +168,7 @@ export default class AppNostraTorDashboardTab extends SliderSuperTab {
       const transport = (window as any).__nostraPrivacyTransport;
       const webtorClient = transport?.webtorClient;
       const details = webtorClient?.getCircuitDetails?.();
-      const torState = transport?.getState?.() || 'bootstrapping';
+      const torState = transport?.getRuntimeState?.() || 'booting';
       this.applyState(torState);
 
       if(details && (details.guard || details.middle || details.exit)) {

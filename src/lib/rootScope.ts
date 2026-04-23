@@ -26,6 +26,7 @@ import type {MonoforumDialog} from '@lib/storages/monoforumDialogs';
 import type {MyStarGift} from '@appManagers/appGiftsManager';
 import type {MyPromoData} from '@appManagers/appPromoManager';
 import type {ActiveAccountNumber} from '@lib/accounts/types';
+import type {TorMode, RuntimeState} from '@lib/nostra/privacy-transport';
 import {NULL_PEER_ID, UserAuth} from '@appManagers/constants';
 import EventListenerBase, {EventListenerListeners} from '@helpers/eventListenerBase';
 import {MOUNT_CLASS_TO} from '@config/debug';
@@ -249,9 +250,9 @@ export type BroadcastEvents = {
   'nostra_identity_updated': {displayName?: string, nip05?: string, picture?: string, about?: string, website?: string, lud16?: string, banner?: string},
   'nostra_peer_profile_updated': {peerId: PeerId, pubkey: string, profile: import('./nostra/nostr-profile').NostrProfile},
 
-  'nostra_tor_enabled_changed': boolean,
+  'nostra_tor_mode_changed': TorMode,
   'nostra_tor_state': {
-    state: 'bootstrapping' | 'active' | 'direct' | 'failed';
+    state: RuntimeState;
     error?: string;
   },
   'nostra_tor_circuit_update': {

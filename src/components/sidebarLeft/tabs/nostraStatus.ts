@@ -12,14 +12,14 @@ import rootScope from '@lib/rootScope';
 import {DEFAULT_RELAYS} from '@lib/nostra/nostr-relay-pool';
 import {PrivacyTransport} from '@lib/nostra/privacy-transport';
 
-type TorState = 'bootstrapping' | 'active' | 'direct' | 'failed' | 'disabled';
+type TorState = 'tor-active' | 'booting' | 'direct-active' | 'offline' | 'disabled';
 
 const TOR_STATE_LABELS: Record<TorState, string> = {
-  active: '🟢 Active — traffic routed through Tor',
-  bootstrapping: '⏳ Bootstrapping Tor circuit...',
-  direct: '🟠 Direct connection (IP visible to relays)',
-  failed: '🔴 Tor bootstrap failed',
-  disabled: '⚪ Disabilitato — connessione diretta'
+  'tor-active': 'Active via Tor',
+  'booting': 'Connecting via Tor…',
+  'direct-active': 'Direct',
+  'offline': 'Offline',
+  'disabled': 'Disabled'
 };
 
 const MODE_ICONS: Record<string, string> = {
@@ -101,16 +101,16 @@ export default class AppNostraStatusTab extends SliderSuperTab {
     const updateTorState = (state: TorState, error?: string) => {
       torStatusRow.subtitle.textContent = TOR_STATE_LABELS[state] || state;
 
-      const transport = state === 'active' ?
+      const transport = state === 'tor-active' ?
         '🧅 Tor SOCKS (WebSocket over Tor)' :
-        state === 'bootstrapping' ?
+        state === 'booting' ?
           '⏳ Waiting for Tor bootstrap...' :
           state === 'disabled' ?
-            '🌐 Direct WebSocket (Tor disabilitato)' :
+            '🌐 Direct WebSocket (Tor disabled)' :
             '🌐 Direct WebSocket (no Tor)';
       torTransportRow.subtitle.textContent = transport;
 
-      if(state === 'failed' && error) {
+      if(state === 'offline' && error) {
         torErrorRow.subtitle.textContent = error;
         torErrorRow.container.style.display = '';
       } else {
@@ -125,25 +125,20 @@ export default class AppNostraStatusTab extends SliderSuperTab {
     };
 
     const computeInitialTor = (): TorState => {
-      if(!PrivacyTransport.isTorEnabled()) return 'disabled';
-      const raw = (window as any).__nostraPrivacyTransport?.getState?.();
-      const map: Record<string, TorState> = {
-        active: 'active',
-        bootstrapping: 'bootstrapping',
-        direct: 'direct',
-        failed: 'failed'
-      };
-      return map[raw] || 'direct';
+      if(PrivacyTransport.readMode() === 'off') return 'disabled';
+      const raw = (window as any).__nostraPrivacyTransport?.getRuntimeState?.();
+      if(raw === 'tor-active' || raw === 'direct-active' || raw === 'booting') return raw as TorState;
+      return 'direct-active';
     };
     updateTorState(computeInitialTor());
 
     rootScope.addEventListener('nostra_tor_state', (payload) => {
       const state = (typeof payload === 'string' ? payload : payload?.state) as TorState;
       const error = typeof payload === 'object' ? payload?.error : undefined;
-      updateTorState(state || 'direct', error);
+      updateTorState(state || 'direct-active', error);
     });
 
-    rootScope.addEventListener('nostra_tor_enabled_changed', () => {
+    rootScope.addEventListener('nostra_tor_mode_changed', () => {
       updateTorState(computeInitialTor());
     });
 

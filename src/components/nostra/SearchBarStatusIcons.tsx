@@ -102,12 +102,12 @@ export default function SearchBarStatusIcons(props: {
 
   rootScope.addEventListener('nostra_tor_state', torHandler);
   rootScope.addEventListener('nostra_relay_state', relayHandler);
-  rootScope.addEventListener('nostra_tor_enabled_changed', torEnabledHandler);
+  rootScope.addEventListener('nostra_tor_mode_changed', torEnabledHandler);
 
   onCleanup(() => {
     rootScope.removeEventListener('nostra_tor_state', torHandler);
     rootScope.removeEventListener('nostra_relay_state', relayHandler);
-    rootScope.removeEventListener('nostra_tor_enabled_changed', torEnabledHandler);
+    rootScope.removeEventListener('nostra_tor_mode_changed', torEnabledHandler);
   });
 
   // Seed from the live pool so the icon is correct on first paint, before

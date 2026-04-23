@@ -127,7 +127,7 @@ export class PrivacyTransport {
 
     try {
       const rootScope = (await import('@lib/rootScope')).default;
-      rootScope.dispatchEvent('nostra_tor_enabled_changed', enabled);
+      rootScope.dispatchEvent('nostra_tor_mode_changed', enabled ? 'when-available' : 'off');
     } catch(e) { logSwallow('PrivacyTransport.setTorEnabled.dispatch', e); }
 
     if(enabled) {
@@ -307,19 +307,7 @@ export class PrivacyTransport {
   private setRuntimeState(next: RuntimeState, error?: string): void {
     if(this.runtimeState === next) return;
     this.runtimeState = next;
-    // Wire format — keep the legacy state names for one release. Task 5
-    // replaces this with the RuntimeState names and renames the event.
-    const legacyState = this.runtimeStateToLegacy(next);
-    rootScope.dispatchEvent('nostra_tor_state', {state: legacyState, error});
-  }
-
-  private runtimeStateToLegacy(s: RuntimeState): PrivacyTransportState {
-    switch(s) {
-      case 'booting': return 'bootstrapping';
-      case 'tor-active': return 'active';
-      case 'direct-active': return 'direct';
-      case 'offline': return 'offline';
-    }
+    rootScope.dispatchEvent('nostra_tor_state', {state: next, error});
   }
 
   private startRetryLoop(): void {

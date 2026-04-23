@@ -1,23 +1,22 @@
-import {PrivacyTransport} from '@lib/nostra/privacy-transport';
+import {PrivacyTransport, RuntimeState} from '@lib/nostra/privacy-transport';
 
 export type TorUiState = 'active' | 'bootstrap' | 'direct' | 'error' | 'disabled';
 
-export function normalizeTorState(raw: string | undefined): TorUiState {
+export function normalizeRuntimeState(raw: RuntimeState | undefined): TorUiState {
   switch(raw) {
-    case 'active': return 'active';
-    case 'direct': return 'direct';
-    case 'bootstrap':
-    case 'bootstrapping': return 'bootstrap';
+    case 'tor-active': return 'active';
+    case 'direct-active': return 'direct';
+    case 'booting': return 'bootstrap';
     default: return 'error';
   }
 }
 
 export function computeTorUiState(): TorUiState {
-  if(!PrivacyTransport.isTorEnabled()) return 'disabled';
+  if(PrivacyTransport.readMode() === 'off') return 'disabled';
   const transport = (typeof window !== 'undefined') ?
     (window as any).__nostraPrivacyTransport : undefined;
-  const raw = transport?.state ?? transport?.getState?.();
-  return normalizeTorState(raw);
+  const raw = transport?.getRuntimeState?.() as RuntimeState | undefined;
+  return normalizeRuntimeState(raw);
 }
 
 export const TOR_UI_COLORS: Record<TorUiState, string> = {
