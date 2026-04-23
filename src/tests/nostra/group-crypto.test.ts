@@ -29,7 +29,7 @@ describe('wrapGroupMessage', () => {
     const sender = makeKeypair();
     const members = [makeKeypair().pk, makeKeypair().pk, makeKeypair().pk];
 
-    const wraps = wrapGroupMessage(sender.sk, members, 'hello group', GROUP_ID);
+    const {wraps} = wrapGroupMessage(sender.sk, members, 'hello group', GROUP_ID);
     expect(wraps.length).toBe(4);
   });
 
@@ -37,7 +37,7 @@ describe('wrapGroupMessage', () => {
     const sender = makeKeypair();
     const members = Array.from({length: 12}, () => makeKeypair().pk);
 
-    const wraps = wrapGroupMessage(sender.sk, members, 'hello', GROUP_ID);
+    const {wraps} = wrapGroupMessage(sender.sk, members, 'hello', GROUP_ID);
     expect(wraps.length).toBe(13);
   });
 
@@ -47,7 +47,7 @@ describe('wrapGroupMessage', () => {
     const m2 = makeKeypair();
     const members = [m1.pk, m2.pk];
 
-    const wraps = wrapGroupMessage(sender.sk, members, 'secret msg', GROUP_ID);
+    const {wraps} = wrapGroupMessage(sender.sk, members, 'secret msg', GROUP_ID);
 
     // Member 1 unwraps their event (index 0)
     const {rumor: rumor1} = unwrapGiftWrap(wraps[0] as unknown as SignedEvent, m1.sk);
@@ -67,7 +67,7 @@ describe('wrapGroupMessage', () => {
     const m2 = makeKeypair();
     const members = [m1.pk, m2.pk];
 
-    const wraps = wrapGroupMessage(sender.sk, members, 'msg', GROUP_ID);
+    const {wraps} = wrapGroupMessage(sender.sk, members, 'msg', GROUP_ID);
 
     // Unwrap first member's event to inspect rumor
     const {rumor} = unwrapGiftWrap(wraps[0] as unknown as SignedEvent, m1.sk);
@@ -80,7 +80,7 @@ describe('wrapGroupMessage', () => {
     const sender = makeKeypair();
     const m1 = makeKeypair();
 
-    const wraps = wrapGroupMessage(sender.sk, [m1.pk], 'actual content here', GROUP_ID);
+    const {wraps} = wrapGroupMessage(sender.sk, [m1.pk], 'actual content here', GROUP_ID);
     const {rumor} = unwrapGiftWrap(wraps[0] as unknown as SignedEvent, m1.sk);
     expect(rumor.content).toBe('actual content here');
     expect(rumor.content.length).toBeGreaterThan(0);

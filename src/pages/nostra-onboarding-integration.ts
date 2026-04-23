@@ -161,6 +161,16 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
         };
         initGroupAPI(identity.publicKey, privKeyBytes, publishFn);
         console.log('[NostraOnboardingIntegration] GroupAPI initialized');
+
+        // Wire the groups → display bridge (persist + dispatch nostra_new_message
+        // for both incoming and outgoing group messages). Without this,
+        // group messages reach GroupAPI but never render in the UI —
+        // FIND-dbe8fdd2.
+        const {initGroupsSync} = await import('@lib/nostra/nostra-groups-sync');
+        initGroupsSync(identity.publicKey, (event: string, data: any) => {
+          rootScope.dispatchEvent(event as any, data);
+        });
+        console.log('[NostraOnboardingIntegration] NostraGroupsSync wired to GroupAPI');
       } catch(err) {
         console.warn('[NostraOnboardingIntegration] GroupAPI init failed:', err);
       }

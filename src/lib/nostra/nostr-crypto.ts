@@ -432,7 +432,7 @@ export function wrapGroupMessage(
   content: string,
   groupId: string,
   kind: number = 14
-): NTNostrEvent[] {
+): {wraps: NTNostrEvent[]; rumorId: string} {
   const senderPubHex = getPublicKey(senderSk);
   const allWraps: NTNostrEvent[] = [];
 
@@ -455,5 +455,8 @@ export function wrapGroupMessage(
   const selfWrap = createGiftWrap(selfSeal, senderPubHex);
   allWraps.push(selfWrap as unknown as NTNostrEvent);
 
-  return allWraps; // memberPubkeys.length + 1 events
+  // Return the rumor id alongside the wraps so the sender can key its own
+  // outgoing store row by the same id the receiver will see (parallel to
+  // wrapNip17Message which made the same change in Phase 2b.3 for DMs).
+  return {wraps: allWraps, rumorId: (rumor as any).id as string};
 }

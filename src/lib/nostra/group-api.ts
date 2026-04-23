@@ -38,6 +38,21 @@ export class GroupAPI {
   /** External callback for incoming group messages (wired by display bridge) */
   onGroupMessage: GroupMessageCallback | null = null;
 
+  /** External callback fired immediately after a local send is wrapped — lets
+   *  the display bridge persist the outgoing row + dispatch the ui event
+   *  before the relay publish completes. Mirrors onGroupMessage for the
+   *  sender-side (self-echo is dedup'd via sentMessageIds and never reaches
+   *  onGroupMessage).
+   */
+  onOutgoingMessage: ((info: {
+    groupId: string;
+    messageId: string;
+    rumorId: string;
+    content: string;
+    timestamp: number;
+    type: string;
+  }) => void) | null = null;
+
   constructor(
     ownPubkey: string,
     ownSk: Uint8Array,
@@ -138,11 +153,14 @@ export class GroupAPI {
     // Get members excluding self for wrapping (wrapGroupMessage adds self-send)
     const otherMembers = group.members.filter(m => m !== this.ownPubkey);
 
-    const wraps = wrapGroupMessage(this.ownSk, otherMembers, messagePayload, groupId);
+    const {wraps, rumorId} = wrapGroupMessage(this.ownSk, otherMembers, messagePayload, groupId);
 
-    // Extract rumor ID from the message payload
+    // Parse the app-level message id (grp-<ts>-<rnd>) for delivery-tracker
+    // + self-send dedup. This is distinct from the NIP-17 rumor id.
     const parsed = JSON.parse(messagePayload);
     const messageId = parsed.id;
+    const timestamp = parsed.timestamp || Date.now();
+    const msgType = parsed.type || 'text';
 
     // Track for self-send dedup (Pitfall 7)
     this.sentMessageIds.add(messageId);
@@ -150,10 +168,34 @@ export class GroupAPI {
     // Init delivery tracking for other members
     this.groupDelivery.initMessage(messageId, groupId, otherMembers);
 
+    // Optimistic sender-side render hook. The bridge (nostra-groups-sync)
+    // persists the outgoing row and dispatches nostra_new_message so the UI
+    // renders immediately — mirroring how appMessagesManager.sendText does
+    // for DMs. Called BEFORE publish so the bubble appears even if the
+    // relay publish is slow / fails. NOTE (Phase 2b.4): `nostra_new_message`
+    // alone is not enough to render a bubble in a group chat — the full
+    // pipeline also needs dialogs_multiupdate + invalidateHistoryCache +
+    // mirror writes + possibly history_append. FIND-dbe8fdd2 tracks the
+    // end-to-end gap; this hook is the TX side only.
+    if(this.onOutgoingMessage) {
+      try {
+        await Promise.resolve(this.onOutgoingMessage({
+          groupId,
+          messageId,
+          rumorId,
+          content,
+          timestamp,
+          type: msgType
+        }));
+      } catch(err) {
+        this.log.warn('[GroupAPI] onOutgoingMessage callback threw:', err);
+      }
+    }
+
     // Publish all wraps
     await this.publishFn(wraps);
 
-    this.log('[GroupAPI] message sent to group:', groupId, 'id:', messageId);
+    this.log('[GroupAPI] message sent to group:', groupId, 'id:', messageId, 'rumorId:', rumorId.slice(0, 8));
     return messageId;
   }
 
@@ -403,5 +445,12 @@ export function getGroupAPI(): GroupAPI {
 
 export function initGroupAPI(ownPubkey: string, ownSk: Uint8Array, publishFn: (events: NTNostrEvent[]) => Promise<void>): GroupAPI {
   _instance = new GroupAPI(ownPubkey, ownSk, publishFn);
+  // Expose on window so E2E/fuzz tests resolve via a single shared reference.
+  // Vite dev can serve `@lib/nostra/group-api` and `/src/lib/nostra/group-api.ts`
+  // as separate module instances (same class behind the multi-rootScope bug
+  // noted in CLAUDE.md); the window ref bypasses that for non-production code.
+  try {
+    if(typeof window !== 'undefined') (window as any).__nostraGroupAPI = _instance;
+  } catch{}
   return _instance;
 }
