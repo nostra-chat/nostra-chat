@@ -7,6 +7,7 @@
  */
 
 import {chromium, type Browser} from 'playwright';
+import {nip19} from 'nostr-tools';
 import {launchOptions} from '../e2e/helpers/launch-options';
 import {LocalRelay} from '../e2e/helpers/local-relay';
 import {dismissOverlays} from '../e2e/helpers/dismiss-overlays';
@@ -163,12 +164,17 @@ async function createUser(
   page.on('load', () => reloadTimes.push(Date.now()));
 
   // Decode npub → hex once at boot so actions can use hex pubkeys without
-  // re-decoding on every call. GroupAPI takes hex pubkeys.
-  const pubkeyHex = await page.evaluate(async (nb: string) => {
-    const {nip19} = await import('nostr-tools');
-    const decoded = nip19.decode(nb);
-    return decoded.data as string;
-  }, npub);
+  // re-decoding on every call. GroupAPI takes hex pubkeys. Decode runs in
+  // the Node harness, not in page.evaluate — the browser can't resolve the
+  // bare 'nostr-tools' module specifier (only Vite-served /src/... paths
+  // work in page.evaluate dynamic imports).
+  let pubkeyHex = '';
+  try {
+    const decoded = nip19.decode(npub);
+    if(decoded.type === 'npub') pubkeyHex = decoded.data as string;
+  } catch(err) {
+    log(`${id}: failed to decode npub — pubkeyHex left empty (${err instanceof Error ? err.message : String(err)})`);
+  }
 
   return {
     id,
