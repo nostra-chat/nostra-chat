@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.19.0](https://github.com/nostra-chat/nostra-chat/compare/v0.18.2...v0.19.0) (2026-04-23)
+
+
+### Features
+
+* **lang:** add Tor.Mode.* keys for three-mode Tor setting UI ([089eb3a](https://github.com/nostra-chat/nostra-chat/commit/089eb3adfa30e3ae079f3097fe6bb26b3a4fa908))
+* **tor:** add TorBootstrapLoop helper with ladder + steady-state schedule ([97271a4](https://github.com/nostra-chat/nostra-chat/commit/97271a46bbc9b40e0008078464762f9e76934cce))
+* **tor:** add TorMode/RuntimeState types and readMode migration shim ([83065ed](https://github.com/nostra-chat/nostra-chat/commit/83065ed902d1eba03b4facd4edff986870b45164))
+* **tor:** dispatch PrivacyTransport bootstrap on TorMode, introduce retry loop ([18a36a4](https://github.com/nostra-chat/nostra-chat/commit/18a36a441cd8fa41772d5b59ab0c7c133ecdcb22))
+* **tor:** hot-swap upgrade/downgrade with liveness probe in when-available mode ([06a21d8](https://github.com/nostra-chat/nostra-chat/commit/06a21d812352eb41e074f3a6a8283cdde9908e05))
+* **tor:** replace on/off toggle with three-mode radio in Privacy settings ([d19df33](https://github.com/nostra-chat/nostra-chat/commit/d19df334dfe1b2d5a8b86a583f51d4756e8a9b63))
+* **tor:** strip banner buttons, delete skip popup + in-chat banner, rewire bridge ([6452339](https://github.com/nostra-chat/nostra-chat/commit/64523396e919ee78b5fded250c7a148769e2d064))
+
+
+### Bug Fixes
+
+* **profile:** cache partner kind 0 on contact-add so User Info renders ([67f93c8](https://github.com/nostra-chat/nostra-chat/commit/67f93c873f46dabecdea505e4b98126018027584))
+* **tor:** align torShield, fetch return type, and test mocks with RuntimeState ([c1b2651](https://github.com/nostra-chat/nostra-chat/commit/c1b2651f83b27fd306da2d0021c2c0aa94527a0a))
+* **update:** restore real production signing pubkey ([7cb68fe](https://github.com/nostra-chat/nostra-chat/commit/7cb68fea3012c553d2871a74bef065ec807d4547))
+
 ## [0.18.2](https://github.com/nostra-chat/nostra-chat/compare/v0.18.1...v0.18.2) (2026-04-23)
 
 
