@@ -8,6 +8,8 @@ import {readFileSync, writeFileSync} from 'fs';
 import {join} from 'path';
 import * as ed from '@noble/ed25519';
 import {sha512} from '@noble/hashes/sha2.js';
+import {assertSigningKeyMatchesBaked} from './verify-signing-key';
+import {TRUSTED_PUBKEY_B64} from '../../lib/update/signing/trusted-pubkey.generated';
 
 ed.hashes.sha512 = sha512;
 
@@ -22,6 +24,11 @@ async function main() {
     console.error(`UPDATE_SIGNING_KEY must decode to 32 bytes, got ${priv.length}`);
     process.exit(1);
   }
+
+  // Guard: the CI key must derive to the pubkey baked into the shipping
+  // bundle. A mismatch here means clients will silently reject every
+  // signed manifest — detect at release time, not months later in prod.
+  await assertSigningKeyMatchesBaked(priv, TRUSTED_PUBKEY_B64);
 
   const manifestPath = join('dist', 'update-manifest.json');
   const sigPath = join('dist', 'update-manifest.json.sig');
