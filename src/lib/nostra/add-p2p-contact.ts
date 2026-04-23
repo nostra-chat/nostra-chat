@@ -169,11 +169,12 @@ export async function addP2PContact(opts: AddP2PContactOptions): Promise<AddP2PC
   dispatchDialogUpdate(peerId, dialog);
   rootScope.dispatchEvent('peer_title_edit', {peerId: peerIdTweb});
 
-  // Fire-and-forget kind 0 lookup — upgrades the placeholder name once the
-  // relay responds. Runs only when the user did not supply a nickname.
-  if(!userNickname) {
-    kickOffKind0Fetch(hexPubkey, peerId, displayName, src).catch(() => { /* non-critical */ });
-  }
+  // Fire-and-forget kind 0 lookup — populates the peer profile cache so
+  // the User Info pane renders Bio / Website / Lightning / NIP-05 rows
+  // on first open without a relay round-trip. Optionally upgrades the
+  // placeholder displayName when the user did not supply a nickname.
+  kickOffKind0Fetch(hexPubkey, peerId, displayName, src, !userNickname)
+  .catch(() => { /* non-critical */ });
 
   if(opts.openChat) {
     try {
@@ -191,23 +192,37 @@ async function kickOffKind0Fetch(
   hexPubkey: string,
   peerId: number,
   currentDisplayName: string,
-  src: string
+  src: string,
+  allowNameUpdate: boolean
 ): Promise<void> {
-  const [{fetchNostrProfile, profileToDisplayName}, {updateMappingProfile}] = await Promise.all([
+  const [
+    {profileToDisplayName},
+    {updateMappingProfile},
+    {refreshPeerProfileFromRelays, loadCachedPeerProfile}
+  ] = await Promise.all([
     import('./nostr-profile'),
-    import('./virtual-peers-db')
+    import('./virtual-peers-db'),
+    import('./peer-profile-cache')
   ]);
-  const profile = await fetchNostrProfile(hexPubkey);
-  if(!profile) return;
-  const k0Name = profileToDisplayName(profile);
+
+  // Parallel fetch + cache write + nostra_peer_profile_updated dispatch.
+  // After this resolves, the User Info pane will render the kind 0 fields
+  // immediately on first open instead of waiting for an on-mount refresh.
+  const peerIdTweb = peerId.toPeerId(false);
+  await refreshPeerProfileFromRelays(hexPubkey, peerIdTweb);
+
+  if(!allowNameUpdate) return;
+
+  const cached = loadCachedPeerProfile(hexPubkey);
+  if(!cached) return;
+  const k0Name = profileToDisplayName(cached.profile);
   if(!k0Name || k0Name === currentDisplayName) return;
 
-  await updateMappingProfile(hexPubkey, k0Name, profile);
+  await updateMappingProfile(hexPubkey, k0Name, cached.profile);
   try {
     await rootScope.managers.appUsersManager.updateP2PUserName(peerId, k0Name);
   } catch{ /* non-critical */ }
 
-  const peerIdTweb = peerId.toPeerId(false);
   const proxyRef = MOUNT_CLASS_TO.apiManagerProxy;
   if(proxyRef?.mirrors?.peers?.[peerIdTweb]) {
     proxyRef.mirrors.peers[peerIdTweb].first_name = k0Name;
