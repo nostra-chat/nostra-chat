@@ -266,7 +266,7 @@ export class PrivacyTransport {
     this.stopLivenessProbe();
   }
 
-  private upgradeToTor(fetchFn: (url: string) => Promise<Response>): void {
+  private upgradeToTor(fetchFn: (url: string) => Promise<string>): void {
     this.relayPool.setTorMode(fetchFn);
     this.setRuntimeState('tor-active');
     this.flushQueue();

@@ -1,16 +1,15 @@
 import {createSignal, onMount, onCleanup} from 'solid-js';
 import classNames from '@helpers/string/classNames';
 import rootScope from '@lib/rootScope';
-
-type TorState = 'bootstrapping' | 'active' | 'direct' | 'failed';
+import type {RuntimeState} from '@lib/nostra/privacy-transport';
 
 export default function TorShield(props: {
   onTap?: () => void;
 }) {
-  const [state, setState] = createSignal<TorState>('bootstrapping');
+  const [state, setState] = createSignal<RuntimeState>('booting');
 
   onMount(() => {
-    const handler = (e: {state: TorState; error?: string}) => {
+    const handler = (e: {state: RuntimeState; error?: string}) => {
       setState(e.state);
     };
     rootScope.addEventListener('nostra_tor_state', handler);
