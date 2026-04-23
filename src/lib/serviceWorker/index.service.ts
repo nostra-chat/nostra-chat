@@ -27,7 +27,7 @@ import DeferredIsUsingPasscode from '@lib/passcode/deferredIsUsingPasscode';
 import {onBackgroundsFetch} from '@lib/serviceWorker/backgrounds';
 import {watchMtprotoOnDev} from '@lib/serviceWorker/watchMtprotoOnDev';
 import {watchCacheStoragesLifetime} from './clearOldCache';
-import {requestCacheStrict} from './cache';
+import {requestCacheStrict, unwrapRedirected} from './cache';
 import {setActiveVersion, gcOrphans, getActiveVersion} from './shell-cache';
 import {handleUpdateApproved} from './signed-update-sw';
 import {getBakedPubkey} from '@lib/update/signing/trusted-keys';
@@ -418,9 +418,13 @@ ctx.addEventListener('install', (event) => {
           let lastErr: string = 'unknown';
           for(let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
             try {
-              const res = await fetch(url, {cache: 'no-cache'});
+              const res = await fetch(url, {cache: 'no-cache', redirect: 'follow'});
               if(res.ok) {
-                await cache.put(p, res);
+                // Strip the `redirected` flag before storing. Without this, a
+                // navigation request served from this cache entry is aborted
+                // by the browser with ERR_FAILED (Cloudflare Pages 301's
+                // /index.html → / during install).
+                await cache.put(p, await unwrapRedirected(res));
                 successCount++;
                 return;
               }

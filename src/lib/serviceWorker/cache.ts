@@ -56,6 +56,18 @@ async function currentShellCacheName(): Promise<string> {
   return `shell-v${active.version}`;
 }
 
+// A Response obtained via a fetch that followed an HTTP redirect carries
+// `redirected: true`. Returning such a Response from a SW fetch handler to a
+// navigation request (whose redirect mode is 'manual') makes the browser abort
+// the navigation with ERR_FAILED. Cloudflare Pages 301's /index.html → /, so
+// the precache install captures the tainted Response unless we reconstruct it.
+// See: https://w3c.github.io/ServiceWorker/#ref-for-dfn-redirected-navigation
+export async function unwrapRedirected(res: Response): Promise<Response> {
+  if(!res.redirected) return res;
+  const body = await res.arrayBuffer();
+  return new Response(body, {status: res.status, statusText: res.statusText, headers: res.headers});
+}
+
 async function notifyCacheMiss(url: string): Promise<void> {
   try {
     const swCtx = self as any as ServiceWorkerGlobalScope;
@@ -108,7 +120,7 @@ export async function requestCacheStrict(event: FetchEvent): Promise<Response> {
       hit = await cache.match(indexUrl);
     }
   }
-  if(hit) return hit;
+  if(hit) return unwrapRedirected(hit);
 
   const url = new URL(event.request.url);
   const isNavigation = event.request.mode === 'navigate';
