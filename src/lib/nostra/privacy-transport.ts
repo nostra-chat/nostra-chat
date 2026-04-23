@@ -21,6 +21,7 @@ import {OfflineQueue} from './offline-queue';
 import {logSwallow} from './log-swallow';
 import {WebtorClient} from './webtor-fallback';
 import rootScope from '@lib/rootScope';
+import {TorBootstrapLoop} from './tor-bootstrap-loop';
 
 export type PrivacyTransportState =
   | 'bootstrapping'       // Tor circuit creating
@@ -55,12 +56,16 @@ export class PrivacyTransport {
   // WebtorClient on failure — that would wipe out the injected mock and
   // try to load the real WASM module in a jsdom test environment.
   private webtorInjected: boolean;
+  private mode: TorMode;
+  private runtimeState: RuntimeState = 'offline';
+  private retryLoop: TorBootstrapLoop | null = null;
 
   constructor(relayPool: NostrRelayPool, offlineQueue: OfflineQueue, webtorClient?: WebtorClient) {
     this.relayPool = relayPool;
     this.offlineQueue = offlineQueue;
     this.webtorInjected = !!webtorClient;
     this.webtorClient = webtorClient || new WebtorClient();
+    this.mode = PrivacyTransport.readMode();
 
     // Wire circuit change callback to dispatch rootScope event
     if(this.webtorClient) {
@@ -114,6 +119,7 @@ export class PrivacyTransport {
     return PrivacyTransport.readMode() !== 'off';
   }
 
+  /** @deprecated Use `setMode()` instead. Removed in Task 8. */
   async setTorEnabled(enabled: boolean) {
     localStorage.setItem('nostra-tor-enabled', String(enabled));
 
@@ -132,55 +138,41 @@ export class PrivacyTransport {
   /**
    * Bootstrap privacy transport.
    *
-   * 1. Set state to bootstrapping, dispatch event
-   * 2. Create WebtorClient, attempt bootstrap (180s per attempt)
-   * 3. On per-attempt failure: dispose the client, create a fresh one, retry
-   *    (the underlying WebRTC peer can wedge into "Channel not established"
-   *    and never recover — only a brand-new client gets a new tunnel)
-   * 4. On success: switch pool to Tor mode, set state to active
-   * 5. On final failure: set state to failed (NOT direct — user must confirm)
+   * Dispatches on the user's TorMode choice:
+   * - `off`              → direct WebSocket, no Tor path.
+   * - `when-available`   → direct immediately, retry loop upgrades to Tor.
+   * - `only`             → wait for Tor, messages queued until active.
    */
   async bootstrap(): Promise<void> {
-    this.setState('bootstrapping');
+    // Re-read mode in case the user toggled it via setModeStatic before the
+    // transport was constructed (e.g. migration on first boot).
+    this.mode = PrivacyTransport.readMode();
 
-    const maxAttempts = 4;
-    const perAttemptMs = 60_000;
-    let lastErr: unknown = null;
+    switch(this.mode) {
+      case 'off':
+        this.relayPool.setDirectMode();
+        this.setRuntimeState('direct-active');
+        return;
 
-    for(let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        await this.webtorClient.bootstrap(perAttemptMs);
+      case 'when-available':
+        this.relayPool.setDirectMode();
+        this.setRuntimeState('direct-active');
+        this.startRetryLoop();
+        return;
 
-        if(this.webtorClient.isReady()) {
-          const fetchFn = (url: string) => this.webtorClient.fetch(url);
-          this.relayPool.setTorMode(fetchFn);
-          this.setState('active');
-          return;
-        }
-      } catch(err) {
-        lastErr = err;
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        console.warn(`[PrivacyTransport] bootstrap attempt ${attempt}/${maxAttempts} failed: ${errorMsg}`);
-
-        if(attempt < maxAttempts) {
-          // Tear down the wedged client and build a fresh one (only when
-          // we own the client lifecycle — injected test mocks stay put).
-          try { await this.webtorClient.close(); } catch(e) { logSwallow('PrivacyTransport.bootstrap.webtorClose', e); }
-          if(!this.webtorInjected) {
-            this.webtorClient = new WebtorClient();
-          }
-          continue;
-        }
-      }
+      case 'only':
+        this.setRuntimeState('booting');
+        this.startRetryLoop();
+        return;
     }
-
-    const errorMsg = lastErr instanceof Error ? lastErr.message : String(lastErr ?? 'webtor not ready');
-    this.setState('failed', errorMsg);
   }
 
   /**
    * User confirmed direct fallback — switch pool to direct WebSocket.
    * Only call this after Tor failure and explicit user consent.
+   *
+   * @deprecated Use `setMode('off')` or `setMode('when-available')` instead.
+   *             Removed in Task 8.
    */
   confirmDirectFallback(): void {
     this.relayPool.setDirectMode();
@@ -194,6 +186,9 @@ export class PrivacyTransport {
    * Retry Tor bootstrap after previous failure.
    * Starts from a fresh WebtorClient (unless one was injected via
    * constructor) and reuses bootstrap()'s retry loop.
+   *
+   * @deprecated Use `setMode()` with the desired TorMode; the instance
+   *             manages its own retry loop now. Removed in Task 8.
    */
   async retryTor(): Promise<void> {
     try { await this.webtorClient.close(); } catch(e) { logSwallow('PrivacyTransport.retryTor.webtorClose', e); }
@@ -209,27 +204,23 @@ export class PrivacyTransport {
   /**
    * Send a message.
    *
-   * - If bootstrapping or failed: queue via OfflineQueue
-   * - If active or direct: publish via relayPool
+   * - If booting or offline: queue via OfflineQueue
+   * - If tor-active or direct-active: publish via relayPool
    */
   async send(recipientPubkey: string, plaintext: string): Promise<PublishResult | null> {
-    if(this.state === 'bootstrapping' || this.state === 'failed' || this.state === 'offline') {
-      // Queue message — will be flushed when transport ready
+    const canPublish = this.runtimeState === 'tor-active' || this.runtimeState === 'direct-active';
+    if(!canPublish) {
       const messageId = await this.offlineQueue.queue(recipientPubkey, plaintext);
       rootScope.dispatchEvent('nostra_message_queued', {messageId, status: 'queued'});
       return null;
     }
-
-    // Active or direct — publish via pool
     const result = await this.relayPool.publish(recipientPubkey, plaintext);
-
     if(result.successes.length > 0) {
       rootScope.dispatchEvent('nostra_message_queued', {
         messageId: result.successes[0],
         status: 'sent'
       });
     }
-
     return result;
   }
 
@@ -249,6 +240,9 @@ export class PrivacyTransport {
    * WebSocket is opened while Tor is still building its circuit.
    *
    * Resolves immediately if already settled.
+   *
+   * @deprecated Prefer listening to `nostra_tor_state` directly and reacting
+   *             to the new `RuntimeState` values. Removed in Task 8.
    */
   waitUntilSettled(): Promise<PrivacyTransportState> {
     const isSettled = (s: PrivacyTransportState) =>
@@ -274,13 +268,26 @@ export class PrivacyTransport {
    * Disconnect — clean up all resources.
    */
   disconnect(): void {
+    this.stopRetryLoop();
     this.relayPool.disconnect();
 
     if(this.webtorClient) {
       void this.webtorClient.close();
     }
 
-    this.setState('offline');
+    this.setRuntimeState('offline');
+  }
+
+  /** Test-visible accessor — do not use in product code. */
+  getRuntimeState(): RuntimeState {
+    return this.runtimeState;
+  }
+
+  async setMode(mode: TorMode): Promise<void> {
+    PrivacyTransport.setModeStatic(mode);
+    rootScope.dispatchEvent('nostra_tor_mode_changed' as any, mode);
+    this.stopRetryLoop();
+    await this.bootstrap();
   }
 
   // ─── Private ───────────────────────────────────────────────────
@@ -293,6 +300,68 @@ export class PrivacyTransport {
       state: state === 'active' ? 'active' : state as any,
       error
     });
+  }
+
+  private setRuntimeState(next: RuntimeState, error?: string): void {
+    if(this.runtimeState === next) return;
+    this.runtimeState = next;
+    // Wire format — keep the legacy state names for one release. Task 5
+    // replaces this with the RuntimeState names and renames the event.
+    const legacyState = this.runtimeStateToLegacy(next);
+    rootScope.dispatchEvent('nostra_tor_state', {state: legacyState, error});
+  }
+
+  private runtimeStateToLegacy(s: RuntimeState): PrivacyTransportState {
+    switch(s) {
+      case 'booting': return 'bootstrapping';
+      case 'tor-active': return 'active';
+      case 'direct-active': return 'direct';
+      case 'offline': return 'offline';
+    }
+  }
+
+  private startRetryLoop(): void {
+    if(this.retryLoop?.isRunning()) return;
+    const schedule = this.mode === 'only' ?
+      [5, 10, 20, 40] :
+      [5, 10, 20, 40, 80, 160, 300];
+    this.retryLoop = new TorBootstrapLoop({
+      schedule,
+      attempt: async() => {
+        try {
+          await this.webtorClient.bootstrap(60_000);
+          if(this.webtorClient.isReady()) return true;
+        } catch{ /* treated as failure below */ }
+        // Reset the client so the next attempt has a clean tunnel.
+        try { await this.webtorClient.close(); } catch(e) {
+          logSwallow('PrivacyTransport.retryLoop.close', e);
+        }
+        if(!this.webtorInjected) {
+          this.webtorClient = new WebtorClient();
+        }
+        return false;
+      },
+      onSuccess: () => {
+        const fetchFn = (url: string) => this.webtorClient.fetch(url);
+        this.upgradeToTor(fetchFn);
+      },
+      onFailure: (err, n) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[PrivacyTransport] bootstrap attempt ${n} failed: ${msg}`);
+      }
+    });
+    this.retryLoop.start();
+  }
+
+  private stopRetryLoop(): void {
+    this.retryLoop?.stop();
+    this.retryLoop = null;
+  }
+
+  private upgradeToTor(fetchFn: (url: string) => Promise<Response>): void {
+    this.relayPool.setTorMode(fetchFn);
+    this.setRuntimeState('tor-active');
+    this.flushQueue();
   }
 
   private flushQueue(): void {

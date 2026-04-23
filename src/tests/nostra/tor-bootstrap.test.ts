@@ -172,3 +172,85 @@ describe('Tor Bootstrap Behavior', () => {
     transport.disconnect();
   });
 });
+
+// ── Reusable mock helpers for mode-dispatched bootstrap tests ──────
+function makeMockPool() {
+  return {
+    setDirectMode: vi.fn(),
+    setTorMode: vi.fn(),
+    publish: vi.fn().mockResolvedValue({successes: [], failures: []}),
+    initialize: vi.fn().mockResolvedValue(undefined),
+    disconnect: vi.fn()
+  };
+}
+function makeMockWebtor(opts: {bootstrapFails: boolean}) {
+  return {
+    bootstrap: async() => {
+      if(opts.bootstrapFails) throw new Error('mock bootstrap failure');
+    },
+    isReady: () => !opts.bootstrapFails,
+    fetch: async() => new Response(''),
+    close: async() => {},
+    getCircuitDetails: () => ({guard: '', middle: '', exit: ''})
+  };
+}
+
+describe('PrivacyTransport — mode-dispatched bootstrap', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    localStorage.clear();
+  });
+
+  it('mode=only: sets runtime booting, does not call setDirectMode', async() => {
+    localStorage.setItem('nostra-tor-mode', 'only');
+    const pool = makeMockPool();
+    const mockWebtor = makeMockWebtor({bootstrapFails: true});
+    const {PrivacyTransport} = await import('@lib/nostra/privacy-transport');
+    const {OfflineQueue} = await import('@lib/nostra/offline-queue');
+    const t = new PrivacyTransport(pool as any, new OfflineQueue(), mockWebtor as any);
+    await t.bootstrap();
+    expect(t.getRuntimeState()).toBe('booting');
+    expect(pool.setDirectMode).not.toHaveBeenCalled();
+  });
+
+  it('mode=when-available: sets runtime direct-active immediately', async() => {
+    localStorage.setItem('nostra-tor-mode', 'when-available');
+    const pool = makeMockPool();
+    const mockWebtor = makeMockWebtor({bootstrapFails: true});
+    const {PrivacyTransport} = await import('@lib/nostra/privacy-transport');
+    const {OfflineQueue} = await import('@lib/nostra/offline-queue');
+    const t = new PrivacyTransport(pool as any, new OfflineQueue(), mockWebtor as any);
+    await t.bootstrap();
+    expect(pool.setDirectMode).toHaveBeenCalledTimes(1);
+    expect(t.getRuntimeState()).toBe('direct-active');
+  });
+
+  it('mode=off: direct-active, never starts the retry loop', async() => {
+    localStorage.setItem('nostra-tor-mode', 'off');
+    const pool = makeMockPool();
+    const mockWebtor = makeMockWebtor({bootstrapFails: false});
+    const bootstrapSpy = vi.spyOn(mockWebtor, 'bootstrap');
+    const {PrivacyTransport} = await import('@lib/nostra/privacy-transport');
+    const {OfflineQueue} = await import('@lib/nostra/offline-queue');
+    const t = new PrivacyTransport(pool as any, new OfflineQueue(), mockWebtor as any);
+    await t.bootstrap();
+    expect(t.getRuntimeState()).toBe('direct-active');
+    // Bootstrap should never be called when mode is off.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(bootstrapSpy).not.toHaveBeenCalled();
+  });
+
+  it('setMode(off) while running in only-mode stops the loop and switches to direct', async() => {
+    localStorage.setItem('nostra-tor-mode', 'only');
+    const pool = makeMockPool();
+    const mockWebtor = makeMockWebtor({bootstrapFails: true});
+    const {PrivacyTransport} = await import('@lib/nostra/privacy-transport');
+    const {OfflineQueue} = await import('@lib/nostra/offline-queue');
+    const t = new PrivacyTransport(pool as any, new OfflineQueue(), mockWebtor as any);
+    await t.bootstrap();
+    expect(t.getRuntimeState()).toBe('booting');
+    await t.setMode('off');
+    expect(t.getRuntimeState()).toBe('direct-active');
+    expect(localStorage.getItem('nostra-tor-mode')).toBe('off');
+  });
+});
