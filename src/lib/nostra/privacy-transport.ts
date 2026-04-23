@@ -121,22 +121,6 @@ export class PrivacyTransport {
     return PrivacyTransport.readMode() !== 'off';
   }
 
-  /** @deprecated Use `setMode()` instead. Removed in Task 8. */
-  async setTorEnabled(enabled: boolean) {
-    localStorage.setItem('nostra-tor-enabled', String(enabled));
-
-    try {
-      const rootScope = (await import('@lib/rootScope')).default;
-      rootScope.dispatchEvent('nostra_tor_mode_changed', enabled ? 'when-available' : 'off');
-    } catch(e) { logSwallow('PrivacyTransport.setTorEnabled.dispatch', e); }
-
-    if(enabled) {
-      await this.retryTor();
-    } else {
-      this.confirmDirectFallback();
-    }
-  }
-
   /**
    * Bootstrap privacy transport.
    *
@@ -170,40 +154,6 @@ export class PrivacyTransport {
   }
 
   /**
-   * User confirmed direct fallback — switch pool to direct WebSocket.
-   * Only call this after Tor failure and explicit user consent.
-   *
-   * @deprecated Use `setMode('off')` or `setMode('when-available')` instead.
-   *             Removed in Task 8.
-   */
-  confirmDirectFallback(): void {
-    this.relayPool.setDirectMode();
-    this.setState('direct');
-
-    // Flush queued messages now that we have connectivity
-    this.flushQueue();
-  }
-
-  /**
-   * Retry Tor bootstrap after previous failure.
-   * Starts from a fresh WebtorClient (unless one was injected via
-   * constructor) and reuses bootstrap()'s retry loop.
-   *
-   * @deprecated Use `setMode()` with the desired TorMode; the instance
-   *             manages its own retry loop now. Removed in Task 8.
-   */
-  async retryTor(): Promise<void> {
-    try { await this.webtorClient.close(); } catch(e) { logSwallow('PrivacyTransport.retryTor.webtorClose', e); }
-    if(!this.webtorInjected) {
-      this.webtorClient = new WebtorClient();
-    }
-    await this.bootstrap();
-    if(this.state === 'active') {
-      this.flushQueue();
-    }
-  }
-
-  /**
    * Send a message.
    *
    * - If booting or offline: queue via OfflineQueue
@@ -231,39 +181,6 @@ export class PrivacyTransport {
    */
   getState(): PrivacyTransportState {
     return this.state;
-  }
-
-  /**
-   * Resolve when the transport reaches a "settled" state —
-   * `active`, `direct`, or `failed`. `bootstrapping` and `offline`
-   * are considered in-flight.
-   *
-   * Used by the startup flow to gate `pool.initialize()` so no
-   * WebSocket is opened while Tor is still building its circuit.
-   *
-   * Resolves immediately if already settled.
-   *
-   * @deprecated Prefer listening to `nostra_tor_state` directly and reacting
-   *             to the new `RuntimeState` values. Removed in Task 8.
-   */
-  waitUntilSettled(): Promise<PrivacyTransportState> {
-    const isSettled = (s: PrivacyTransportState) =>
-      s === 'active' || s === 'direct' || s === 'failed';
-
-    if(isSettled(this.state)) {
-      return Promise.resolve(this.state);
-    }
-
-    return new Promise((resolve) => {
-      const handler = (e: {state: string; error?: string}) => {
-        const s = e.state as PrivacyTransportState;
-        if(isSettled(s)) {
-          rootScope.removeEventListener('nostra_tor_state', handler);
-          resolve(s);
-        }
-      };
-      rootScope.addEventListener('nostra_tor_state', handler);
-    });
   }
 
   /**

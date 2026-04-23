@@ -2,12 +2,13 @@
  * AppNostraTorDashboardTab — Tor circuit dashboard in sidebar
  *
  * Shows guard/middle/exit hop chain, exit IP, circuit age, latency.
- * Rebuild button forces a new circuit via PrivacyTransport.retryTor().
+ * Rebuild button forces a new circuit by re-invoking setMode() with the current mode.
  */
 
 import SliderSuperTab from '@components/sliderTab';
 import SettingSection from '@components/settingSection';
 import rootScope from '@lib/rootScope';
+import {PrivacyTransport} from '@lib/nostra/privacy-transport';
 
 type HopRole = 'guard' | 'middle' | 'exit';
 
@@ -357,7 +358,8 @@ export default class AppNostraTorDashboardTab extends SliderSuperTab {
     this.rebuildBtn.disabled = true;
     this.rebuildBtn.textContent = 'Rebuilding…';
 
-    Promise.resolve(transport.retryTor?.()).then(() => {
+    const mode = PrivacyTransport.readMode();
+    Promise.resolve(transport.setMode?.(mode)).then(() => {
       this.rebuildBtn.disabled = false;
       this.rebuildBtn.textContent = 'Rebuild Circuit';
     }).catch(() => {

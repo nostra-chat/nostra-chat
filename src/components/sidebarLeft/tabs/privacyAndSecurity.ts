@@ -55,11 +55,11 @@ export default class AppPrivacyAndSecurityTab extends SliderSuperTab {
           onRetry: () => {
             torCheckbox.setValueSilently(true);
             const transport = (window as any).__nostraPrivacyTransport;
-            if(transport) transport.setTorEnabled(true);
+            if(transport) void transport.setMode('when-available');
           },
           onConfirmDirect: () => {
             const transport = (window as any).__nostraPrivacyTransport;
-            if(transport) transport.setTorEnabled(false);
+            if(transport) void transport.setMode('off');
             torStatusSubtitle.textContent = 'Direct connection — your IP is visible to relays';
             torStatusSubtitle.classList.add('danger');
           },
@@ -70,7 +70,7 @@ export default class AppPrivacyAndSecurityTab extends SliderSuperTab {
         }), overlay);
       } else {
         const transport = (window as any).__nostraPrivacyTransport;
-        if(transport) transport.setTorEnabled(true);
+        if(transport) void transport.setMode('when-available');
         torStatusSubtitle.textContent = 'Connecting to Tor...';
         torStatusSubtitle.classList.remove('danger');
       }

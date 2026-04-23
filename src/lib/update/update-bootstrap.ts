@@ -1,6 +1,7 @@
 import {BootGate, CompromiseAlertError} from '@lib/update/types';
 import {BUILD_VERSION} from '@lib/update/build-version';
 import {ServiceWorkerURL} from '@lib/update/service-worker-url';
+import rootScope from '@lib/rootScope';
 
 function resolveBundleSwUrl(): string {
   try {
@@ -52,8 +53,23 @@ export async function updateBootstrap(opts: BootstrapOptions = {}): Promise<void
     if(isTor) {
       try {
         const pt = (window as any).__nostraPrivacyTransport;
-        if(pt && typeof pt.waitUntilSettled === 'function') {
-          await pt.waitUntilSettled();
+        if(pt && typeof pt.getRuntimeState === 'function') {
+          // Wait until the transport has reached an active state (tor-active,
+          // direct-active, or offline after a failed boot) before firing any
+          // update probes. Listens to nostra_tor_state and resolves on first
+          // settled value; also resolves immediately if already settled.
+          await new Promise<void>((resolve) => {
+            const settled = (s: string) => s === 'tor-active' || s === 'direct-active' || s === 'offline';
+            const current = pt.getRuntimeState?.();
+            if(settled(current)) { resolve(); return; }
+            const handler = (e: {state: string}) => {
+              if(settled(e.state)) {
+                rootScope.removeEventListener('nostra_tor_state', handler);
+                resolve();
+              }
+            };
+            rootScope.addEventListener('nostra_tor_state', handler);
+          });
         }
         const webtorClient = (window as any).__nostraTransport?.webtorClient ||
           (window as any).__nostraPrivacyTransport?.webtorClient;

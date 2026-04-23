@@ -178,20 +178,34 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
       console.log('[NostraOnboardingIntegration] NostraSync wired to ChatAPI');
 
       // Defer the ChatAPI's global subscription until the PrivacyTransport
-      // has settled when Tor is enabled. ChatAPI owns its own NostrRelayPool
-      // which would otherwise open direct WebSockets to every relay the
-      // moment initGlobalSubscription runs — leaking the user IP for the
-      // full duration of the Tor bootstrap.
+      // has reached tor-active when Tor is required. ChatAPI owns its own
+      // NostrRelayPool which would otherwise open direct WebSockets to every
+      // relay the moment initGlobalSubscription runs — leaking the user IP
+      // for the full duration of the Tor bootstrap in Tor-only mode.
       const startChatAPI = () => {
         chatAPI.initGlobalSubscription().catch((err) => {
           console.warn('[NostraOnboardingIntegration] global subscription failed:', err);
         });
       };
-      const transport = (window as any).__nostraTransport;
-      const torEnabled = typeof localStorage !== 'undefined' && localStorage.getItem('nostra-tor-enabled') !== 'false';
-      if(torEnabled && transport && typeof transport.waitUntilSettled === 'function') {
-        transport.waitUntilSettled().then(startChatAPI).catch(startChatAPI);
+
+      const mode = (await import('@lib/nostra/privacy-transport')).PrivacyTransport.readMode();
+      if(mode === 'only') {
+        // In only-mode we must wait for Tor before ChatAPI opens its relay sockets.
+        const transport = (window as any).__nostraTransport;
+        const getState = () => transport?.getRuntimeState?.();
+        if(getState() === 'tor-active') {
+          startChatAPI();
+        } else {
+          const handler = (e: {state: string}) => {
+            if(e.state === 'tor-active') {
+              rootScope.removeEventListener('nostra_tor_state', handler);
+              startChatAPI();
+            }
+          };
+          rootScope.addEventListener('nostra_tor_state', handler);
+        }
       } else {
+        // when-available / off — ChatAPI starts immediately.
         startChatAPI();
       }
 
