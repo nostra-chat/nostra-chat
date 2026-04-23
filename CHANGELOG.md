@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1](https://github.com/nostra-chat/nostra-chat/compare/v0.19.0...v0.19.1) (2026-04-23)
+
+
+### Bug Fixes
+
+* **i18n:** bump langPackLocalVersion to 10 for Tor.Mode.* keys ([1afb51f](https://github.com/nostra-chat/nostra-chat/commit/1afb51f6faee2935786854545ebd3bbfa530f0fd))
+
 ## [0.19.0](https://github.com/nostra-chat/nostra-chat/compare/v0.18.2...v0.19.0) (2026-04-23)
 
 
