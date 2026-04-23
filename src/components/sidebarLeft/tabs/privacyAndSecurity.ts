@@ -23,80 +23,67 @@ export default class AppPrivacyAndSecurityTab extends SliderSuperTab {
     this.setTitle('PrivacySettings');
 
     // --- Tor section ---
-    const torSection = new SettingSection({name: 'Tor Network' as any});
-
-    const torEnabled = PrivacyTransport.isTorEnabled();
-    const torCheckbox = new CheckboxField({
-      toggle: true,
-      checked: torEnabled
+    const torSection = new SettingSection({
+      name: 'Tor.Mode.SectionTitle' as any,
+      caption: 'Tor.Mode.SectionCaption' as any
     });
 
-    const torRow = new Row({
-      title: 'Route traffic through Tor',
-      subtitle: torEnabled ?
-        'Your IP is hidden from relays' :
-        'Direct connection — your IP is visible to relays',
-      checkboxField: torCheckbox,
-      clickable: true
+    type TorModeOption = {
+      mode: 'only' | 'when-available' | 'off';
+      titleKey: string;
+      descKey: string;
+    };
+    const MODE_OPTIONS: TorModeOption[] = [
+      {mode: 'when-available', titleKey: 'Tor.Mode.WhenAvailable.Label', descKey: 'Tor.Mode.WhenAvailable.Desc'},
+      {mode: 'only', titleKey: 'Tor.Mode.Only.Label', descKey: 'Tor.Mode.Only.Desc'},
+      {mode: 'off', titleKey: 'Tor.Mode.Off.Label', descKey: 'Tor.Mode.Off.Desc'}
+    ];
+
+    const currentMode = PrivacyTransport.readMode();
+    const checkboxes = new Map<TorModeOption['mode'], CheckboxField>();
+
+    MODE_OPTIONS.forEach((opt) => {
+      // tweb CheckboxField has no built-in radio style — we use `toggle: true`
+      // and enforce exclusivity in `selectMode` below. If the codebase grows a
+      // radio primitive (`round: true` etc.) later, swap it in here.
+      const cb = new CheckboxField({
+        toggle: true,
+        checked: opt.mode === currentMode
+      });
+      checkboxes.set(opt.mode, cb);
+
+      const row = new Row({
+        checkboxField: cb,
+        subtitle: opt.descKey as any,
+        clickable: true,
+        listenerSetter: this.listenerSetter
+      });
+
+      cb.input.addEventListener('change', () => {
+        if(!cb.checked) {
+          // The user tapped to de-select the active mode — re-assert it,
+          // there's no "no mode" state.
+          cb.setValueSilently(true);
+          return;
+        }
+        void selectMode(opt.mode);
+      });
+
+      torSection.content.append(row.container);
     });
 
-    const torStatusSubtitle = torRow.subtitle;
-
-    torCheckbox.input.addEventListener('change', async() => {
-      const enabled = torCheckbox.checked;
-      if(!enabled) {
-        const [{default: TorFallbackConfirm}, {render}] = await Promise.all([
-          import('@components/popups/torFallbackConfirm'),
-          import('solid-js/web')
-        ]);
-        const overlay = document.createElement('div');
-        document.body.append(overlay);
-        const dispose = render(() => TorFallbackConfirm({
-          onRetry: () => {
-            torCheckbox.setValueSilently(true);
-            const transport = (window as any).__nostraPrivacyTransport;
-            if(transport) void transport.setMode('when-available');
-          },
-          onConfirmDirect: () => {
-            const transport = (window as any).__nostraPrivacyTransport;
-            if(transport) void transport.setMode('off');
-            torStatusSubtitle.textContent = 'Direct connection — your IP is visible to relays';
-            torStatusSubtitle.classList.add('danger');
-          },
-          onClose: () => {
-            dispose();
-            overlay.remove();
-          }
-        }), overlay);
+    async function selectMode(next: TorModeOption['mode']) {
+      for(const [m, cb] of checkboxes) {
+        cb.setValueSilently(m === next);
+      }
+      const transport = (window as any).__nostraPrivacyTransport;
+      if(transport?.setMode) {
+        await transport.setMode(next);
       } else {
-        const transport = (window as any).__nostraPrivacyTransport;
-        if(transport) void transport.setMode('when-available');
-        torStatusSubtitle.textContent = 'Connecting to Tor...';
-        torStatusSubtitle.classList.remove('danger');
+        // No live transport (onboarding/offline fixtures) — persist directly.
+        PrivacyTransport.setModeStatic(next);
       }
-    });
-
-    rootScope.addEventListener('nostra_tor_state', (e) => {
-      const state = e.state;
-      if(state === 'active') {
-        torStatusSubtitle.textContent = 'Connected via Tor';
-        torStatusSubtitle.classList.remove('danger');
-        torStatusSubtitle.classList.add('success');
-      } else if(state === 'bootstrapping') {
-        torStatusSubtitle.textContent = 'Connecting to Tor...';
-        torStatusSubtitle.classList.remove('danger', 'success');
-      } else if(state === 'failed') {
-        torStatusSubtitle.textContent = 'Tor connection failed';
-        torStatusSubtitle.classList.add('danger');
-        torStatusSubtitle.classList.remove('success');
-      } else if(state === 'direct') {
-        torStatusSubtitle.textContent = 'Direct connection — your IP is visible to relays';
-        torStatusSubtitle.classList.add('danger');
-        torStatusSubtitle.classList.remove('success');
-      }
-    });
-
-    torSection.content.append(torRow.container);
+    }
 
     // --- Mesh Network section ---
     const meshSection = new SettingSection({name: 'Mesh Network' as any});
