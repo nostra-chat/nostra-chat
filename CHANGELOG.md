@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.1](https://github.com/nostra-chat/nostra-chat/compare/v0.18.0...v0.18.1) (2026-04-23)
+
+
+### Bug Fixes
+
+* **sw:** strip `redirected` flag from cached Responses ([90368d1](https://github.com/nostra-chat/nostra-chat/commit/90368d15291630ee219d057bc6920efe1a8e7600))
+
 ## [0.18.0](https://github.com/nostra-chat/nostra-chat/compare/v0.17.0...v0.18.0) (2026-04-22)
 
 
