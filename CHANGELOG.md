@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.2](https://github.com/nostra-chat/nostra-chat/compare/v0.19.1...v0.19.2) (2026-04-24)
+
+
+### Bug Fixes
+
+* **groups:** end-to-end render pipeline + admin auto-transfer ([#87](https://github.com/nostra-chat/nostra-chat/issues/87)) ([c2ba660](https://github.com/nostra-chat/nostra-chat/commit/c2ba66037a84a88a7eea21a80be0f1b61299eb80))
+
 ## [0.19.1](https://github.com/nostra-chat/nostra-chat/compare/v0.19.0...v0.19.1) (2026-04-23)
 
 
