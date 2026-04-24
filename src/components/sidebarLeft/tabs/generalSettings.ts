@@ -303,8 +303,10 @@ export default class AppGeneralSettingsTab extends SliderSuperTabEventable {
               middleware: this.middlewareHelper.get(),
               play: false
             }).then(({render}) => render).then((player) => {
-              k.player = player as RLottiePlayer;
-            }).catch(() => {/* Nostra has no animated-emoji sticker sets — theme chip renders without the lottie decoration */});
+              // Null when the Fluent Emoji static fallback took over (no
+              // animated lottie in Nostra mode — see wrapStickerEmoji).
+              if(player) k.player = player as RLottiePlayer;
+            }).catch(() => {/* emoji not in Fluent pack — chip renders without decoration */});
           }
 
           const bubble = document.createElement('div');
