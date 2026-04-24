@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.19.3](https://github.com/nostra-chat/nostra-chat/compare/v0.19.2...v0.19.3) (2026-04-24)
+
+
+### Bug Fixes
+
+* **settings:** render Tor mode labels via i18n ([ea1bbbe](https://github.com/nostra-chat/nostra-chat/commit/ea1bbbed93a1f2b9e8ef8528bb8d720cac0e0e2a))
+* **update:** propagate manifestText from popup to SW for signature verification ([eef8eba](https://github.com/nostra-chat/nostra-chat/commit/eef8ebaaaccafdb3dcb639e6fcab9f6ac4be7f20))
+
 ## [0.19.2](https://github.com/nostra-chat/nostra-chat/compare/v0.19.1...v0.19.2) (2026-04-24)
 
 
