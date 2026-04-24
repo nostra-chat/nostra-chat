@@ -2,6 +2,7 @@ import {render} from 'solid-js/web';
 import {UpdateConsent} from './index';
 import {acceptUpdate, declineUpdate} from '@lib/update/update-popup-controller';
 import {getActiveVersion} from '@lib/serviceWorker/shell-cache';
+import I18n from '@lib/langPack';
 
 export async function showUpdateConsentPopup(manifest: any, signature: string, manifestText?: string) {
   const active = await getActiveVersion();
@@ -16,7 +17,7 @@ export async function showUpdateConsentPopup(manifest: any, signature: string, m
       onAccept={async() => {
         const res = await acceptUpdate(manifest, signature, manifestText);
         if(res.ok) {
-          if(confirm('Aggiornamento applicato. Ricarica ora?')) location.reload();
+          if(confirm(I18n.format('Update.Consent.AppliedReloadPrompt', true))) location.reload();
           dispose();
           host.remove();
         } else {

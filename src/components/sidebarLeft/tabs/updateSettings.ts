@@ -20,7 +20,7 @@ import {
   type IntegritySourceDetail
 } from '@lib/update/update-baseline';
 import {MANIFEST_SOURCES} from '@lib/update/manifest-verifier';
-import {getSnoozeInfo, clearSnooze} from '@lib/update/update-popup-controller';
+import {getSnoozeInfo, clearSnooze, probeForManualInstall} from '@lib/update/update-popup-controller';
 
 function formatAbsoluteDateTime(tsMs: number): string {
   try {
@@ -288,14 +288,30 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
     const installBtn = Button('btn-primary btn-color-primary');
     installBtn.textContent = I18n.format('Update.Action.InstallNow', true);
     installBtn.style.marginBottom = '0.5rem';
-    const refreshInstallBtn = () => {
+    const hasKnownUpdate = (s: UpdateStateSnapshot): boolean => {
+      const latest = pickLatestVersion(s);
+      return !!(latest && s.installedVersion && latest !== s.installedVersion);
+    };
+    const refreshInstallBtn = (s?: UpdateStateSnapshot) => {
       const stash = (window as any).__nostraPendingUpdate;
       const hasStash = !!(stash && stash.manifest && stash.signature);
-      installBtn.style.display = hasStash ? '' : 'none';
+      const hasSnap = !!(s && hasKnownUpdate(s));
+      installBtn.style.display = hasStash || hasSnap ? '' : 'none';
     };
-    refreshInstallBtn();
+    refreshInstallBtn(snap);
     attachClickEvent(installBtn, async() => {
-      const stash = (window as any).__nostraPendingUpdate;
+      let stash = (window as any).__nostraPendingUpdate;
+      // If snooze suppressed the probe dispatch, the stash is empty even though
+      // an update is known — rehydrate it via a fresh signed probe. Clicking
+      // "Install update now" is explicit user intent; it bypasses snooze.
+      if(!stash || !stash.manifest || !stash.signature) {
+        try {
+          stash = await probeForManualInstall();
+        } catch(err) {
+          toast(I18n.format('Update.Action.InstallFailed', true, [err instanceof Error ? err.message : String(err)]));
+          return;
+        }
+      }
       if(!stash || !stash.manifest || !stash.signature) {
         toast(I18n.format('Update.Action.InstallNoneAvailable', true));
         refreshInstallBtn();
@@ -303,7 +319,7 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
       }
       try {
         const {showUpdateConsentPopup} = await import('@components/popups/updateConsent/mount');
-        await showUpdateConsentPopup(stash.manifest, stash.signature);
+        await showUpdateConsentPopup(stash.manifest, stash.signature, stash.manifestText);
       } catch(err) {
         toast(I18n.format('Update.Action.InstallFailed', true, [err instanceof Error ? err.message : String(err)]));
       }
@@ -329,7 +345,7 @@ export default class AppUpdateSettingsTab extends SliderSuperTab {
         }
         latestVersionRow.subtitle.textContent = latestVersionSubtitle(latest);
         renderDiagnostics(latest);
-        refreshInstallBtn();
+        refreshInstallBtn(latest);
         await renderSignatureBlock();
         if(verdictNeedsDetails(latest.lastIntegrityResult)) setDiagnosticsVisible(true);
         toast(I18n.format('Update.Action.CheckComplete', true));

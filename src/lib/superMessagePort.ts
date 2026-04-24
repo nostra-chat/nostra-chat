@@ -312,7 +312,10 @@ class SuperMessagePort<
     const source: MessageEventSource = event.source || event.currentTarget as any; // can have no source
 
     // @ts-ignore
-    this.processTaskMap[task.type](task, source, event);
+    const handler = this.processTaskMap[task?.type];
+    if(typeof handler !== 'function') return;
+    // @ts-ignore
+    handler(task, source, event);
   };
 
   protected async releasePending() {

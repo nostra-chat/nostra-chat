@@ -78,6 +78,25 @@ export async function runProbeIfDue(force = false): Promise<void> {
   }
 }
 
+// Manual-install probe: signature-verifies the latest manifest and (if an update
+// is available) populates window.__nostraPendingUpdate regardless of snooze.
+// Snooze suppresses the *auto-popup*, not an explicit "Install update now" click.
+// Returns the signed manifest on success, null otherwise.
+export async function probeForManualInstall(): Promise<{manifest: any; signature: string; manifestText: string} | null> {
+  const active = await getActiveVersion();
+  const installedPubkey = active?.installedPubkey || getBakedPubkey();
+  if(!installedPubkey || installedPubkey.length === 0) return null;
+  const result = await probe(installedPubkey, active?.version);
+  if(result.outcome !== 'update-available' || !result.manifest) return null;
+  const payload = {
+    manifest: result.manifest,
+    signature: result.signature || '',
+    manifestText: result.manifestText || ''
+  };
+  (window as any).__nostraPendingUpdate = payload;
+  return payload;
+}
+
 export async function acceptUpdate(manifest: any, signature: string, manifestText?: string): Promise<{ok: boolean; reason?: string}> {
   return startUpdateSigned(manifest, signature, manifestText);
 }

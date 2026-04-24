@@ -1,4 +1,5 @@
 import {createSignal, Show} from 'solid-js';
+import I18n from '@lib/langPack';
 
 export interface UpdateConsentProps {
   currentVersion: string;
@@ -56,40 +57,40 @@ export function UpdateConsent(props: UpdateConsentProps) {
 
   return (
     <div style={S.popup}>
-      <h2 style={S.h2}>Aggiornamento disponibile</h2>
+      <h2 style={S.h2}>{I18n.format('Update.Consent.Title', true)}</h2>
       <dl style={S.details}>
-        <dt style={S.dt}>Versione</dt>
+        <dt style={S.dt}>{I18n.format('Update.Consent.FieldVersion', true)}</dt>
         <dd style={S.dd}>{props.currentVersion} → {props.newManifest.version}</dd>
-        <dt style={S.dt}>Commit</dt>
+        <dt style={S.dt}>{I18n.format('Update.Consent.FieldCommit', true)}</dt>
         <dd style={S.dd}><a style={S.link} href={`https://github.com/nostra-chat/nostra-chat/commit/${props.newManifest.gitSha}`} target='_blank' rel='noopener'>{props.newManifest.gitSha.slice(0, 7)}</a></dd>
-        <dt style={S.dt}>Data</dt>
+        <dt style={S.dt}>{I18n.format('Update.Consent.FieldDate', true)}</dt>
         <dd style={S.dd}>{new Date(props.newManifest.published).toLocaleDateString()}</dd>
-        <dt style={S.dt}>Chiave di firma</dt>
+        <dt style={S.dt}>{I18n.format('Update.Consent.FieldSigningKey', true)}</dt>
         <dd style={S.dd}>
           <code style={S.code}>{props.newManifest.signingKeyFingerprint}</code>
-          <Show when={keyMatches()}><span style={S.ok}> ✓ stesso di installato</span></Show>
+          <Show when={keyMatches()}><span style={S.ok}> {I18n.format('Update.Consent.SameAsInstalled', true)}</span></Show>
         </dd>
         <Show when={isRotation()}>
-          <dt style={S.dt}>Rotazione chiave</dt>
-          <dd style={S.warn}>Questa release ruota la chiave di firma a <code style={S.code}>{props.newManifest.rotation!.newFingerprint}</code></dd>
+          <dt style={S.dt}>{I18n.format('Update.Consent.FieldRotation', true)}</dt>
+          <dd style={S.warn}>{I18n.format('Update.Consent.RotatesTo', true)} <code style={S.code}>{props.newManifest.rotation!.newFingerprint}</code></dd>
         </Show>
       </dl>
       <Show when={props.newManifest.changelog}>
         <details>
-          <summary style={S.changelogSummary}>Release notes</summary>
+          <summary style={S.changelogSummary}>{I18n.format('Update.Consent.ReleaseNotes', true)}</summary>
           <pre style={S.changelogPre}>{props.newManifest.changelog}</pre>
         </details>
       </Show>
       <Show when={progress()}>
         <progress value={progress()!.done} max={progress()!.total} />
-        <p>{progress()!.done}/{progress()!.total} chunks verificati</p>
+        <p>{I18n.format('Update.Consent.ChunksVerified', true, [progress()!.done, progress()!.total])}</p>
       </Show>
       <Show when={error()}>
         <p style={S.error}>{error()}</p>
       </Show>
       <div style={S.actions}>
-        <button style={S.btn} disabled={busy()} onClick={() => props.onDecline()}>Ignora</button>
-        <button style={S.btnPrimary} disabled={busy()} onClick={accept}>{busy() ? 'Applicando...' : 'Accetta'}</button>
+        <button style={S.btn} disabled={busy()} onClick={() => props.onDecline()}>{I18n.format('Update.Consent.Ignore', true)}</button>
+        <button style={S.btnPrimary} disabled={busy()} onClick={accept}>{busy() ? I18n.format('Update.Consent.Applying', true) : I18n.format('Update.Consent.Accept', true)}</button>
       </div>
     </div>
   );

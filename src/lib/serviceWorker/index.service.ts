@@ -482,23 +482,28 @@ ctx.addEventListener('message', (event) => {
   }
 });
 
-ctx.addEventListener('message', async(event) => {
+ctx.addEventListener('message', (event) => {
   if((event as any).data?.type !== 'UPDATE_APPROVED') return;
   const port = (event as any).ports[0] as MessagePort | undefined;
-  try {
-    const active = await getActiveVersion();
-    const pubkey = active?.installedPubkey || getBakedPubkey();
-    const res = await handleUpdateApproved(
-      (event as any).data.manifest,
-      (event as any).data.signature,
-      pubkey,
-      (done: number, total: number) => port?.postMessage({type: 'UPDATE_PROGRESS', done, total}),
-      (event as any).data.manifestText
-    );
-    port?.postMessage({type: 'UPDATE_RESULT', outcome: res.outcome, reason: res.reason, chunk: res.chunk});
-  } catch(e) {
-    port?.postMessage({type: 'UPDATE_RESULT', outcome: 'swap-failed', reason: String(e)});
-  }
+  // Bundle download + verify can take tens of seconds; without waitUntil the SW
+  // may be terminated before UPDATE_RESULT posts back, leaving the popup
+  // stuck on "Applying..." forever.
+  (event as ExtendableMessageEvent).waitUntil((async() => {
+    try {
+      const active = await getActiveVersion();
+      const pubkey = active?.installedPubkey || getBakedPubkey();
+      const res = await handleUpdateApproved(
+        (event as any).data.manifest,
+        (event as any).data.signature,
+        pubkey,
+        (done: number, total: number) => port?.postMessage({type: 'UPDATE_PROGRESS', done, total}),
+        (event as any).data.manifestText
+      );
+      port?.postMessage({type: 'UPDATE_RESULT', outcome: res.outcome, reason: res.reason, chunk: res.chunk});
+    } catch(e) {
+      port?.postMessage({type: 'UPDATE_RESULT', outcome: 'swap-failed', reason: String(e)});
+    }
+  })());
 });
 
 // ctx.onerror = (error) => {
