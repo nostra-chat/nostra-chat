@@ -1552,12 +1552,17 @@ export class NostraMTProtoServer {
     } catch(err) {
       console.warn(LOG_PREFIX, 'createChat failed:', err);
     }
-    return emptyUpdates;
+    // appChatsManager.createChat expects a messages.invitedUsers wrapper (res type of messages.createChat).
+    // Returning the bare Updates made invitedUsers.updates === [] (the inner array), which crashed
+    // apiUpdatesManager.processUpdateMessage reading .date on an array.
+    return {_: 'messages.invitedUsers', updates: emptyUpdates, missing_invitees: [] as any[]};
   }
 
   private async createChannel(params: any): Promise<any> {
-    // Nostra treats channels as groups
-    return this.createChat({title: params?.title ?? 'Channel', users: []});
+    // Nostra treats channels as groups. channels.createChannel returns Updates (not messages.invitedUsers),
+    // so unwrap the createChat wrapper here.
+    const wrapped = await this.createChat({title: params?.title ?? 'Channel', users: []});
+    return wrapped?.updates ?? wrapped;
   }
 
   private async inviteToChannel(params: any): Promise<any> {
@@ -1565,7 +1570,10 @@ export class NostraMTProtoServer {
     const channelId = params?.channel?.channel_id;
     const userIds: number[] = (params?.users || []).map((u: any) => u?.user_id ?? u).filter(Boolean);
 
-    if(!channelId || !userIds.length) return emptyUpdates;
+    // channels.inviteToChannel returns messages.invitedUsers (same res type as messages.createChat / addChatUser).
+    const wrap = () => ({_: 'messages.invitedUsers', updates: emptyUpdates, missing_invitees: [] as any[]});
+
+    if(!channelId || !userIds.length) return wrap();
 
     try {
       const {getGroupStore} = await import('./group-store');
@@ -1574,7 +1582,7 @@ export class NostraMTProtoServer {
       const group = groups.find((g: any) => Math.abs(g.peerId) === channelId);
       if(!group) {
         console.warn(LOG_PREFIX, 'inviteToChannel: group not found for channelId', channelId);
-        return emptyUpdates;
+        return wrap();
       }
       for(const uid of userIds) {
         const pk = await getPubkey(uid);
@@ -1587,7 +1595,7 @@ export class NostraMTProtoServer {
     } catch(err) {
       console.warn(LOG_PREFIX, 'inviteToChannel failed:', err);
     }
-    return emptyUpdates;
+    return wrap();
   }
 
   private fallback(method: string, _params: any): any {

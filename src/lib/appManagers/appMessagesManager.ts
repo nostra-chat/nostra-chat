@@ -2968,8 +2968,10 @@ export class AppMessagesManager extends AppManager {
       const chat = this.appPeersManager.getPeer(peerId) as Chat.channel;
       if(chat.pFlags.signatures) {
         const user = this.appUsersManager.getSelf();
-        const fullName = user.first_name + (user.last_name ? ' ' + user.last_name : '');
-        postAuthor = fullName;
+        if(user) {
+          const fullName = user.first_name + (user.last_name ? ' ' + user.last_name : '');
+          postAuthor = fullName;
+        }
       }
     }
 
@@ -5179,7 +5181,7 @@ export class AppMessagesManager extends AppManager {
 
     if(!isMessage && message.action) {
       const action = message.action as MessageAction;
-      const suffix = message.fromId === this.appUsersManager.getSelf().id ? 'You' : '';
+      const suffix = message.fromId === this.appUsersManager.getSelf()?.id ? 'You' : '';
       let migrateFrom: PeerId, migrateTo: PeerId;
 
       if((action as MessageAction.messageActionChatEditPhoto).photo) {
@@ -5339,8 +5341,6 @@ export class AppMessagesManager extends AppManager {
     if(!messages || (messages as any).saved) return messages;
     (messages as any).saved = true;
     messages.forEach((message, idx, arr) => {
-      // VMT bridge responses can transiently contain undefined holes when an async mapper fails to resolve a row; skip them defensively.
-      if(!message) return;
       arr[idx] = this.saveMessage(message, options);
     });
 

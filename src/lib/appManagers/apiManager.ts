@@ -766,6 +766,29 @@ export class ApiManager extends ApiManagerMethods {
     'channels.checkUsername': {_: 'boolTrue'},
     'channels.checkSearchPostsFlood': {_: 'boolFalse'},
     'channels.getGroupsForDiscussion': {_: 'messages.chats', chats: []},
+    // Downstream caller (appChatsManager.getChannelRecommendations) does
+    // `messagesChats.chats` — fallback `{pFlags:{}}` crashes processResult.
+    'channels.getChannelRecommendations': {_: 'messages.chats', chats: []},
+    // Downstream caller (appProfileManager.getChatFull) accesses
+    // `result.full_chat.chat_photo`, `result.full_chat.call`,
+    // `result.full_chat.notify_settings`, `result.chats`, `result.users`.
+    // `getParticipants` later reads `chatFull.participants._` to dispatch
+    // on chatParticipants vs chatParticipantsForbidden. Nostra has no
+    // Telegram-style full-chat data (groups are P2P via GroupAPI), so a
+    // minimal chatParticipantsForbidden stub satisfies every consumer.
+    'messages.getFullChat': {
+      _: 'messages.chatFull',
+      full_chat: {
+        _: 'chatFull',
+        pFlags: {},
+        id: 0,
+        about: '',
+        participants: {_: 'chatParticipantsForbidden', chat_id: 0},
+        notify_settings: {_: 'peerNotifySettings', flags: 0}
+      },
+      chats: [],
+      users: []
+    },
     'channels.deactivateAllUsernames': true,
     // channels.createChannel, channels.inviteToChannel → routed through BRIDGE
     'chatlists.getLeaveChatlistSuggestions': [],

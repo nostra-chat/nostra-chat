@@ -100,7 +100,7 @@ export default class AppGeneralSettingsTab extends SliderSuperTabEventable {
 
   public init(p: ReturnType<typeof AppGeneralSettingsTab['getInitArgs']>) {
     this.container.classList.add('general-settings-container');
-    this.setTitle('General');
+    this.setTitle('Nostra.GeneralSettingsViewController');
     const [appSettings, setAppSettings] = useAppSettings();
 
     const section = generateSection.bind(null, this.scrollable);
@@ -304,7 +304,7 @@ export default class AppGeneralSettingsTab extends SliderSuperTabEventable {
               play: false
             }).then(({render}) => render).then((player) => {
               k.player = player as RLottiePlayer;
-            });
+            }).catch(() => {/* Nostra has no animated-emoji sticker sets — theme chip renders without the lottie decoration */});
           }
 
           const bubble = document.createElement('div');
