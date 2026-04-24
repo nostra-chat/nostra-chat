@@ -124,6 +124,41 @@ export default async function wrapSticker({doc, div, middleware, loadStickerMidd
   const options = arguments[0];
   div = toArray(div);
 
+  // Nostra synthetic stickers (Fluent Emoji PNGs). These docs carry a
+  // `nostra_fluent_url`; bail out of the MTProto thumb/load pipeline and
+  // paint an <img> directly. Returns a shape-compatible {render} so
+  // callers doing `.then(({render}) => render)` keep working.
+  const nostraFluentUrl = (doc as any)?.nostra_fluent_url as string | undefined;
+  if(nostraFluentUrl) {
+    div.forEach((d) => {
+      d.dataset.docId = '' + doc.id;
+      d.classList.add('media-sticker-wrapper');
+      // Let existing sticker children animate out, but make sure we're
+      // not stacking duplicate imgs on re-render.
+      const existing = d.querySelector('img.media-sticker.nostra-fluent-sticker') as HTMLImageElement | null;
+      if(existing) existing.remove();
+      const img = document.createElement('img');
+      img.src = nostraFluentUrl;
+      img.alt = emoji || '';
+      img.decoding = 'async';
+      img.loading = 'lazy';
+      img.classList.add('media-sticker', 'nostra-fluent-sticker');
+      if(width) img.width = width;
+      if(height) img.height = height;
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'contain';
+      d.append(img);
+    });
+    return {
+      render: Promise.resolve(null as unknown as RLottiePlayer | HTMLVideoElement[] | HTMLImageElement[] | void),
+      load: (async() => undefined as unknown as RLottiePlayer | HTMLVideoElement[] | HTMLImageElement[]),
+      width,
+      height,
+      downloaded: true
+    };
+  }
+
   liteModeKey ??= 'stickers_panel';
 
   if(isCustomEmoji) {

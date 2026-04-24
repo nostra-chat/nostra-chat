@@ -29,6 +29,7 @@ import StickerType from '@config/stickerType';
 import {ReferenceContext} from '@lib/storages/references';
 import {STICKERS_LOCAL_IDS, STICKERS_LOCAL_IDS_SET, STICKER_LOCAL_SET_ID, MyMessagesStickerSet, MyStickerSetInput} from '@lib/appManagers/utils/stickers/constants';
 import {getStickerSetInputByDice, getStickerSetInputById, getStickerSetInputByLocalId, getStickerSetInputByShortName, getStickerSetInputByStickerSet} from '@lib/appManagers/utils/stickers/getStickerSetInput';
+import {NOSTRA_STICKER_SET_ID, getNostraStickerSet, getNostraStickerSetHeader} from '@lib/nostra/nostra-sticker-pack';
 
 const CACHE_TIME = 3600e3;
 
@@ -198,7 +199,17 @@ export class AppStickersManager extends AppManager {
     useCache: boolean
   }> = {}): MaybePromise<MyMessagesStickerSet> {
     if(typeof(set) === 'string') {
+      if(set === NOSTRA_STICKER_SET_ID || set === 'nostra_fluent') {
+        return getNostraStickerSet() as unknown as MyMessagesStickerSet;
+      }
       set = this.names[set] || getStickerSetInputByShortName(set);
+    }
+
+    // Nostra synthetic pack: short-circuit before touching MTProto so the
+    // upstream `messages.getStickerSet` empty-stub can't overwrite our
+    // documents.
+    if((set as any)?.id === NOSTRA_STICKER_SET_ID || (set as any)?.short_name === 'nostra_fluent') {
+      return getNostraStickerSet() as unknown as MyMessagesStickerSet;
     }
 
     const cacheKey = this.getCacheKey(set);
@@ -738,11 +749,21 @@ export class AppStickersManager extends AppManager {
     return allStickers;
   };
 
-  public getAllStickers() {
-    return this.apiManager.invokeApiHashable({
+  public async getAllStickers() {
+    // Nostra synthetic pack: upstream MTProto returns an empty sets[] in
+    // Nostra mode (see NOSTRA_STATIC), so we prepend our Fluent Emoji set
+    // so it shows up in the stickers tab of the emoticons dropdown.
+    const upstream = await this.apiManager.invokeApiHashable({
       method: 'messages.getAllStickers',
       processResult: this.processAllStickersResult
     });
+    assumeType<MessagesAllStickers.messagesAllStickers>(upstream);
+    const nostraHeader = getNostraStickerSetHeader();
+    const alreadyHas = upstream.sets.some((s) => s.id === nostraHeader.id);
+    if(!alreadyHas) {
+      upstream.sets = [nostraHeader, ...upstream.sets];
+    }
+    return upstream;
   }
 
   public getEmojiStickers() {
