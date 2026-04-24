@@ -76,7 +76,8 @@ vi.mock('@lib/nostra/peer-profile-cache', () => ({
 // group-store dynamic import mock
 vi.mock('@lib/nostra/group-store', () => ({
   getGroupStore: () => ({
-    getAll: vi.fn().mockResolvedValue([])
+    getAll: vi.fn().mockResolvedValue([]),
+    getByPeerId: vi.fn().mockResolvedValue(null)
   })
 }));
 
@@ -122,7 +123,8 @@ beforeAll(async() => {
   }));
   vi.doMock('@lib/nostra/group-store', () => ({
     getGroupStore: () => ({
-      getAll: vi.fn().mockResolvedValue([])
+      getAll: vi.fn().mockResolvedValue([]),
+      getByPeerId: vi.fn().mockResolvedValue(null)
     })
   }));
   vi.doMock('@lib/nostra/nostra-bridge', () => ({

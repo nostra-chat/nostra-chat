@@ -1,45 +1,30 @@
 # Fuzz Findings
 
-Last updated: 2026-04-23
-Open bugs: 2 (live) · Regression-watch: 2 (2b.3 fixes firing again in 2b.4 runs) · Fixed: 6+2 (Phase 2b.1) · Fixed in 2b.2a: 3 · Fixed in 2b.2b: 3 · Fixed in 2b.3: 2 · Fixed in 2b.4: 1 (admin-orphan)
+Last updated: 2026-04-24
+Open bugs: 2 (live) · Regression-watch: 1 (2b.3 fix cold-start flaking in baseline-emit) · Fixed: 6+2 (Phase 2b.1) · Fixed in 2b.2a: 3 · Fixed in 2b.2b: 3 · Fixed in 2b.3: 2 · Fixed in 2b.4: 1 · Fixed in 2b.5: 3
 
 ## Open (sorted by occurrences desc)
 
-### FIND-dbe8fdd2 — POST-sendInGroup-bubble-on-sender
-- **Status**: open — **real groups UI bug**, carry-forward to Phase 2b.5
+### FIND-1d3adc13 — POST-edit-content-updated
+- **Status**: open — cold-start DOM-update flake, surfaced during Phase 2b.5 baseline-emit attempt
 - **Tier**: postcondition
-- **Occurrences**: 1
-- **First seen**: 2026-04-23 16:49:55
-- **Last seen**: 2026-04-23 16:49:55
-- **Seed**: 45
-- **Assertion**: `"sendInGroup: sent bubble \"!m}xargume\" never appeared on sender userA"`
-- **Replay**: `pnpm fuzz --replay=FIND-dbe8fdd2`
+- **Occurrences**: 2
+- **First seen**: 2026-04-24 15:56:13
+- **Last seen**: 2026-04-24 16:07:48
+- **Seed**: 44
+- **Assertion**: `"edited bubble mid=1777046154304277 content not updated to \"f.M/\""`
+- **Replay**: `pnpm fuzz --replay=FIND-1d3adc13`
 - **Minimal trace** (2 actions):
-  1. `scrollHistoryUp({"user":"userA"})`
-  2. `sendInGroup({"from":"userA","text":"!m}xargume"})`
-- **Root cause (investigation, not fix)**: `GroupAPI.onGroupMessage` callback (`src/lib/nostra/group-api.ts:39`) is declared but **never assigned** anywhere in the codebase. When a group message arrives via relay (own self-echo included), `handleIncomingGroupMessage` calls `this.onGroupMessage?.(…)` — but it's always null, so nothing renders. Sender never sees their own group bubble. Receiver likely doesn't either. This is the missing "groups→display bridge" analogous to `nostra-sync.ts` for DMs. Fix requires a new module wiring group rx → message-store persist → `nostra_new_message` dispatch → bubble render. Scope: ~100 LOC, not in Phase 2b.4.
-- **Artifacts**: [`docs/fuzz-reports/FIND-dbe8fdd2/`](../fuzz-reports/FIND-dbe8fdd2/)
+  1. `sendText({"from":"userB","text":")z~#"})`
+  2. `editRandomOwnBubble({"user":"userA","newText":"f.M/"})`
+- **Note**: Phase 2b.5 defensively bumped `POST-edit-content-updated` polling window from 3s to 10s to align with warmup bubble/reaction timeouts. Further investigation (does the VMT local `message_edit` dispatch reach a not-yet-mounted bubbles.ts listener?) deferred to Phase 2b.6 — carry-forward during baseline-emit attempts.
+- **Artifacts**: [`docs/fuzz-reports/FIND-1d3adc13/`](../fuzz-reports/FIND-1d3adc13/)
 
-### FIND-450d2436 — INV-console-clean
-- **Status**: open — cold-start flake, benign
-- **Tier**: cheap
-- **Occurrences**: 1
-- **First seen**: 2026-04-23 16:51:29
-- **Last seen**: 2026-04-23 16:51:29
-- **Seed**: 46
-- **Assertion**: `"Unallowlisted console error: [error] Failed to wait for circuit: Internal error: Channel not established"`
-- **Replay**: `pnpm fuzz --replay=FIND-450d2436`
-- **Minimal trace** (1 actions):
-  1. `reactViaUI({"user":"userB","emoji":"👍"})`
-- **Note**: Tor circuit bootstrap logs this during cold-start before the Tor proxy is disabled or fully ready. Unrelated to groups; candidate for the console allowlist if determined benign.
-- **Artifacts**: [`docs/fuzz-reports/FIND-450d2436/`](../fuzz-reports/FIND-450d2436/)
+## Regression-watch (2b.3 fix cold-start flaking in 2b.5 baseline-emit)
 
-## Regression-watch (2b.3 fixes re-firing in 2b.4)
+Phase 2b.5 verified FIND-4e18d35d does NOT reproduce on a single-action replay against current main, but it still fires as a cold-start flake on iteration 4 of the baseline-emit run (fresh browser contexts, pre-warm-up relay subscription on userA's kind-7 filter). Phase 2b.5 added an independent-steps refactor to `warmupHandshake` + IDB-based recovery for step-2 priming when step-1 DOM render is deferred; baseline-emit attempts still fire the finding, so carry-forward to Phase 2b.6 for deeper investigation (likely path: verify `chatAPI.initGlobalSubscription()` kind-7 filter is active before returning control to the harness).
 
-Two findings marked "Fixed in Phase 2b.3" fired repeatedly in 2b.4 runs without touching their production code paths. Phase 2b.4 changes are limited to `src/tests/fuzz/**` — no production files modified. These are tracked for re-investigation in Phase 2b.5; existing Fixed entries below are preserved unchanged.
-
-- **FIND-57989db1** — `INV-mirrors-idb-coherent` — fired in iter 3 + iter 4 (seed=42). 2b.3 fix gated P2P success on `nostraMid` presence; something is still polluting the mirror with an orphan tempId on userB. Hypothesis: an additional VMT failure path not covered by the 2b.3 gate.
-- **FIND-4e18d35d** — `INV-reaction-bilateral` — fired in iter 3 (seed=42). 2b.3 two-part fix (dual p-tag + rumor-id alignment) covered the `reactViaUI` own-message path; this recurrence may be from `reactToRandomBubble` on a different bubble selection, not yet confirmed.
+- **FIND-4e18d35d** — `INV-reaction-bilateral` — fired repeatedly on iter-4 `reactViaUI` at seed=46 in Phase 2b.5 baseline-emit attempts (v2 + v3). Single-action replay on current main passes. Hypothesis: A's kind-7 subscription is not verifiably active at the time B publishes the first kind-7 of the iteration, and the 5s receive-side buffer in `nostra-reactions-receive.ts` only guards against target-not-yet-ingested races, not against the event never arriving at all.
 
 ## Phase 2b.4 findings closed via fuzz-side adjustment (not production fixes)
 
@@ -49,6 +34,52 @@ These were transient artifacts of a warmup/action configuration that was itself 
 - `INV-group-bilateral-membership` (signature `4f52549b`) — fired on warmup-residue group that B never received due to cold-start relay sub. Grace window bumped from 5s to 30s (using `group.createdAt`) in invariant check; no recurrence after fix.
 
 ## Fixed
+
+### Fixed in Phase 2b.5
+
+#### FIND-dbe8fdd2 — POST-sendInGroup-bubble-on-sender (groups→display bridge)
+- **Status**: fixed in Phase 2b.5 (shipped via PR #87, commit c2ba6603)
+- **Tier**: postcondition
+- **Occurrences**: 1
+- **First seen**: 2026-04-23 16:49:55
+- **Last seen**: 2026-04-23 16:49:55
+- **Seed**: 45
+- **Assertion**: `"sendInGroup: sent bubble \"!m}xargume\" never appeared on sender userA"`
+- **Root cause**: `GroupAPI.onGroupMessage` was declared but never assigned. Group messages reached the callback-dispatch site but the null check always skipped. Bilateral render (sender + receiver) never fired, and the VMT `getHistory` path had no group branch so reopening a group chat returned empty.
+- **Fix** (three-layer, all on `feat/fuzz-phase-2b4-groups` → PR #87): (a) replaced `window.__nostraGroupAPI` callback indirection with direct imports of `handleGroupIncoming` / `handleGroupOutgoing` from `nostra-groups-sync.ts` (brittle under Vite dev module duplication); (b) new `ensureGroupChatInjected` helper seeds `mirrors.chats` + `appChatsManager.saveApiChat` + `reconcilePeer` on every group send/receive; (c) new `getGroupHistory` branch in `virtual-mtproto-server.ts` reads by `conversationId='group:<gid>'` and returns messages + users + chat for negative peerIds.
+- **Regression coverage**: permanent E2E at `src/tests/e2e/e2e-groups-bilateral.ts` — "ALL PASS" sender + receiver bubbles. 33/33 unit tests green.
+- **Artifacts**: [`docs/fuzz-reports/FIND-dbe8fdd2/`](../fuzz-reports/FIND-dbe8fdd2/)
+
+#### FIND-57989db1 — INV-mirrors-idb-coherent (2b.3 fix was incomplete)
+- **Status**: fixed in Phase 2b.5
+- **Tier**: medium
+- **Occurrences**: 3 (seed=43 2b.3 baseline-emit; seed=42 iter 3+4 2b.4; seed=44 v1 2b.5 baseline-emit)
+- **First seen**: 2026-04-21 09:37:50
+- **Last seen**: 2026-04-24 15:56:13
+- **Assertion**: `"mirror mids not in idb on userB: <integer >= 2^50>"`
+- **Root cause**: Phase 2b.3 closed the success-branch-on-failure path but relied on bare `storage.delete(tempId)` inside the Worker's P2P send-completion handler. That only removes the Worker-side LRU Map entry — the main-thread `mirrors.messages[storageKey][tempId]` entry written by `beforeMessageSending → saveMessages → setMessageToStorage` (via MessagePort) is untouched. Net effect: on VMT send failure (no nostraMid) AND on every successful tempId→nostraMid rename, the mirror retained the orphan tempId. INV-mirrors-idb-coherent detected it on both paths.
+- **Fix**: `src/lib/appManagers/appMessagesManager.ts` — replace `storage.delete(tempId)` with `this.deleteMessageFromStorage(storage, tempId)` on both the failure gate and the rename path. `deleteMessageFromStorage` fires a `mirror` MessagePort task with no `value` → main-thread `setDeepProperty(mirror, key, undefined, true)` deletes the entry.
+- **Regression coverage**: primary via `pnpm fuzz --replay=FIND-57989db1`. Replay on current main (single-action `sendText`) passes clean both with and without the fix; the fix is defense against the mirror-leak pattern that INV-mirrors-idb-coherent surfaces on longer runs.
+- **Artifacts**: [`docs/fuzz-reports/FIND-57989db1/`](../fuzz-reports/FIND-57989db1/)
+
+#### INV-group-no-orphan-mirror-peer — orphan group Chat after leave / remove-self
+- **Status**: fixed in Phase 2b.5 (new regression surfaced by PR #87)
+- **Tier**: regression
+- **Occurrences**: 1 (Phase 2b.5 v1 baseline-emit iter 1, seed=43)
+- **Assertion**: `"1 orphan group peer(s) in mirrors on userB: <peerId>"`
+- **Root cause**: Phase 2b.5 PR #87 introduced `ensureGroupChatInjected` in `nostra-groups-sync.ts` which writes the group Chat to `apiManagerProxy.mirrors.peers[groupPeerId]` + `mirrors.chats[chatId]` + calls `appChatsManager.saveApiChat` on every group send/receive. There was no symmetric cleanup path: `GroupAPI.leaveGroup` and `handleRemoveMember(targetPubkey=self)` deleted the group record from `group-store` but left the Chat entry in the mirrors. The INV-group-no-orphan-mirror-peer regression invariant caught this as a mirror-vs-store divergence.
+- **Fix**: new `cleanupGroupChatInjection(groupPeerId)` helper in `nostra-groups-sync.ts` — idempotent `delete proxy.mirrors.peers[groupPeerId]` + `delete proxy.mirrors.chats[chatId]`. Invoked from both `leaveGroup` (line 259) and `handleRemoveMember` self-target branch in `src/lib/nostra/group-api.ts`.
+- **Regression coverage**: `src/tests/nostra/group-cleanup-mirror.test.ts` — 3 new cases (cleans targeted entry; idempotent no-op; only removes targeted group, not unrelated peers). Added to `package.json test:nostra:quick`.
+- **Artifacts**: none (caught during baseline-emit, not persisted as FIND-artifact)
+
+#### FIND-450d2436 — INV-console-clean (Tor + Webtor cold-start diagnostics)
+- **Status**: fixed in Phase 2b.5 via console allowlist
+- **Tier**: cheap
+- **Occurrences**: 4+ variants (original `Channel not established`, `Failed to extend to exit`, `Failed to begin stream`, `Received an END cell with reason RESOLVEFAILED`, `[WebtorClient] circuit attempt N failed`)
+- **Note**: The fuzz harness talks to LocalRelay via `ws://127.0.0.1:<port>` — never routed through Tor — but the app's Tor (arti-js) module and WebtorClient still bootstrap on boot and emit a family of Arti circuit diagnostics until they stabilise or shut down. Benign in fuzz context.
+- **Fix**: extended `src/tests/fuzz/allowlist.ts` with broad regex patterns covering the `Fetch request failed: Internal error:` / `Failed to wait for circuit: Internal error:` / `[WebtorClient] circuit attempt N failed` / `waitForCircuit attempt timed out` prefixes, so variants don't flake the replay before the invariant under test is reached.
+- **Artifacts**: [`docs/fuzz-reports/FIND-450d2436/`](../fuzz-reports/FIND-450d2436/)
+
 
 ### Fixed in Phase 2b.4
 

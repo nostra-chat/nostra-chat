@@ -207,6 +207,29 @@ async function ensureGroupChatInjected(
 }
 
 /**
+ * Symmetric cleanup for `ensureGroupChatInjected` — invoked when this user
+ * leaves or is removed from a group. Without this, `GroupAPI.leaveGroup` /
+ * `handleRemoveMember` delete the group record from `group-store` but leave
+ * the Chat entry behind in `apiManagerProxy.mirrors.peers` and
+ * `mirrors.chats`. That orphan is what INV-group-no-orphan-mirror-peer
+ * detects: a group peerId present in `mirrors.peers` with no backing
+ * `group-store` record.
+ *
+ * Keeping the orphan around also causes UX drift: the chat list resolver
+ * still sees a valid Chat object for the peer and the "left" group can
+ * briefly re-render on chat-list refresh until the user reloads. Symmetric
+ * cleanup makes leave idempotent with create.
+ *
+ * Idempotent — safe to call even when no injection was ever performed.
+ */
+export async function cleanupGroupChatInjection(groupPeerId: number): Promise<void> {
+  const chatId = Math.abs(groupPeerId);
+  const proxy = MOUNT_CLASS_TO.apiManagerProxy as any;
+  if(proxy?.mirrors?.peers) delete proxy.mirrors.peers[groupPeerId];
+  if(proxy?.mirrors?.chats) delete proxy.mirrors.chats[chatId];
+}
+
+/**
  * Render + persist an incoming group message. Called by
  * `GroupAPI.handleIncomingGroupMessage` after dedup.
  */

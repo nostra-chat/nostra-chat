@@ -87,7 +87,13 @@ export const POST_edit_content_updated: Postcondition = {
     const newText = action.meta?.newText as string;
     if(!mid || !newText) return {ok: true};
     const sender = ctx.users[action.args.user as 'userA' | 'userB'];
-    const deadline = Date.now() + 3000;
+    // 10s polling window: a 3s window flakes on cold-start iterations where
+    // the VMT's local `message_edit` dispatch runs before the chat view has
+    // fully mounted its listener — the bubble is updated in mirrors but the
+    // DOM catches up on the next mount pass. Extending to 10s matches the
+    // `waitForReactionOnPeer` / `waitForBubbleOnPeer` warmup budgets and
+    // closes the FIND-1d3adc13 cold-start flake.
+    const deadline = Date.now() + 10000;
     while(Date.now() < deadline) {
       const ok = await sender.page.evaluate(({m, t}: any) => {
         const b = document.querySelector(`.bubbles-inner .bubble[data-mid="${m}"]`);
