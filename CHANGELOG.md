@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.20.0](https://github.com/nostra-chat/nostra-chat/compare/v0.19.3...v0.20.0) (2026-04-24)
+
+
+### Features
+
+* **settings:** default to 24h time format ([a121e12](https://github.com/nostra-chat/nostra-chat/commit/a121e1256850018b05b5e14f7eb4bf84ff5327f7))
+
+
+### Bug Fixes
+
+* **groups:** render group dialog on creation + route sends via GroupAPI ([fadd6ea](https://github.com/nostra-chat/nostra-chat/commit/fadd6ea3578cd69a8b914e2aa5a4e9ad598ae60e))
+* **p2p:** bump sidebar dialog on outgoing VMT send ([a92b9b7](https://github.com/nostra-chat/nostra-chat/commit/a92b9b74744c111961223b140148037aa3d79a82))
+* **p2p:** phase 2b.5 — mirror cleanup on P2P send + group orphan-peer cleanup ([#91](https://github.com/nostra-chat/nostra-chat/issues/91)) ([4249d1f](https://github.com/nostra-chat/nostra-chat/commit/4249d1f94e162f9abe11cb92e87d70242aa668eb))
+
 ## [0.19.3](https://github.com/nostra-chat/nostra-chat/compare/v0.19.2...v0.19.3) (2026-04-24)
 
 
