@@ -50,6 +50,11 @@ vi.mock('@lib/nostra/group-types', async() => {
   return {...actual, groupIdToPeerId: vi.fn().mockResolvedValue(-2000000000000001)};
 });
 
+vi.mock('@lib/nostra/nostra-groups-sync', () => ({
+  handleGroupIncoming: vi.fn().mockResolvedValue(undefined),
+  handleGroupOutgoing: vi.fn().mockResolvedValue(undefined)
+}));
+
 vi.mock('@lib/rootScope', () => ({
   default: {dispatchEvent: vi.fn(), addEventListener: vi.fn()}
 }));
@@ -95,6 +100,10 @@ beforeAll(async() => {
     const actual = await vi.importActual<typeof import('@lib/nostra/group-types')>('@lib/nostra/group-types');
     return {...actual, groupIdToPeerId: vi.fn().mockResolvedValue(-2000000000000001)};
   });
+  vi.doMock('@lib/nostra/nostra-groups-sync', () => ({
+    handleGroupIncoming: vi.fn().mockResolvedValue(undefined),
+    handleGroupOutgoing: vi.fn().mockResolvedValue(undefined)
+  }));
   vi.doMock('@lib/rootScope', () => ({
     default: {dispatchEvent: vi.fn(), addEventListener: vi.fn()}
   }));
@@ -132,9 +141,12 @@ describe('GroupAPI', () => {
     mockBroadcastGroupControl.mockReturnValue([
       {id: 'ctrl-1', kind: 1059, content: 'ctrl', pubkey: 'eph', created_at: 1000, tags: [], sig: 'sig'}
     ]);
-    mockWrapGroupMessage.mockReturnValue([
-      {id: 'wrap-1', kind: 1059}, {id: 'wrap-2', kind: 1059}, {id: 'wrap-3', kind: 1059}
-    ]);
+    mockWrapGroupMessage.mockReturnValue({
+      wraps: [
+        {id: 'wrap-1', kind: 1059}, {id: 'wrap-2', kind: 1059}, {id: 'wrap-3', kind: 1059}
+      ],
+      rumorId: 'rumor-default'
+    });
 
     const publishFn = async(events: any[]) => { publishedEvents.push(...events); };
     api = new GroupAPI(OWN_PUBKEY, OWN_SK, publishFn);
@@ -189,7 +201,10 @@ describe('GroupAPI', () => {
       members: [MEMBER_A, MEMBER_B, OWN_PUBKEY], peerId: -2e15,
       createdAt: Date.now(), updatedAt: Date.now()
     } as GroupRecord);
-    mockWrapGroupMessage.mockReturnValueOnce([{id: 'w1'}, {id: 'w2'}, {id: 'w3'}]);
+    mockWrapGroupMessage.mockReturnValueOnce({
+      wraps: [{id: 'w1'}, {id: 'w2'}, {id: 'w3'}],
+      rumorId: 'rumor-test4'
+    });
 
     await api.sendMessage(groupId, 'Test');
     expect(publishedEvents.length).toBe(3);
@@ -220,7 +235,10 @@ describe('GroupAPI', () => {
       members: [MEMBER_A, MEMBER_B, OWN_PUBKEY], peerId: -2e15,
       createdAt: Date.now(), updatedAt: Date.now()
     } as GroupRecord);
-    mockWrapGroupMessage.mockReturnValueOnce([{id: 'w1'}, {id: 'w2'}, {id: 'w3'}]);
+    mockWrapGroupMessage.mockReturnValueOnce({
+      wraps: [{id: 'w1'}, {id: 'w2'}, {id: 'w3'}],
+      rumorId: 'rumor-test7'
+    });
 
     const messageId = await api.sendMessage(groupId, 'Hello!');
 

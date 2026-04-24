@@ -16,6 +16,7 @@ import {wrapGroupMessage} from './nostr-crypto';
 import {broadcastGroupControl} from './group-control-messages';
 import {writeGroupCreateServiceMessage} from './group-service-messages';
 import {GroupDeliveryTracker} from './group-delivery-tracker';
+import {handleGroupIncoming, handleGroupOutgoing, type GroupDispatchFn} from './nostra-groups-sync';
 import type {GroupStore} from './group-store';
 import type {GroupRecord, GroupControlPayload} from './group-types';
 import type {NTNostrEvent} from './nostr-crypto';
@@ -31,36 +32,28 @@ export class GroupAPI {
   private ownPubkey: string;
   private ownSk: Uint8Array;
   private publishFn: (events: NTNostrEvent[]) => Promise<void>;
+  private dispatch: GroupDispatchFn;
   private groupDelivery: GroupDeliveryTracker;
   private sentMessageIds: Set<string> = new Set();
   private log: Logger;
 
-  /** External callback for incoming group messages (wired by display bridge) */
+  /** Optional test hook for incoming group messages. Production render is
+   *  wired via direct import of `handleGroupIncoming`; this callback is only
+   *  consulted by unit tests that need to observe dispatch without spinning
+   *  up the full IndexedDB + rootScope pipeline. */
   onGroupMessage: GroupMessageCallback | null = null;
-
-  /** External callback fired immediately after a local send is wrapped — lets
-   *  the display bridge persist the outgoing row + dispatch the ui event
-   *  before the relay publish completes. Mirrors onGroupMessage for the
-   *  sender-side (self-echo is dedup'd via sentMessageIds and never reaches
-   *  onGroupMessage).
-   */
-  onOutgoingMessage: ((info: {
-    groupId: string;
-    messageId: string;
-    rumorId: string;
-    content: string;
-    timestamp: number;
-    type: string;
-  }) => void) | null = null;
 
   constructor(
     ownPubkey: string,
     ownSk: Uint8Array,
-    publishFn: (events: NTNostrEvent[]) => Promise<void>
+    publishFn: (events: NTNostrEvent[]) => Promise<void>,
+    dispatch?: GroupDispatchFn
   ) {
     this.ownPubkey = ownPubkey;
     this.ownSk = ownSk;
     this.publishFn = publishFn;
+    // Default dispatch is a no-op for unit tests that don't wire rootScope.
+    this.dispatch = dispatch ?? (() => {});
     this.store = getGroupStore();
     this.groupDelivery = new GroupDeliveryTracker();
     this.log = logger('GroupAPI');
@@ -168,28 +161,18 @@ export class GroupAPI {
     // Init delivery tracking for other members
     this.groupDelivery.initMessage(messageId, groupId, otherMembers);
 
-    // Optimistic sender-side render hook. The bridge (nostra-groups-sync)
-    // persists the outgoing row and dispatches nostra_new_message so the UI
-    // renders immediately — mirroring how appMessagesManager.sendText does
-    // for DMs. Called BEFORE publish so the bubble appears even if the
-    // relay publish is slow / fails. NOTE (Phase 2b.4): `nostra_new_message`
-    // alone is not enough to render a bubble in a group chat — the full
-    // pipeline also needs dialogs_multiupdate + invalidateHistoryCache +
-    // mirror writes + possibly history_append. FIND-dbe8fdd2 tracks the
-    // end-to-end gap; this hook is the TX side only.
-    if(this.onOutgoingMessage) {
-      try {
-        await Promise.resolve(this.onOutgoingMessage({
-          groupId,
-          messageId,
-          rumorId,
-          content,
-          timestamp,
-          type: msgType
-        }));
-      } catch(err) {
-        this.log.warn('[GroupAPI] onOutgoingMessage callback threw:', err);
-      }
+    // Optimistic sender-side render: persist the outgoing row + dispatch
+    // history_append + dialogs_multiupdate so the bubble appears immediately,
+    // mirroring appMessagesManager.sendText's flow for DMs. Runs BEFORE
+    // publish so the bubble is visible even if the relay is slow/unreachable.
+    try {
+      await handleGroupOutgoing(
+        this.ownPubkey,
+        {groupId, messageId, rumorId, content, timestamp, type: msgType},
+        this.dispatch
+      );
+    } catch(err) {
+      this.log.warn('[GroupAPI] handleGroupOutgoing threw:', err);
     }
 
     // Publish all wraps
@@ -284,8 +267,8 @@ export class GroupAPI {
    * Handle an incoming group message.
    *
    * 1. Check sentMessageIds for dedup (Pitfall 7)
-   * 2. Check if sender is in group.members (Pitfall 6)
-   * 3. Dispatch to display bridge via onGroupMessage callback
+   * 2. Invoke the test hook if present
+   * 3. Call the production render pipeline
    */
   handleIncomingGroupMessage(groupId: string, rumor: any, senderPubkey: string): void {
     // Parse message ID for dedup check
@@ -303,10 +286,20 @@ export class GroupAPI {
       return;
     }
 
-    // Dispatch to external handler
+    // Test-only override. Unit tests set this to observe delivery without
+    // exercising the full IndexedDB + rootScope pipeline.
     if(this.onGroupMessage) {
-      this.onGroupMessage(groupId, rumor, senderPubkey);
+      try {
+        this.onGroupMessage(groupId, rumor, senderPubkey);
+      } catch(err) {
+        this.log.warn('[GroupAPI] onGroupMessage test hook threw:', err);
+      }
+      return;
     }
+
+    // Production render path — persist + dispatch bubbles.
+    handleGroupIncoming(this.ownPubkey, groupId, rumor, senderPubkey, this.dispatch)
+    .catch((err) => this.log.warn('[GroupAPI] handleGroupIncoming threw:', err));
   }
 
   /**
@@ -465,8 +458,13 @@ export function getGroupAPI(): GroupAPI {
   return _instance;
 }
 
-export function initGroupAPI(ownPubkey: string, ownSk: Uint8Array, publishFn: (events: NTNostrEvent[]) => Promise<void>): GroupAPI {
-  _instance = new GroupAPI(ownPubkey, ownSk, publishFn);
+export function initGroupAPI(
+  ownPubkey: string,
+  ownSk: Uint8Array,
+  publishFn: (events: NTNostrEvent[]) => Promise<void>,
+  dispatch?: GroupDispatchFn
+): GroupAPI {
+  _instance = new GroupAPI(ownPubkey, ownSk, publishFn, dispatch);
   // Expose on window so E2E/fuzz tests resolve via a single shared reference.
   // Vite dev can serve `@lib/nostra/group-api` and `/src/lib/nostra/group-api.ts`
   // as separate module instances (same class behind the multi-rootScope bug

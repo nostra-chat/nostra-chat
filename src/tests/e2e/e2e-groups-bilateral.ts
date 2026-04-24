@@ -39,25 +39,27 @@ async function waitForGroupOn(page: any, groupId: string, timeoutMs: number): Pr
   return false;
 }
 
-async function waitForBubbleWithText(page: any, peerId: number, text: string, timeoutMs: number): Promise<boolean> {
+async function waitForBubbleWithText(page: any, peerId: number, text: string, timeoutMs: number, opts?: {allowOutgoing?: boolean}): Promise<boolean> {
   await page.evaluate((pid: number) => {
     (window as any).appImManager?.setPeer?.({peerId: pid});
   }, peerId);
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(500);
   const deadline = Date.now() + timeoutMs;
+  const allowOutgoing = !!opts?.allowOutgoing;
   while(Date.now() < deadline) {
-    const found = await page.evaluate((n: string) => {
+    const found = await page.evaluate(([n, allowOut]: [string, boolean]) => {
       const bubbles = Array.from(document.querySelectorAll('.bubbles-inner .bubble[data-mid]'));
       for(const b of bubbles) {
         if((b.textContent || '').includes(n)) {
           const el = b as HTMLElement;
-          if(el.classList.contains('is-sending') || el.classList.contains('is-outgoing')) continue;
-          return true;
+          if(el.classList.contains('is-sending')) continue;
+          if(!allowOut && el.classList.contains('is-out')) continue;
+          return {ok: true, cls: el.className.split(' ').filter(Boolean)};
         }
       }
-      return false;
-    }, text);
-    if(found) return true;
+      return {ok: false, count: bubbles.length};
+    }, [text, allowOutgoing]);
+    if(found?.ok) return true;
     await page.waitForTimeout(200);
   }
   return false;
@@ -103,7 +105,7 @@ async function main() {
     console.log(`[e2e-groups] A sent message "${MSG_TEXT}"`);
 
     // Step 4 — A should see their own bubble within SENDER_WAIT_MS.
-    const senderSees = await waitForBubbleWithText(A.page, peerId, MSG_TEXT, SENDER_WAIT_MS);
+    const senderSees = await waitForBubbleWithText(A.page, peerId, MSG_TEXT, SENDER_WAIT_MS, {allowOutgoing: true});
     if(!senderSees) {
       throw new Error(`FAIL — A (sender) never rendered bubble "${MSG_TEXT}" within ${SENDER_WAIT_MS}ms. This is FIND-dbe8fdd2.`);
     }
@@ -122,7 +124,7 @@ async function main() {
   } catch(err) {
     const A = ctx.users.userA;
     const B = ctx.users.userB;
-    const NEEDLE = /NostraOnboardingIntegration|GroupAPI|groups-sync|nostra-groups|\[GroupAPI\]/i;
+    const NEEDLE = /NostraOnboardingIntegration|GroupAPI|groups-sync|nostra-groups|NostraGroupsSync|\[GroupAPI\]|tx: |rx: /i;
     console.error('[e2e-groups] diagnostic — A onboarding/groups lines:');
     for(const l of A.consoleLog.filter((x) => NEEDLE.test(x))) console.error('  A:', l.slice(0, 320));
     console.error('[e2e-groups] diagnostic — B onboarding/groups lines:');
