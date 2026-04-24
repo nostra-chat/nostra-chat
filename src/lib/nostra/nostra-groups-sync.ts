@@ -148,7 +148,7 @@ function dispatchGroupDialogUpdate(groupPeerId: number, dialog: any): void {
  *
  * Idempotent — safe to call on every send/receive.
  */
-async function ensureGroupChatInjected(
+export async function ensureGroupChatInjected(
   groupId: string,
   groupPeerId: number
 ): Promise<void> {
@@ -204,6 +204,44 @@ async function ensureGroupChatInjected(
       console.debug(LOG_PREFIX, 'ensureGroupChatInjected: reconcilePeer non-critical:', e?.message);
     }
   }
+}
+
+/**
+ * Render-side counterpart to `writeGroupCreateServiceMessage`: materialise
+ * the group in main-thread mirrors (so `getPeer(-chatId)` resolves) and
+ * dispatch `dialogs_multiupdate` TWICE so the chat list gains a row with
+ * a valid `top_message` pointing at the service "group created" row.
+ *
+ * Called at group-creation time on BOTH sides (creator in `createGroup`,
+ * receivers in `handleGroupCreate`). Without this, the group appears in
+ * the chat list only after the first real message is sent or received.
+ *
+ * Idempotent — `ensureGroupChatInjected` + `dialogs_multiupdate` are both
+ * upsert-shaped.
+ */
+export async function injectGroupCreateDialog(
+  groupId: string,
+  serviceMid: number,
+  timestampSec: number
+): Promise<void> {
+  let groupPeerId: number;
+  try {
+    groupPeerId = await groupIdToPeerId(groupId);
+  } catch(err) {
+    console.warn(LOG_PREFIX, 'create-dialog: groupIdToPeerId failed; skipping', {groupId, err});
+    return;
+  }
+
+  await ensureGroupChatInjected(groupId, groupPeerId);
+
+  const mapper = getMapper();
+  const dialog = mapper.createTwebDialog({
+    peerId: groupPeerId,
+    topMessage: serviceMid,
+    topMessageDate: timestampSec,
+    unreadCount: 0
+  });
+  dispatchGroupDialogUpdate(groupPeerId, dialog);
 }
 
 /**

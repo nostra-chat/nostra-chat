@@ -52,7 +52,10 @@ vi.mock('@lib/nostra/group-types', async() => {
 
 vi.mock('@lib/nostra/nostra-groups-sync', () => ({
   handleGroupIncoming: vi.fn().mockResolvedValue(undefined),
-  handleGroupOutgoing: vi.fn().mockResolvedValue(undefined)
+  handleGroupOutgoing: vi.fn().mockResolvedValue(undefined),
+  injectGroupCreateDialog: vi.fn().mockResolvedValue(undefined),
+  cleanupGroupChatInjection: vi.fn().mockResolvedValue(undefined),
+  ensureGroupChatInjected: vi.fn().mockResolvedValue(undefined)
 }));
 
 vi.mock('@lib/rootScope', () => ({
@@ -102,7 +105,10 @@ beforeAll(async() => {
   });
   vi.doMock('@lib/nostra/nostra-groups-sync', () => ({
     handleGroupIncoming: vi.fn().mockResolvedValue(undefined),
-    handleGroupOutgoing: vi.fn().mockResolvedValue(undefined)
+    handleGroupOutgoing: vi.fn().mockResolvedValue(undefined),
+    injectGroupCreateDialog: vi.fn().mockResolvedValue(undefined),
+    cleanupGroupChatInjection: vi.fn().mockResolvedValue(undefined),
+    ensureGroupChatInjected: vi.fn().mockResolvedValue(undefined)
   }));
   vi.doMock('@lib/rootScope', () => ({
     default: {dispatchEvent: vi.fn(), addEventListener: vi.fn()}
@@ -240,7 +246,7 @@ describe('GroupAPI', () => {
       rumorId: 'rumor-test7'
     });
 
-    const messageId = await api.sendMessage(groupId, 'Hello!');
+    const {messageId} = await api.sendMessage(groupId, 'Hello!');
 
     let handlerCalls = 0;
     api.onGroupMessage = () => { handlerCalls++; };

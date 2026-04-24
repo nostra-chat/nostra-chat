@@ -162,7 +162,7 @@ export const sendInGroup: ActionSpec = {
       result = await sender.page.evaluate(async ({groupId, text}: any) => {
         try {
           const {getGroupAPI} = await import('/src/lib/nostra/group-api.ts');
-          const messageId = await getGroupAPI().sendMessage(groupId, text);
+          const {messageId} = await getGroupAPI().sendMessage(groupId, text);
           return {ok: true as const, messageId};
         } catch(err) {
           return {ok: false as const, error: err instanceof Error ? err.message : String(err)};

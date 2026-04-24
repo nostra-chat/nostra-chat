@@ -16,7 +16,7 @@ import {wrapGroupMessage} from './nostr-crypto';
 import {broadcastGroupControl} from './group-control-messages';
 import {writeGroupCreateServiceMessage} from './group-service-messages';
 import {GroupDeliveryTracker} from './group-delivery-tracker';
-import {handleGroupIncoming, handleGroupOutgoing, cleanupGroupChatInjection, type GroupDispatchFn} from './nostra-groups-sync';
+import {handleGroupIncoming, handleGroupOutgoing, cleanupGroupChatInjection, injectGroupCreateDialog, type GroupDispatchFn} from './nostra-groups-sync';
 import type {GroupStore} from './group-store';
 import type {GroupRecord, GroupControlPayload} from './group-types';
 import type {NTNostrEvent} from './nostr-crypto';
@@ -24,6 +24,14 @@ import type {NTNostrEvent} from './nostr-crypto';
 // ─── Types ────────────────────────────────────────────────────────
 
 export type GroupMessageCallback = (groupId: string, rumor: any, senderPubkey: string) => void;
+
+/** Result of a successful group send — exposes the pieces VMT needs to
+ *  produce a deterministic tweb mid for the Worker's post-send bookkeeping. */
+export interface GroupSendResult {
+  messageId: string;
+  rumorId: string;
+  timestampMs: number;
+}
 
 // ─── GroupAPI ─────────────────────────────────────────────────────
 
@@ -89,17 +97,31 @@ export class GroupAPI {
 
     // Seed a synthetic service row so tweb's dialog validation sees a real
     // top_message for the group. The row is local-only (never transmitted).
+    const createdAtSec = Math.floor(record.createdAt / 1000);
+    let serviceMid: number | null = null;
     try {
-      await writeGroupCreateServiceMessage({
+      const service = await writeGroupCreateServiceMessage({
         groupId,
         peerId,
-        timestamp: Math.floor(record.createdAt / 1000),
+        timestamp: createdAtSec,
         adminPubkey: this.ownPubkey,
         title: name,
         isOutgoing: true
       });
+      serviceMid = service.mid;
     } catch(err) {
       this.log.warn('[GroupAPI] failed to seed chatCreate service row (creator):', err);
+    }
+
+    // Materialise the group in main-thread mirrors + chat list immediately,
+    // before any real message is sent. Without this the group is invisible
+    // until the first send hits `handleGroupOutgoing`.
+    if(serviceMid !== null) {
+      try {
+        await injectGroupCreateDialog(groupId, serviceMid, createdAtSec);
+      } catch(err) {
+        this.log.warn('[GroupAPI] injectGroupCreateDialog (creator) failed:', err);
+      }
     }
 
     // Broadcast group_create control message
@@ -129,18 +151,26 @@ export class GroupAPI {
    * 3. Publish all wraps in parallel (Pitfall 1)
    * 4. Track message ID in sentMessageIds for dedup
    * 5. Init group delivery tracking for all members
-   * 6. Return rumor event ID
+   * 6. Return {messageId, rumorId, timestampMs} so VMT's sendMessage
+   *    branch can derive the real mid deterministically.
    */
-  async sendMessage(groupId: string, content: string, type?: string): Promise<string> {
+  async sendMessage(groupId: string, content: string, type?: string): Promise<GroupSendResult> {
     const group = await this.store.get(groupId);
     if(!group) throw new Error(`Group not found: ${groupId}`);
+
+    // Pin a single timestamp for the whole send so the payload, handler and
+    // any downstream mid derivation all agree. Anchoring via `Date.now()`
+    // twice (once in the JSON, once in a local var) risks drifting by 1 ms
+    // across the JSON.stringify boundary in heavy-GC environments.
+    const timestampMs = Date.now();
+    const messageId = `grp-${timestampMs}-${Math.random().toString(36).slice(2, 8)}`;
 
     // Build message payload
     const messagePayload = JSON.stringify({
       content,
       type: type || 'text',
-      id: `grp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      timestamp: Date.now()
+      id: messageId,
+      timestamp: timestampMs
     });
 
     // Get members excluding self for wrapping (wrapGroupMessage adds self-send)
@@ -148,12 +178,7 @@ export class GroupAPI {
 
     const {wraps, rumorId} = wrapGroupMessage(this.ownSk, otherMembers, messagePayload, groupId);
 
-    // Parse the app-level message id (grp-<ts>-<rnd>) for delivery-tracker
-    // + self-send dedup. This is distinct from the NIP-17 rumor id.
-    const parsed = JSON.parse(messagePayload);
-    const messageId = parsed.id;
-    const timestamp = parsed.timestamp || Date.now();
-    const msgType = parsed.type || 'text';
+    const msgType = type || 'text';
 
     // Track for self-send dedup (Pitfall 7)
     this.sentMessageIds.add(messageId);
@@ -168,7 +193,7 @@ export class GroupAPI {
     try {
       await handleGroupOutgoing(
         this.ownPubkey,
-        {groupId, messageId, rumorId, content, timestamp, type: msgType},
+        {groupId, messageId, rumorId, content, timestamp: timestampMs, type: msgType},
         this.dispatch
       );
     } catch(err) {
@@ -179,7 +204,7 @@ export class GroupAPI {
     await this.publishFn(wraps);
 
     this.log('[GroupAPI] message sent to group:', groupId, 'id:', messageId, 'rumorId:', rumorId.slice(0, 8));
-    return messageId;
+    return {messageId, rumorId, timestampMs};
   }
 
   // ─── Member management ────────────────────────────────────────
@@ -363,17 +388,32 @@ export class GroupAPI {
 
     // Seed a local-only service row so receivers also get a valid top_message
     // in their group dialog before any real message lands.
+    const createdAtSec = Math.floor(record.createdAt / 1000);
+    let serviceMid: number | null = null;
     try {
-      await writeGroupCreateServiceMessage({
+      const service = await writeGroupCreateServiceMessage({
         groupId: record.groupId,
         peerId,
-        timestamp: Math.floor(record.createdAt / 1000),
+        timestamp: createdAtSec,
         adminPubkey: record.adminPubkey,
         title: record.name,
         isOutgoing: false
       });
+      serviceMid = service.mid;
     } catch(err) {
       this.log.warn('[GroupAPI] failed to seed chatCreate service row (receiver):', err);
+    }
+
+    // Materialise the group in main-thread mirrors + chat list immediately,
+    // before the first real message lands. Without this, invited members
+    // never see the group until someone sends — and even then only after
+    // a full `handleGroupIncoming` render round-trip.
+    if(serviceMid !== null) {
+      try {
+        await injectGroupCreateDialog(record.groupId, serviceMid, createdAtSec);
+      } catch(err) {
+        this.log.warn('[GroupAPI] injectGroupCreateDialog (receiver) failed:', err);
+      }
     }
 
     this.log('[GroupAPI] group_create received:', payload.groupId);

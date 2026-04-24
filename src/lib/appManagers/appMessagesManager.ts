@@ -68,6 +68,7 @@ import {joinDeepPath} from '@helpers/object/setDeepProperty';
 // P2P send bridge removed from Worker — runs only in main thread
 // import {isVirtualPeer, sendTextViaChatAPI, sendMediaViaChatAPI} from '../nostra/nostra-send-bridge';
 import {isP2PPeer} from '@lib/nostra/nostra-bridge';
+import {isGroupPeer} from '@lib/nostra/group-types';
 import insertInDescendSortedArray from '@helpers/array/insertInDescendSortedArray';
 import {LOCAL_ENTITIES} from '@lib/richTextProcessor';
 import {isDialog, isSavedDialog, isForumTopic, isMonoforumDialog} from '@appManagers/utils/dialogs/isDialog';
@@ -1427,10 +1428,11 @@ export class AppMessagesManager extends AppManager {
       this.pendingAfterMsgs[peerId] = sentRequestOptions;
 
       return apiPromise.then((updates: Updates) => {
-        // [Nostra.chat] For P2P messages, nostraIntercept returns empty updates.
-        // Finalize the message: clear pending flags, persist to storage, and
-        // dispatch message_sent so the bubble transitions from ⏳ to ✓.
-        if(updates?._ === 'updates' && (updates as any).updates?.length === 0 && Number(peerId) >= 1e15) {
+        // [Nostra.chat] For P2P messages AND group messages, nostraIntercept
+        // returns empty updates. Finalize the message: clear pending flags,
+        // persist to storage, and dispatch message_sent so the bubble
+        // transitions from ⏳ to ✓.
+        if(updates?._ === 'updates' && (updates as any).updates?.length === 0 && (Number(peerId) >= 1e15 || isGroupPeer(Number(peerId)))) {
           const tempId = message.id;
           const tempMessage = copy(message);
           const storage = this.getHistoryMessagesStorage(peerId);
@@ -2863,13 +2865,13 @@ export class AppMessagesManager extends AppManager {
         this.monoforumDialogsStorage.checkLastMessageForExistingDialog(message);
       }
 
-      // [Nostra.chat] For P2P peers, the VMT Server injects the bubble
-      // directly from the main thread with the real timestamp-based mid.
-      // Skipping the Worker-side history_append avoids a double-render
-      // (one from temp mid + one from real mid) and keeps the bubble flow
-      // predictable.
-      const isP2PPeer = Number(peerId) >= 1e15;
-      if(!isP2PPeer) {
+      // [Nostra.chat] For P2P peers AND groups, the VMT Server / GroupAPI
+      // inject the bubble directly from the main thread with the real
+      // timestamp-based mid. Skipping the Worker-side history_append
+      // avoids a double-render (one from temp mid + one from real mid)
+      // and keeps the bubble flow predictable.
+      const isP2POrGroupPeer = Number(peerId) >= 1e15 || isGroupPeer(Number(peerId));
+      if(!isP2POrGroupPeer) {
         callbacks.push(() => {
           this.rootScope.dispatchEvent('history_append', {storageKey: storage.key, message});
           // storages.forEach((historyStorage) => {

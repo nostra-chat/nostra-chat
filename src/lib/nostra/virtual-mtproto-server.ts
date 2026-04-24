@@ -14,6 +14,14 @@ import {loadCachedPeerProfile, refreshPeerProfileFromRelays} from './peer-profil
 import {buildNostraMedia} from './nostra-media-shape';
 import {getPubkey, getMapping} from './virtual-peers-db';
 import {swallowHandler} from './log-swallow';
+import {isGroupPeer} from './group-types';
+// Lazy imports for group-store / group-api so test files that never hit the
+// group branch don't drag nostra-groups-sync into their module graph. Each
+// test file mocks `@config/debug`'s MOUNT_CLASS_TO with its own proxy; a
+// top-level import here binds nostra-groups-sync's MOUNT_CLASS_TO to the
+// FIRST loader's proxy, which then leaks across test files in the same
+// vitest worker (manifested as group-cleanup-mirror asserts failing only
+// when run together with vmt-outgoing-dialog).
 
 const LOG_PREFIX = '[VirtualMTProto]';
 
@@ -864,6 +872,13 @@ export class NostraMTProtoServer {
     const peerId = extractPeerId(params?.peer);
     if(peerId === null) return emptyUpdates;
 
+    // Group branch: negative peerId in GROUP_PEER_BASE range → delegate to
+    // GroupAPI. Without this the Worker's `messages.sendMessage` would
+    // silently get `emptyUpdates` back, dropping the message on the floor.
+    if(isGroupPeer(peerId)) {
+      return this.sendGroupMessage(peerId, params);
+    }
+
     const peerPubkey = await getPubkey(Math.abs(peerId));
     if(!peerPubkey) return emptyUpdates;
 
@@ -934,6 +949,65 @@ export class NostraMTProtoServer {
       };
     } catch(err) {
       console.warn(LOG_PREFIX, 'sendMessage: failed', err);
+      return emptyUpdates;
+    }
+  }
+
+  /**
+   * Delegate a group send to `GroupAPI` and return an `updates`-shaped
+   * response carrying `nostraMid` + `nostraEventId` so the Worker's
+   * post-send shortcut in `appMessagesManager` can rename the temp mid to
+   * the real mapped mid and dispatch `message_sent` for the ⏳→✓
+   * transition. `GroupAPI.sendMessage` already runs `handleGroupOutgoing`
+   * (optimistic main-thread render) before returning.
+   */
+  private async sendGroupMessage(peerId: number, params: any): Promise<any> {
+    const emptyUpdates = {
+      _: 'updates',
+      updates: [] as any[],
+      users: [] as any[],
+      chats: [] as any[],
+      date: Math.floor(Date.now() / 1000),
+      seq: 0
+    };
+
+    const text: string = params?.message ?? '';
+
+    let groupId: string;
+    try {
+      const {getGroupStore} = await import('./group-store');
+      const rec = await getGroupStore().getByPeerId(peerId);
+      if(!rec) {
+        console.warn(LOG_PREFIX, 'sendGroupMessage: no group for peerId', peerId);
+        return emptyUpdates;
+      }
+      groupId = rec.groupId;
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'sendGroupMessage: getByPeerId failed', err);
+      return emptyUpdates;
+    }
+
+    try {
+      const {getGroupAPI} = await import('./group-api');
+      const api = getGroupAPI();
+      const {messageId, rumorId, timestampMs} = await api.sendMessage(groupId, text);
+      const timestampSec = Math.floor(timestampMs / 1000);
+      const mid = await this.mapper.mapEventId(rumorId, timestampSec);
+
+      console.log(LOG_PREFIX, 'sendGroupMessage ok', {groupId: groupId.slice(0, 8), mid, messageId});
+
+      return {
+        _: 'updates',
+        updates: [] as any[],
+        users: [] as any[],
+        chats: [] as any[],
+        date: timestampSec,
+        seq: 0,
+        nostraMid: mid,
+        nostraEventId: rumorId
+      };
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'sendGroupMessage: GroupAPI.sendMessage failed', err);
       return emptyUpdates;
     }
   }

@@ -18,8 +18,6 @@ import SettingSection from '@components/settingSection';
 import toggleDisability from '@helpers/dom/toggleDisability';
 import {getGroupAPI} from '@lib/nostra/group-api';
 import {getGroupStore} from '@lib/nostra/group-store';
-import {writeGroupCreateServiceMessage} from '@lib/nostra/group-service-messages';
-import rootScope from '@lib/rootScope';
 
 export default class AppNostraNewGroupTab extends SliderSuperTab {
   public static noSame = true;
@@ -76,60 +74,11 @@ export default class AppNostraNewGroupTab extends SliderSuperTab {
         const groupApi = getGroupAPI();
         const groupId = await groupApi.createGroup(name, memberPubkeys);
 
-        // Inject group dialog into chat list
-        const store = getGroupStore();
-        const group = await store.get(groupId);
+        // `createGroup` now materialises the group in main-thread mirrors and
+        // dispatches `dialogs_multiupdate` via `injectGroupCreateDialog`
+        // (nostra-groups-sync.ts). All that remains here is to open the chat.
+        const group = await getGroupStore().get(groupId);
         if(group) {
-          // Inject synthetic group chat into tweb managers
-          try {
-            const chatId = Math.abs(group.peerId);
-            const chat = {
-              _: 'chat',
-              id: chatId,
-              title: group.name,
-              participants_count: group.members.length,
-              date: Math.floor(group.createdAt / 1000),
-              version: 1,
-              pFlags: {}
-            };
-            const appChatsManager = (rootScope.managers as any).appChatsManager;
-            if(appChatsManager?.saveApiChat) {
-              appChatsManager.saveApiChat(chat, true);
-            }
-            // Re-derive the service message mid (idempotent — same row was
-            // already upserted by GroupAPI.createGroup). Using the real mid
-            // avoids tweb's `something strange with dialog` warning.
-            const service = await writeGroupCreateServiceMessage({
-              groupId: group.groupId,
-              peerId: group.peerId,
-              timestamp: Math.floor(group.createdAt / 1000),
-              adminPubkey: group.adminPubkey,
-              title: group.name,
-              isOutgoing: true
-            });
-            const dialog: any = {
-              _: 'dialog',
-              flags: 0,
-              peer: {_: 'peerChat', chat_id: chatId},
-              top_message: service.mid,
-              read_inbox_max_id: 0,
-              read_outbox_max_id: 0,
-              unread_count: 0,
-              unread_mentions_count: 0,
-              unread_reactions_count: 0,
-              notify_settings: {_: 'peerNotifySettings'},
-              pFlags: {pinned: true},
-              peerId: group.peerId.toPeerId(true)
-            };
-            const dialogsStorage = (rootScope.managers as any).dialogsStorage;
-            if(dialogsStorage?.registerP2PDialog) {
-              await dialogsStorage.registerP2PDialog(dialog);
-            }
-            rootScope.dispatchEvent('dialogs_multiupdate', new Map([[group.peerId.toPeerId(true), {dialog}]]));
-          } catch(injectErr) {
-            console.warn('[NostraNewGroup] group inject failed:', injectErr);
-          }
-
           this.close();
           appImManager.setInnerPeer({peerId: group.peerId.toPeerId(true)});
         } else {
