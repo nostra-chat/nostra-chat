@@ -25,6 +25,16 @@ import {isGroupPeer} from './group-types';
 
 const LOG_PREFIX = '[VirtualMTProto]';
 
+// Matches 1:1 DM conversationIds: '<64-hex-pubkey>:<64-hex-pubkey>'. Group
+// conversationIds are either '<32-hex-groupId>' (group-service-messages) or
+// 'group:<32-hex-groupId>' (nostra-groups-sync) — neither parses as a
+// pair of pubkeys and both must be filtered out of DM iteration sites
+// before we feed halves into `mapper.mapPubkey()`.
+const ONE_TO_ONE_CONV_ID_RE = /^[0-9a-f]{64}:[0-9a-f]{64}$/i;
+function isOneToOneConvId(convId: string): boolean {
+  return typeof convId === 'string' && ONE_TO_ONE_CONV_ID_RE.test(convId);
+}
+
 // ─── Action method patterns ──────────────────────────────────────────
 
 const ACTION_PATTERNS = [
@@ -359,6 +369,10 @@ export class NostraMTProtoServer {
 
       for(const convId of conversationIds) {
         try {
+          // Skip group conversationIds ('<32-hex>' or 'group:<32-hex>') —
+          // the group branch is served elsewhere (getGroupHistory, etc.).
+          if(!isOneToOneConvId(convId)) continue;
+
           const [msgA, msgB] = convId.split(':');
           if(!msgA || !msgB) continue;
 
@@ -710,6 +724,9 @@ export class NostraMTProtoServer {
 
       for(const convId of conversationIds) {
         try {
+          // Group convs are not searched through this 1:1 path.
+          if(!isOneToOneConvId(convId)) continue;
+
           const allMsgs = await store.getMessages(convId, 200);
 
           for(const stored of allMsgs) {
@@ -773,6 +790,12 @@ export class NostraMTProtoServer {
 
       for(const convId of conversationIds) {
         try {
+          // Group convs don't belong in the contacts list — filter them
+          // out before we split into pubkey halves. Previously a group
+          // conversationId like '71859748…' (32-hex, no colon) produced
+          // `peerPubkey === undefined`, which crashed mapPubkey.
+          if(!isOneToOneConvId(convId)) continue;
+
           const [pubkeyA, pubkeyB] = convId.split(':');
           const peerPubkey = this.ownPubkey && pubkeyA === this.ownPubkey ? pubkeyB :
             this.ownPubkey && pubkeyB === this.ownPubkey ? pubkeyA :

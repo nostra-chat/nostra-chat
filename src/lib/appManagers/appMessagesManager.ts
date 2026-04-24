@@ -5339,6 +5339,8 @@ export class AppMessagesManager extends AppManager {
     if(!messages || (messages as any).saved) return messages;
     (messages as any).saved = true;
     messages.forEach((message, idx, arr) => {
+      // VMT bridge responses can transiently contain undefined holes when an async mapper fails to resolve a row; skip them defensively.
+      if(!message) return;
       arr[idx] = this.saveMessage(message, options);
     });
 

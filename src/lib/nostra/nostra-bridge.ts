@@ -303,6 +303,17 @@ export class NostraBridge {
    * 5. Convert to Number for tweb compatibility
    */
   async mapPubkeyToPeerId(pubkey: string): Promise<number> {
+    // Defense-in-depth: reject non-pubkey inputs loudly rather than letting
+    // `hexToBytes(undefined)` fail with `Cannot read properties of undefined
+    // (reading 'length')`. Real Nostr pubkeys are 64 lowercase-hex chars.
+    // Callers that iterate conversationIds MUST filter out group-conv ids
+    // (32 hex, no colon) before calling this — this guard only prevents the
+    // crash when that filter is missing. See getContacts/getDialogs in
+    // virtual-mtproto-server.ts.
+    if(typeof pubkey !== 'string' || !/^[0-9a-f]{64}$/i.test(pubkey)) {
+      throw new Error(`mapPubkeyToPeerId: invalid pubkey input (expected 64-hex, got ${typeof pubkey === 'string' ? `${pubkey.length} chars` : typeof pubkey})`);
+    }
+
     // Check cache first
     if(this.pubkeyCache.has(pubkey)) {
       return this.pubkeyCache.get(pubkey)!;

@@ -724,6 +724,13 @@ export class ApiManager extends ApiManagerMethods {
     'account.registerDevice': true,
     'account.unregisterDevice': true,
     'account.uploadWallPaper': {_: 'wallPaperNoFile', id: 0, pFlags: {}, settings: {_: 'wallPaperSettings', pFlags: {}}},
+    // Downstream callers (appThemesManager / appDialogsManager) do
+    // `result.wallpapers.filter(...)` / `result.themes.filter(...)`, so the
+    // `{pFlags:{}}` fallback crashes with "Cannot read properties of undefined".
+    // Return the empty-but-valid `account.wallPapers` / `account.themes`
+    // variants (not the *NotModified forms) so the arrays exist.
+    'account.getWallPapers': {_: 'account.wallPapers', hash: 0, wallpapers: []},
+    'account.getThemes': {_: 'account.themes', hash: 0, themes: []},
     'account.verifyEmail': {_: 'account.emailVerified', email: ''},
     'account.resendPasswordEmail': true,
     'account.initPasskeyRegistration': {_: 'account.passkeyRegistrationOptions', options: ''},

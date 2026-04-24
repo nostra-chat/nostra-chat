@@ -137,6 +137,24 @@ describe('Nostra.chat Bridge Determinism', () => {
     expect(peerId).toBeGreaterThanOrEqual(Number(VIRTUAL_PEER_BASE));
     expect(peerId).toBeLessThan(Number(VIRTUAL_PEER_BASE + VIRTUAL_PEER_RANGE));
   });
+
+  // Regression: prod v0.20.0 logged three
+  //   `TypeError: Cannot read properties of undefined (reading 'length')`
+  // in getContacts because a 32-hex groupId leaked into the 1:1 DM
+  // iteration and produced `peerPubkey === undefined`. The guard in
+  // mapPubkeyToPeerId now rejects non-64-hex input with a clear message.
+  it('mapPubkeyToPeerId throws on a 32-hex group-conv id (regression v0.20.0)', async () => {
+    const groupConvId = '71859748a99f4707b32fb28868f5e097'; // 32 hex, no colon
+    await expect(bridge.mapPubkeyToPeerId(groupConvId)).rejects.toThrow(/invalid pubkey input/);
+  });
+
+  it('mapPubkeyToPeerId throws on undefined input', async () => {
+    await expect(bridge.mapPubkeyToPeerId(undefined as unknown as string)).rejects.toThrow(/invalid pubkey input/);
+  });
+
+  it('mapPubkeyToPeerId throws on empty string', async () => {
+    await expect(bridge.mapPubkeyToPeerId('')).rejects.toThrow(/invalid pubkey input/);
+  });
 });
 
 // ==================== Bridge Round-Trip Tests ====================
