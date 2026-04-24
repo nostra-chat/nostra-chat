@@ -1195,6 +1195,40 @@ export class NostraMTProtoServer {
           });
         }
       } catch(e: any) { console.debug(LOG_PREFIX, 'history_append dispatch failed:', e?.message); }
+
+      // Bump (or create) the sidebar dialog for the outgoing message.
+      // Without this dispatch the chat list never reflects a live send —
+      // a fresh conversation never appears until reload, an existing one
+      // does not move to the top and its preview does not refresh.
+      // Two dispatches per bridge-invariants Rule 8: the first triggers
+      // sortedList.add (which returns early and skips setLastMessageN),
+      // the second hits the existing-dialog branch to render the preview.
+      try {
+        const dialog: any = this.mapper.createTwebDialog({
+          peerId,
+          topMessage: mid,
+          topMessageDate: date,
+          unreadCount: 0
+        });
+        dialog.topMessage = msg;
+
+        if(apiProxy?.mirrors?.dialogs) {
+          apiProxy.mirrors.dialogs[peerId] = dialog;
+        }
+
+        const rs: any = (await import('@lib/rootScope')).default;
+        const payload = new Map<any, any>([[
+          (peerId as any).toPeerId ? (peerId as any).toPeerId(false) : peerId,
+          {dialog}
+        ]]);
+        const dispatch = () => {
+          if(typeof rs.dispatchEventSingle === 'function') {
+            rs.dispatchEventSingle('dialogs_multiupdate', payload);
+          }
+        };
+        dispatch();
+        setTimeout(dispatch, 500);
+      } catch(e: any) { console.debug(LOG_PREFIX, 'dialogs_multiupdate dispatch failed:', e?.message); }
     } catch(err) {
       console.warn(LOG_PREFIX, 'injectOutgoingBubble failed:', err);
     }
