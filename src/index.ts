@@ -441,13 +441,13 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
     // or a manual visit to the Updates tab — users never get prompted on boot.
     // De-dup per version so multi-probes in the same session don't stack popups.
     let autoShownVersion: string | undefined;
-    rootScope.addEventListener('update_available_signed', async({manifest, signature}: any) => {
+    rootScope.addEventListener('update_available_signed', async({manifest, signature, manifestText}: any) => {
       if(!manifest || autoShownVersion === manifest.version) return;
       const {isSnoozed} = await import('@lib/update/update-popup-controller');
       if(isSnoozed(manifest.version)) return;
       autoShownVersion = manifest.version;
       const {showUpdateConsentPopup} = await import('@components/popups/updateConsent/mount');
-      await showUpdateConsentPopup(manifest, signature);
+      await showUpdateConsentPopup(manifest, signature, manifestText);
     });
 
     // Staleness banner: persistent top banner after 7 consecutive declines
@@ -457,7 +457,7 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
         const pending = (window as any).__nostraPendingUpdate;
         if(pending) {
           const {showUpdateConsentPopup} = await import('@components/popups/updateConsent/mount');
-          await showUpdateConsentPopup(pending.manifest, pending.signature);
+          await showUpdateConsentPopup(pending.manifest, pending.signature, pending.manifestText);
         }
       });
     });
