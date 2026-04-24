@@ -54,7 +54,8 @@ export default class AppPrivacyAndSecurityTab extends SliderSuperTab {
 
       const row = new Row({
         checkboxField: cb,
-        subtitle: opt.descKey as any,
+        titleLangKey: opt.titleKey as any,
+        subtitleLangKey: opt.descKey as any,
         clickable: true,
         listenerSetter: this.listenerSetter
       });
