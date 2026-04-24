@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.20.1](https://github.com/nostra-chat/nostra-chat/compare/v0.20.0...v0.20.1) (2026-04-24)
+
+
+### Bug Fixes
+
+* **nostra:** three boot-time TypeError clusters ([35d7b04](https://github.com/nostra-chat/nostra-chat/commit/35d7b0448c9fcd8004a8df97a129df140a215fd9))
+* **update:** prevent Accept hang + show Install Now when snoozed + i18n popup ([9e06932](https://github.com/nostra-chat/nostra-chat/commit/9e0693214bf1239435ae4360b3671380aab327e8))
+
 ## [0.20.0](https://github.com/nostra-chat/nostra-chat/compare/v0.19.3...v0.20.0) (2026-04-24)
 
 
