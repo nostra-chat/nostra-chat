@@ -524,6 +524,12 @@ export class NostraMTProtoServer {
       return {_: 'messages.messages', messages: [], users: [], chats: [], count: 0};
     }
 
+    // Group branch: negative peerId → group chat. Read from message-store by
+    // conversationId='group:<groupId>' and skip the user-pubkey path.
+    if(peerId < 0) {
+      return this.getGroupHistory(peerId, params);
+    }
+
     const absPeerId = Math.abs(peerId);
     const pubkey = await getPubkey(absPeerId);
 
@@ -583,6 +589,90 @@ export class NostraMTProtoServer {
       messages,
       users,
       chats: [],
+      count: messages.length
+    };
+  }
+
+  /**
+   * Group-peer variant of getHistory. Reads from message-store keyed by
+   * `conversationId = 'group:<groupId>'` and builds tweb messages with
+   * `peer_id: peerChat`. Also emits one user entry per distinct sender so
+   * the bubble `from_id` resolves to a known peer (required for avatar +
+   * "Alice" prefix in the bubble header).
+   */
+  private async getGroupHistory(peerId: number, params: any): Promise<any> {
+    const {getGroupStore} = await import('./group-store');
+    const groupStore = getGroupStore();
+    const group = await groupStore.getByPeerId(peerId);
+    if(!group) {
+      console.warn(LOG_PREFIX, 'getGroupHistory: no group found for peerId', peerId);
+      return {_: 'messages.messages', messages: [], users: [], chats: [], count: 0};
+    }
+
+    const store = getMessageStore();
+    const convId = `group:${group.groupId}`;
+    const limit = params?.limit ?? 50;
+    const offsetDate = params?.offset_date || undefined;
+    const storedMsgs = await store.getMessages(convId, limit, offsetDate);
+
+    const messages: any[] = [];
+    const users: any[] = [];
+    const usersById = new Map<number, any>();
+
+    // Emit a Chat for this group so the response carries everything tweb
+    // needs to resolve the peer without a follow-up roundtrip.
+    const absPeerId = Math.abs(peerId);
+    const chat = this.mapper.createTwebChat({
+      chatId: absPeerId,
+      title: group.name || 'Group',
+      membersCount: group.members?.length ?? 1,
+      date: Math.floor((group.createdAt || Date.now()) / 1000)
+    });
+
+    for(const stored of storedMsgs) {
+      try {
+        if(stored.mid == null) {
+          console.error(LOG_PREFIX, 'getGroupHistory: stored message missing mid — upstream write path is broken', {eventId: stored.eventId, timestamp: stored.timestamp});
+          throw new Error('StoredMessage.mid is required (getGroupHistory)');
+        }
+        const mid = stored.mid;
+        const isOutgoing = stored.isOutgoing ?? (stored.senderPubkey === this.ownPubkey);
+
+        // Map sender pubkey → fromPeerId for incoming bubbles (outgoing uses
+        // pFlags.out instead).
+        let fromPeerId: number | undefined;
+        if(!isOutgoing && stored.senderPubkey) {
+          fromPeerId = await this.mapper.mapPubkey(stored.senderPubkey);
+          if(!usersById.has(fromPeerId)) {
+            const mapping = await getMapping(stored.senderPubkey);
+            const user = this.mapper.createTwebUser({peerId: fromPeerId, firstName: mapping?.displayName, pubkey: stored.senderPubkey});
+            usersById.set(fromPeerId, user);
+            users.push(user);
+          }
+        }
+
+        const media = stored.fileMetadata ? buildNostraMedia(mid, stored.fileMetadata) : undefined;
+
+        const msg = this.mapper.createTwebMessage({
+          mid,
+          peerId, // negative — peer_id becomes peerChat
+          fromPeerId,
+          date: stored.timestamp,
+          text: stored.content,
+          isOutgoing,
+          media
+        });
+        messages.push(msg);
+      } catch(err) {
+        console.warn(LOG_PREFIX, 'getGroupHistory: failed to map message', stored.eventId, err);
+      }
+    }
+
+    return {
+      _: 'messages.messages',
+      messages,
+      users,
+      chats: [chat],
       count: messages.length
     };
   }

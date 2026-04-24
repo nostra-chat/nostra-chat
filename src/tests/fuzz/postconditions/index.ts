@@ -17,6 +17,15 @@ import {
   POST_editName_relay_published,
   POST_uploadAvatar_propagated
 } from './profile';
+import {
+  POST_createGroup_record_exists,
+  POST_sendInGroup_bubble_on_sender,
+  POST_sendInGroup_bubble_on_peer,
+  POST_addMember_member_in_store,
+  POST_removeMember_member_gone_admin,
+  POST_removeMember_target_loses_group,
+  POST_leaveGroup_record_gone_leaver
+} from './groups';
 
 export const POSTCONDITIONS: Record<string, Postcondition[]> = {
   sendText: [POST_sendText_bubble_appears, POST_sendText_input_cleared],
@@ -28,7 +37,12 @@ export const POSTCONDITIONS: Record<string, Postcondition[]> = {
   reactMultipleEmoji: [POST_react_multi_emoji_separate],
   deleteWhileSending: [POST_deleteWhileSending_consistent],
   editName: [POST_editName_cache_updated, POST_editName_relay_published],
-  uploadAvatar: [POST_uploadAvatar_propagated]
+  uploadAvatar: [POST_uploadAvatar_propagated],
+  createGroup: [POST_createGroup_record_exists],
+  sendInGroup: [POST_sendInGroup_bubble_on_sender, POST_sendInGroup_bubble_on_peer],
+  addMemberToGroup: [POST_addMember_member_in_store],
+  removeMemberFromGroup: [POST_removeMember_member_gone_admin, POST_removeMember_target_loses_group],
+  leaveGroup: [POST_leaveGroup_record_gone_leaver]
 };
 
 export async function runPostconditions(

@@ -1,13 +1,70 @@
 # Fuzz Findings
 
-Last updated: 2026-04-20
-Open bugs: 0 · Fixed: 6+2 (in Phase 2b.1) · Fixed in Phase 2b.2a: 3 · Fixed in Phase 2b.2b: 3 · Fixed in Phase 2b.3: 2
+Last updated: 2026-04-23
+Open bugs: 2 (live) · Regression-watch: 2 (2b.3 fixes firing again in 2b.4 runs) · Fixed: 6+2 (Phase 2b.1) · Fixed in 2b.2a: 3 · Fixed in 2b.2b: 3 · Fixed in 2b.3: 2 · Fixed in 2b.4: 1 (admin-orphan)
 
 ## Open (sorted by occurrences desc)
 
-_(none)_
+### FIND-dbe8fdd2 — POST-sendInGroup-bubble-on-sender
+- **Status**: open — **real groups UI bug**, carry-forward to Phase 2b.5
+- **Tier**: postcondition
+- **Occurrences**: 1
+- **First seen**: 2026-04-23 16:49:55
+- **Last seen**: 2026-04-23 16:49:55
+- **Seed**: 45
+- **Assertion**: `"sendInGroup: sent bubble \"!m}xargume\" never appeared on sender userA"`
+- **Replay**: `pnpm fuzz --replay=FIND-dbe8fdd2`
+- **Minimal trace** (2 actions):
+  1. `scrollHistoryUp({"user":"userA"})`
+  2. `sendInGroup({"from":"userA","text":"!m}xargume"})`
+- **Root cause (investigation, not fix)**: `GroupAPI.onGroupMessage` callback (`src/lib/nostra/group-api.ts:39`) is declared but **never assigned** anywhere in the codebase. When a group message arrives via relay (own self-echo included), `handleIncomingGroupMessage` calls `this.onGroupMessage?.(…)` — but it's always null, so nothing renders. Sender never sees their own group bubble. Receiver likely doesn't either. This is the missing "groups→display bridge" analogous to `nostra-sync.ts` for DMs. Fix requires a new module wiring group rx → message-store persist → `nostra_new_message` dispatch → bubble render. Scope: ~100 LOC, not in Phase 2b.4.
+- **Artifacts**: [`docs/fuzz-reports/FIND-dbe8fdd2/`](../fuzz-reports/FIND-dbe8fdd2/)
+
+### FIND-450d2436 — INV-console-clean
+- **Status**: open — cold-start flake, benign
+- **Tier**: cheap
+- **Occurrences**: 1
+- **First seen**: 2026-04-23 16:51:29
+- **Last seen**: 2026-04-23 16:51:29
+- **Seed**: 46
+- **Assertion**: `"Unallowlisted console error: [error] Failed to wait for circuit: Internal error: Channel not established"`
+- **Replay**: `pnpm fuzz --replay=FIND-450d2436`
+- **Minimal trace** (1 actions):
+  1. `reactViaUI({"user":"userB","emoji":"👍"})`
+- **Note**: Tor circuit bootstrap logs this during cold-start before the Tor proxy is disabled or fully ready. Unrelated to groups; candidate for the console allowlist if determined benign.
+- **Artifacts**: [`docs/fuzz-reports/FIND-450d2436/`](../fuzz-reports/FIND-450d2436/)
+
+## Regression-watch (2b.3 fixes re-firing in 2b.4)
+
+Two findings marked "Fixed in Phase 2b.3" fired repeatedly in 2b.4 runs without touching their production code paths. Phase 2b.4 changes are limited to `src/tests/fuzz/**` — no production files modified. These are tracked for re-investigation in Phase 2b.5; existing Fixed entries below are preserved unchanged.
+
+- **FIND-57989db1** — `INV-mirrors-idb-coherent` — fired in iter 3 + iter 4 (seed=42). 2b.3 fix gated P2P success on `nostraMid` presence; something is still polluting the mirror with an orphan tempId on userB. Hypothesis: an additional VMT failure path not covered by the 2b.3 gate.
+- **FIND-4e18d35d** — `INV-reaction-bilateral` — fired in iter 3 (seed=42). 2b.3 two-part fix (dual p-tag + rumor-id alignment) covered the `reactViaUI` own-message path; this recurrence may be from `reactToRandomBubble` on a different bubble selection, not yet confirmed.
+
+## Phase 2b.4 findings closed via fuzz-side adjustment (not production fixes)
+
+These were transient artifacts of a warmup/action configuration that was itself invalid — no production code change. Listed here so they are not re-added to Open on future runs.
+
+- `POST-sendText-bubble-appears` (text "e") — single iter-1 cold-start occurrence before the groups warmup landed. Not reproduced in iter 2–4.
+- `INV-group-bilateral-membership` (signature `4f52549b`) — fired on warmup-residue group that B never received due to cold-start relay sub. Grace window bumped from 5s to 30s (using `group.createdAt`) in invariant check; no recurrence after fix.
 
 ## Fixed
+
+### Fixed in Phase 2b.4
+
+#### FIND-3a55d85e / FIND-69055db3 / FIND-ca210bdf — INV-group-admin-is-member (admin-orphan on admin leaveGroup)
+- **Status**: fixed in Phase 2b.4
+- **Tier**: cheap
+- **Occurrences**: 3 (same root cause, distinct group IDs → distinct dedup signatures)
+- **First seen**: 2026-04-23 16:34:19
+- **Last seen**: 2026-04-23 16:37:07
+- **Seeds**: 44, 45, 46
+- **Assertion**: `"group <gid> on userB: admin <admin-hex> not in members"`
+- **Root cause**: `GroupAPI.handleMemberLeave` on remaining members removed the departing admin from `members[]` but left `adminPubkey` pointing at the departed admin. The resulting record has `adminPubkey ∉ members`, violating INV-group-admin-is-member and breaking any downstream code that assumes admin is a current member (e.g. admin-gated actions addMember / removeMember).
+- **Fix**: `GroupAPI.handleMemberLeave` (`src/lib/nostra/group-api.ts`) — when the leaving member is the admin, auto-transfer admin to the **lex-smallest remaining pubkey**. Deterministic across peers: every remaining member independently sorts the same set and picks the same new admin, so no separate `group_admin_transfer` control-message round is needed. Edge case preserved: if `remaining.length === 0`, no save (nothing to promote to).
+- **Regression coverage**: `src/tests/nostra/group-management.test.ts` — 3 new cases: admin-with-remaining (auto-promote expected), non-admin-leave (admin unchanged, updateMembers path), sole-admin-leave (empty remaining → no save). Fuzz action `leaveGroup` now exercises admin-leave paths without filtering (previously skipped to avoid tripping the invariant).
+- **Artifacts**: [`docs/fuzz-reports/FIND-3a55d85e/`](../fuzz-reports/FIND-3a55d85e/), [`FIND-69055db3`](../fuzz-reports/FIND-69055db3/), [`FIND-ca210bdf`](../fuzz-reports/FIND-ca210bdf/)
+
 
 ### Fixed in Phase 2b.3
 

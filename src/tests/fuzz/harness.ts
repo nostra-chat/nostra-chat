@@ -7,6 +7,7 @@
  */
 
 import {chromium, type Browser} from 'playwright';
+import {nip19} from 'nostr-tools';
 import {launchOptions} from '../e2e/helpers/launch-options';
 import {LocalRelay} from '../e2e/helpers/local-relay';
 import {dismissOverlays} from '../e2e/helpers/dismiss-overlays';
@@ -48,6 +49,7 @@ export async function bootHarness(opts: HarnessOptions = {}): Promise<{
 
   await linkContacts(userA, userB);
   await warmupHandshake(userA, userB);
+  await warmupGroupsHandshake(userA, userB);
   log(`boot done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 
   const ctx: FuzzContext = {
@@ -161,12 +163,26 @@ async function createUser(
   const reloadTimes: number[] = [Date.now()];
   page.on('load', () => reloadTimes.push(Date.now()));
 
+  // Decode npub → hex once at boot so actions can use hex pubkeys without
+  // re-decoding on every call. GroupAPI takes hex pubkeys. Decode runs in
+  // the Node harness, not in page.evaluate — the browser can't resolve the
+  // bare 'nostr-tools' module specifier (only Vite-served /src/... paths
+  // work in page.evaluate dynamic imports).
+  let pubkeyHex = '';
+  try {
+    const decoded = nip19.decode(npub);
+    if(decoded.type === 'npub') pubkeyHex = decoded.data as string;
+  } catch(err) {
+    log(`${id}: failed to decode npub — pubkeyHex left empty (${err instanceof Error ? err.message : String(err)})`);
+  }
+
   return {
     id,
     context,
     page,
     displayName,
     npub,
+    pubkeyHex,
     remotePeerId: 0, // set later in linkContacts
     consoleLog,
     reloadTimes
@@ -228,6 +244,67 @@ async function warmupHandshake(a: UserHandle, b: UserHandle): Promise<void> {
   } catch(err) {
     log(`warmup: non-fatal error — ${err instanceof Error ? err.message : String(err)}`);
   }
+}
+
+/**
+ * Deterministic group handshake: A creates a 2-member group (A + B), sends
+ * one text into it, then B (non-admin) leaves. Surfaces cold-start races on
+ * the group control/message pipeline so the first real fuzz action isn't
+ * the first exercise of the group code path. Non-fatal on failure —
+ * consistent with warmupHandshake policy.
+ *
+ * Why B leaves, not A: A is admin. If A left, B would process group_leave
+ * and remove A from members[], BUT adminPubkey would still point to the
+ * departed admin — an orphan admin state that fails
+ * INV-group-admin-is-member. The auto-admin-transfer behaviour is a
+ * design decision that belongs to a future phase, not the warmup. See
+ * FUZZ-FINDINGS.md "admin-orphan on admin leave" for the tracked finding.
+ */
+async function warmupGroupsHandshake(a: UserHandle, b: UserHandle): Promise<void> {
+  log('warmup/groups: A creates group → A sends → B leaves');
+  const warmupText = `__warmupG_${Date.now()}__`;
+  try {
+    const groupId = await a.page.evaluate(async (otherHex: string) => {
+      const {getGroupAPI} = await import('/src/lib/nostra/group-api.ts');
+      return getGroupAPI().createGroup('Warmup', [otherHex]);
+    }, b.pubkeyHex);
+    // Wait for B to receive the group-create control message.
+    await waitForGroupOnUser(b, groupId, 10000);
+    log('warmup/groups: step 1 (create) ack');
+
+    await a.page.evaluate(async ({gid, txt}: any) => {
+      const {getGroupAPI} = await import('/src/lib/nostra/group-api.ts');
+      await getGroupAPI().sendMessage(gid, txt);
+    }, {gid: groupId, txt: warmupText});
+    await a.page.waitForTimeout(500);
+    log('warmup/groups: step 2 (send) fired');
+
+    // B (non-admin) leaves — avoids admin-orphan state on A.
+    await b.page.evaluate(async (gid: string) => {
+      const {getGroupAPI} = await import('/src/lib/nostra/group-api.ts');
+      await getGroupAPI().leaveGroup(gid);
+    }, groupId);
+    log('warmup/groups: step 3 (leave) ack');
+  } catch(err) {
+    log(`warmup/groups: non-fatal error — ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function waitForGroupOnUser(user: UserHandle, groupId: string, timeoutMs: number): Promise<void> {
+  const start = Date.now();
+  while(Date.now() - start < timeoutMs) {
+    const has = await user.page.evaluate(async (gid: string) => {
+      try {
+        const {getGroupStore} = await import('/src/lib/nostra/group-store.ts');
+        return !!(await getGroupStore().get(gid));
+      } catch {
+        return false;
+      }
+    }, groupId);
+    if(has) return;
+    await user.page.waitForTimeout(250);
+  }
+  throw new Error(`warmup/groups: peer never received group ${groupId.slice(0, 8)} within ${timeoutMs}ms`);
 }
 
 async function sendTextViaUI(self: UserHandle, text: string): Promise<void> {

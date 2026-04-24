@@ -149,6 +149,12 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
       console.log('[NostraOnboardingIntegration] ChatAPI initialized');
 
       // --- Initialize GroupAPI ---
+      //
+      // GroupAPI internally calls handleGroupIncoming/handleGroupOutgoing
+      // (nostra-groups-sync) for the render pipeline. We pass a dispatch
+      // function that forwards nostra_new_message onto rootScope so
+      // downstream listeners (mesh signaling, etc) see group messages the
+      // same way they see DMs. Closes FIND-dbe8fdd2.
       try {
         const {initGroupAPI} = await import('@lib/nostra/group-api');
         const privKeyBytes = new Uint8Array(identity.privateKey.match(/.{2}/g)!.map(b => parseInt(b, 16)));
@@ -159,8 +165,11 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
             await pool.publishRawEvent(event);
           }
         };
-        initGroupAPI(identity.publicKey, privKeyBytes, publishFn);
-        console.log('[NostraOnboardingIntegration] GroupAPI initialized');
+        const groupDispatch = (event: string, data: any) => {
+          rootScope.dispatchEvent(event as any, data);
+        };
+        initGroupAPI(identity.publicKey, privKeyBytes, publishFn, groupDispatch);
+        console.log('[NostraOnboardingIntegration] GroupAPI initialized with render pipeline');
       } catch(err) {
         console.warn('[NostraOnboardingIntegration] GroupAPI init failed:', err);
       }

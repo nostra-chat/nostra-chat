@@ -16,6 +16,7 @@ import {wrapGroupMessage} from './nostr-crypto';
 import {broadcastGroupControl} from './group-control-messages';
 import {writeGroupCreateServiceMessage} from './group-service-messages';
 import {GroupDeliveryTracker} from './group-delivery-tracker';
+import {handleGroupIncoming, handleGroupOutgoing, type GroupDispatchFn} from './nostra-groups-sync';
 import type {GroupStore} from './group-store';
 import type {GroupRecord, GroupControlPayload} from './group-types';
 import type {NTNostrEvent} from './nostr-crypto';
@@ -31,21 +32,28 @@ export class GroupAPI {
   private ownPubkey: string;
   private ownSk: Uint8Array;
   private publishFn: (events: NTNostrEvent[]) => Promise<void>;
+  private dispatch: GroupDispatchFn;
   private groupDelivery: GroupDeliveryTracker;
   private sentMessageIds: Set<string> = new Set();
   private log: Logger;
 
-  /** External callback for incoming group messages (wired by display bridge) */
+  /** Optional test hook for incoming group messages. Production render is
+   *  wired via direct import of `handleGroupIncoming`; this callback is only
+   *  consulted by unit tests that need to observe dispatch without spinning
+   *  up the full IndexedDB + rootScope pipeline. */
   onGroupMessage: GroupMessageCallback | null = null;
 
   constructor(
     ownPubkey: string,
     ownSk: Uint8Array,
-    publishFn: (events: NTNostrEvent[]) => Promise<void>
+    publishFn: (events: NTNostrEvent[]) => Promise<void>,
+    dispatch?: GroupDispatchFn
   ) {
     this.ownPubkey = ownPubkey;
     this.ownSk = ownSk;
     this.publishFn = publishFn;
+    // Default dispatch is a no-op for unit tests that don't wire rootScope.
+    this.dispatch = dispatch ?? (() => {});
     this.store = getGroupStore();
     this.groupDelivery = new GroupDeliveryTracker();
     this.log = logger('GroupAPI');
@@ -138,11 +146,14 @@ export class GroupAPI {
     // Get members excluding self for wrapping (wrapGroupMessage adds self-send)
     const otherMembers = group.members.filter(m => m !== this.ownPubkey);
 
-    const wraps = wrapGroupMessage(this.ownSk, otherMembers, messagePayload, groupId);
+    const {wraps, rumorId} = wrapGroupMessage(this.ownSk, otherMembers, messagePayload, groupId);
 
-    // Extract rumor ID from the message payload
+    // Parse the app-level message id (grp-<ts>-<rnd>) for delivery-tracker
+    // + self-send dedup. This is distinct from the NIP-17 rumor id.
     const parsed = JSON.parse(messagePayload);
     const messageId = parsed.id;
+    const timestamp = parsed.timestamp || Date.now();
+    const msgType = parsed.type || 'text';
 
     // Track for self-send dedup (Pitfall 7)
     this.sentMessageIds.add(messageId);
@@ -150,10 +161,24 @@ export class GroupAPI {
     // Init delivery tracking for other members
     this.groupDelivery.initMessage(messageId, groupId, otherMembers);
 
+    // Optimistic sender-side render: persist the outgoing row + dispatch
+    // history_append + dialogs_multiupdate so the bubble appears immediately,
+    // mirroring appMessagesManager.sendText's flow for DMs. Runs BEFORE
+    // publish so the bubble is visible even if the relay is slow/unreachable.
+    try {
+      await handleGroupOutgoing(
+        this.ownPubkey,
+        {groupId, messageId, rumorId, content, timestamp, type: msgType},
+        this.dispatch
+      );
+    } catch(err) {
+      this.log.warn('[GroupAPI] handleGroupOutgoing threw:', err);
+    }
+
     // Publish all wraps
     await this.publishFn(wraps);
 
-    this.log('[GroupAPI] message sent to group:', groupId, 'id:', messageId);
+    this.log('[GroupAPI] message sent to group:', groupId, 'id:', messageId, 'rumorId:', rumorId.slice(0, 8));
     return messageId;
   }
 
@@ -242,8 +267,8 @@ export class GroupAPI {
    * Handle an incoming group message.
    *
    * 1. Check sentMessageIds for dedup (Pitfall 7)
-   * 2. Check if sender is in group.members (Pitfall 6)
-   * 3. Dispatch to display bridge via onGroupMessage callback
+   * 2. Invoke the test hook if present
+   * 3. Call the production render pipeline
    */
   handleIncomingGroupMessage(groupId: string, rumor: any, senderPubkey: string): void {
     // Parse message ID for dedup check
@@ -261,10 +286,20 @@ export class GroupAPI {
       return;
     }
 
-    // Dispatch to external handler
+    // Test-only override. Unit tests set this to observe delivery without
+    // exercising the full IndexedDB + rootScope pipeline.
     if(this.onGroupMessage) {
-      this.onGroupMessage(groupId, rumor, senderPubkey);
+      try {
+        this.onGroupMessage(groupId, rumor, senderPubkey);
+      } catch(err) {
+        this.log.warn('[GroupAPI] onGroupMessage test hook threw:', err);
+      }
+      return;
     }
+
+    // Production render path — persist + dispatch bubbles.
+    handleGroupIncoming(this.ownPubkey, groupId, rumor, senderPubkey, this.dispatch)
+    .catch((err) => this.log.warn('[GroupAPI] handleGroupIncoming threw:', err));
   }
 
   /**
@@ -363,7 +398,29 @@ export class GroupAPI {
     const group = await this.store.get(payload.groupId);
     if(group) {
       const remaining = group.members.filter(m => m !== senderPubkey);
-      await this.store.updateMembers(payload.groupId, remaining);
+
+      // Admin-orphan protection: if the departing member was the admin, the
+      // remaining record would keep `adminPubkey` pointing at the gone admin
+      // — violating INV-group-admin-is-member. Auto-transfer admin to the
+      // lex-smallest remaining pubkey so every member derives the same new
+      // admin deterministically without a separate control-message round.
+      const wasAdminLeaving = group.adminPubkey === senderPubkey;
+      const newAdmin = wasAdminLeaving && remaining.length > 0 ?
+        [...remaining].sort()[0] :
+        group.adminPubkey;
+
+      if(wasAdminLeaving && newAdmin !== group.adminPubkey) {
+        const updated = {
+          ...group,
+          members: remaining,
+          adminPubkey: newAdmin,
+          updatedAt: Date.now()
+        };
+        await this.store.save(updated);
+        this.log('[GroupAPI] admin left; auto-promoted new admin:', newAdmin.slice(0, 8), 'in group', payload.groupId.slice(0, 8));
+      } else {
+        await this.store.updateMembers(payload.groupId, remaining);
+      }
     }
     this.log('[GroupAPI] member left group:', senderPubkey.slice(0, 8));
   }
@@ -401,7 +458,19 @@ export function getGroupAPI(): GroupAPI {
   return _instance;
 }
 
-export function initGroupAPI(ownPubkey: string, ownSk: Uint8Array, publishFn: (events: NTNostrEvent[]) => Promise<void>): GroupAPI {
-  _instance = new GroupAPI(ownPubkey, ownSk, publishFn);
+export function initGroupAPI(
+  ownPubkey: string,
+  ownSk: Uint8Array,
+  publishFn: (events: NTNostrEvent[]) => Promise<void>,
+  dispatch?: GroupDispatchFn
+): GroupAPI {
+  _instance = new GroupAPI(ownPubkey, ownSk, publishFn, dispatch);
+  // Expose on window so E2E/fuzz tests resolve via a single shared reference.
+  // Vite dev can serve `@lib/nostra/group-api` and `/src/lib/nostra/group-api.ts`
+  // as separate module instances (same class behind the multi-rootScope bug
+  // noted in CLAUDE.md); the window ref bypasses that for non-production code.
+  try {
+    if(typeof window !== 'undefined') (window as any).__nostraGroupAPI = _instance;
+  } catch{}
   return _instance;
 }

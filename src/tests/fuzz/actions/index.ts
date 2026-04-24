@@ -6,6 +6,7 @@ import {openRandomChat, scrollHistoryUp, waitForPropagation} from './navigation'
 import {reloadPage, deleteWhileSending} from './lifecycle';
 import {reactViaUI} from './reactions';
 import {editNameAction, editBioAction, uploadAvatarAction, setNip05Action} from './profile';
+import {createGroup, sendInGroup, addMemberToGroup, removeMemberFromGroup, leaveGroup} from './groups';
 
 export const ACTION_REGISTRY: ActionSpec[] = [
   sendText,
@@ -24,7 +25,12 @@ export const ACTION_REGISTRY: ActionSpec[] = [
   editNameAction,
   editBioAction,
   uploadAvatarAction,
-  setNip05Action
+  setNip05Action,
+  createGroup,
+  sendInGroup,
+  addMemberToGroup,
+  removeMemberFromGroup,
+  leaveGroup
 ];
 
 export const ACTIONS_BY_NAME: Record<string, ActionSpec> = Object.fromEntries(
