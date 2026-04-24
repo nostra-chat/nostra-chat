@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.2](https://github.com/nostra-chat/nostra-chat/compare/v0.20.1...v0.20.2) (2026-04-24)
+
+
+### Bug Fixes
+
+* **nostra:** saveMessage crash storm + group/channel create + Interface Settings ([796df94](https://github.com/nostra-chat/nostra-chat/commit/796df94ae411777a1690c5473fd5c5672a368e0e))
+
 ## [0.20.1](https://github.com/nostra-chat/nostra-chat/compare/v0.20.0...v0.20.1) (2026-04-24)
 
 
