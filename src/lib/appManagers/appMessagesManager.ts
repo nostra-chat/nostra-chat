@@ -1447,8 +1447,17 @@ export class AppMessagesManager extends AppManager {
           // never completed. Surface the failure explicitly: delete the
           // temp bubble and reject the send promise so tweb's UI surfaces
           // the failure instead of rendering a ghost bubble.
+          //
+          // Use `deleteMessageFromStorage` (vs bare `storage.delete`) to
+          // also fire the `mirror` MessagePort task that removes
+          // `mirrors.messages[storageKey][tempId]` on the main thread.
+          // `beforeMessageSending → saveMessages → setMessageToStorage`
+          // had already mirrored the tempId; a bare `storage.delete`
+          // leaves it as a ghost integer mid that INV-mirrors-idb-coherent
+          // treats as a mirror-vs-IDB divergence (FIND-57989db1 regression
+          // surfaced again during Phase 2b.4 / 2b.5 baseline-emit attempts).
           if(!nostraMid) {
-            storage.delete(tempId);
+            this.deleteMessageFromStorage(storage, tempId);
             this.rootScope.dispatchEvent('history_delete', {
               peerId,
               msgs: new Set<number>([tempId])
@@ -1458,7 +1467,7 @@ export class AppMessagesManager extends AppManager {
           }
 
           if(nostraMid !== tempId) {
-            storage.delete(tempId);
+            this.deleteMessageFromStorage(storage, tempId);
             message.id = nostraMid;
             message.mid = nostraMid;
           }

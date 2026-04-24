@@ -118,7 +118,15 @@ export function parseFindingsMarkdown(md: string): ReportEntry[] {
     } else if(line.startsWith('- **Seed**:')) {
       current.seed = Number(line.split(':')[1].trim());
     } else if(line.startsWith('- **Assertion**:')) {
-      current.assertion = JSON.parse(line.replace('- **Assertion**:', '').trim());
+      // Assertions are rendered by `renderEntry` as JSON.stringify(...), i.e.
+      // `- **Assertion**: "..."`. Human curation sometimes wraps the JSON
+      // string in MD code-span backticks (`"..."`), which is benign in
+      // rendered markdown but breaks JSON.parse. Strip optional surrounding
+      // backticks first; if the resulting token is still not JSON (e.g. a
+      // hand-written plain sentence), fall back to the raw string so the
+      // outer parse can progress and preserve the entry for merge.
+      const rawAssertion = line.replace('- **Assertion**:', '').trim().replace(/^`|`$/g, '');
+      try{ current.assertion = JSON.parse(rawAssertion); } catch{ current.assertion = rawAssertion; }
     } else if(/^\s+\d+\. /.test(line)) {
       traces.push(line);
     }

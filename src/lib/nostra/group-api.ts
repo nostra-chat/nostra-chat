@@ -16,7 +16,7 @@ import {wrapGroupMessage} from './nostr-crypto';
 import {broadcastGroupControl} from './group-control-messages';
 import {writeGroupCreateServiceMessage} from './group-service-messages';
 import {GroupDeliveryTracker} from './group-delivery-tracker';
-import {handleGroupIncoming, handleGroupOutgoing, type GroupDispatchFn} from './nostra-groups-sync';
+import {handleGroupIncoming, handleGroupOutgoing, cleanupGroupChatInjection, type GroupDispatchFn} from './nostra-groups-sync';
 import type {GroupStore} from './group-store';
 import type {GroupRecord, GroupControlPayload} from './group-types';
 import type {NTNostrEvent} from './nostr-crypto';
@@ -255,8 +255,14 @@ export class GroupAPI {
     const controlWraps = broadcastGroupControl(this.ownSk, remaining, payload);
     await this.publishFn(controlWraps);
 
-    // Delete group locally
+    // Delete group locally + clean up main-thread mirror state symmetric to
+    // `ensureGroupChatInjected` (nostra-groups-sync.ts). Without the mirror
+    // cleanup the Chat entry survives store deletion, violating
+    // INV-group-no-orphan-mirror-peer and briefly re-rendering the "left"
+    // group in chat list until the next reload.
+    const peerId = await groupIdToPeerId(groupId);
     await this.store.delete(groupId);
+    await cleanupGroupChatInjection(peerId);
 
     this.log('[GroupAPI] left group:', groupId);
   }
@@ -382,8 +388,12 @@ export class GroupAPI {
 
   private async handleRemoveMember(payload: GroupControlPayload): Promise<void> {
     if(payload.targetPubkey === this.ownPubkey) {
-      // We were removed — delete group locally
+      // We were removed — delete group locally + clean up the injected Chat
+      // from main-thread mirrors so INV-group-no-orphan-mirror-peer holds
+      // and the chat list doesn't flash the removed group on refresh.
+      const peerId = await groupIdToPeerId(payload.groupId);
       await this.store.delete(payload.groupId);
+      await cleanupGroupChatInjection(peerId);
       this.log('[GroupAPI] removed from group:', payload.groupId);
     } else {
       const group = await this.store.get(payload.groupId);

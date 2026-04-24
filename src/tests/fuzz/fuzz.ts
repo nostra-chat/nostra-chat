@@ -7,6 +7,7 @@ import {runTier, runEndOfSequence, runEndOfRun} from './invariants';
 import {runPostconditions} from './postconditions';
 import {recordFinding} from './reporter';
 import {replayFinding, replayFile, replayBaseline} from './replay';
+import {FUZZER_VERSION} from './version';
 import type {Action, FuzzContext, FailureDetails} from './types';
 
 /**
@@ -117,10 +118,10 @@ async function main() {
       maxCommands: opts.maxCommands,
       commands: lastCleanActions,
       emittedAt: new Date().toISOString(),
-      fuzzerVersion: 'phase2b2'
+      fuzzerVersion: FUZZER_VERSION
     };
     if(!existsSync('docs/fuzz-baseline')) mkdirSync('docs/fuzz-baseline', {recursive: true});
-    const path = `docs/fuzz-baseline/baseline-seed${opts.seed}.json`;
+    const path = `docs/fuzz-baseline/baseline-seed${opts.seed}-${FUZZER_VERSION.replace(/^phase/, 'v')}.json`;
     writeFileSync(path, JSON.stringify(baseline, null, 2));
     console.log(`[fuzz] baseline emitted → ${path} (${lastCleanActions.length} actions)`);
   } else if(opts.emitBaseline) {

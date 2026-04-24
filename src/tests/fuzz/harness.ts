@@ -223,27 +223,74 @@ async function warmupHandshake(a: UserHandle, b: UserHandle): Promise<void> {
   // Best-effort warmup. Failures are logged but non-fatal: the fuzz run still
   // proceeds so that cold-start flakes (if any) surface as findings rather
   // than aborting the entire iteration at boot.
+  //
+  // Each step has its own try/catch so a failure in one does NOT cancel the
+  // later steps. Prior version wrapped all three steps in a single try block
+  // and let step-1 DOM timeouts abort step-2 (kind-7 priming) and step-3
+  // (kind-5 priming) — leading to a cold kind-7 subscription when the first
+  // real fuzz action was reactViaUI (FIND-4e18d35d regression-watch, firing
+  // repeatedly in Phase 2b.5 baseline-emit runs).
   log('warmup: A→B text → B→A react → A→B delete → drain');
   const warmupText = `__warmup_${Date.now()}__`;
+  let mid: string | null = null;
 
   try {
     await sendTextViaUI(a, warmupText);
-    const mid = await waitForBubbleOnPeer(b, warmupText, 15000);
+    mid = await waitForBubbleOnPeer(b, warmupText, 15000);
     log('warmup: step 1 (text) ack');
+  } catch(err) {
+    log(`warmup: step 1 (text) non-fatal — ${err instanceof Error ? err.message : String(err)}`);
+    // Recovery: pull the mid from B's `nostra-messages` IDB directly. The
+    // message was published to the relay even if B's DOM hasn't rendered it
+    // yet (chat not open → render is deferred until setPeer). Step 2 needs
+    // the mid to publish the kind-7 reaction, which primes A's kind-7
+    // subscription before the first fuzz action. Use raw IDB (not the
+    // `getMessageStore()` facade) because the facade only exposes
+    // per-conversation accessors and we don't know the conversationId.
+    try {
+      mid = await b.page.evaluate(async(needle: string) => {
+        const req = indexedDB.open('nostra-messages');
+        const db: IDBDatabase = await new Promise((resolve, reject) => {
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+        const tx = db.transaction('messages', 'readonly');
+        const store = tx.objectStore('messages');
+        const all: any[] = await new Promise((resolve, reject) => {
+          const r = store.getAll();
+          r.onsuccess = () => resolve(r.result);
+          r.onerror = () => reject(r.error);
+        });
+        db.close();
+        const row = all.find((r: any) => typeof r.content === 'string' && r.content.includes(needle));
+        return row?.mid != null ? String(row.mid) : null;
+      }, warmupText);
+      if(mid) log('warmup: step 1 recovery — mid resolved from B IDB');
+    } catch(recErr) {
+      log(`warmup: step 1 recovery failed — ${recErr instanceof Error ? recErr.message : String(recErr)}`);
+    }
+  }
 
-    await reactToBubbleViaManager(b, mid, '👍');
-    await waitForReactionOnPeer(a, warmupText, '👍', 15000);
-    log('warmup: step 2 (react) ack');
+  if(mid) {
+    try {
+      await reactToBubbleViaManager(b, mid, '👍');
+      await waitForReactionOnPeer(a, warmupText, '👍', 15000);
+      log('warmup: step 2 (react) ack');
+    } catch(err) {
+      log(`warmup: step 2 (react) non-fatal — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 
+  try {
     await deleteBubbleViaManager(a, warmupText);
     await waitForBubbleAbsenceOnPeer(b, warmupText, 15000);
     log('warmup: step 3 (delete) ack');
-
-    await a.page.waitForTimeout(500);
-    log('warmup: drain complete');
   } catch(err) {
-    log(`warmup: non-fatal error — ${err instanceof Error ? err.message : String(err)}`);
+    log(`warmup: step 3 (delete) non-fatal — ${err instanceof Error ? err.message : String(err)}`);
   }
+
+  await a.page.waitForTimeout(500);
+  log('warmup: drain complete');
 }
 
 /**

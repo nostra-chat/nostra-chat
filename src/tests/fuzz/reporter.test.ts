@@ -259,4 +259,58 @@ describe('markdown round-trip', () => {
     expect(parsed[0].occurrences).toBe(42);
     expect(parsed[0].invariantId).toBe('INV-delivery-ui-matches-tracker');
   });
+
+  // Human curation of FUZZ-FINDINGS.md sometimes wraps the JSON-stringified
+  // assertion in markdown code-span backticks (`"..."`). The parser must
+  // tolerate both shapes so the emit/merge pipeline doesn't crash mid-run
+  // and lose the finding.
+  it('parses entry with backtick-wrapped assertion (human-curated form)', () => {
+    const md = [
+      '# Fuzz Findings',
+      '',
+      '## Open',
+      '',
+      '### FIND-deadbeef — INV-something',
+      '- **Status**: open',
+      '- **Tier**: cheap',
+      '- **Occurrences**: 1',
+      '- **First seen**: 2026-04-24 00:00:00',
+      '- **Last seen**: 2026-04-24 00:00:00',
+      '- **Seed**: 42',
+      '- **Assertion**: `"group 9626d38a on userB: admin foo not in members"`',
+      '- **Replay**: `pnpm fuzz --replay=FIND-deadbeef`',
+      '- **Minimal trace** (1 actions):',
+      '  1. `sendText({"from":"userB","text":"x"})`',
+      ''
+    ].join('\n');
+    const parsed = parseFindingsMarkdown(md);
+    expect(parsed.length).toBe(1);
+    expect(parsed[0].signature).toBe('deadbeef');
+    expect(parsed[0].assertion).toBe('group 9626d38a on userB: admin foo not in members');
+  });
+
+  // Defensive: a plain-text assertion that isn't valid JSON (e.g. a
+  // hand-written description) should fall back to the raw string instead
+  // of throwing — merging occurrences is more important than normalising
+  // the assertion payload.
+  it('falls back to raw string when assertion is not valid JSON', () => {
+    const md = [
+      '# Fuzz Findings',
+      '',
+      '## Open',
+      '',
+      '### FIND-cafe0001 — INV-x',
+      '- **Status**: open',
+      '- **Tier**: cheap',
+      '- **Occurrences**: 1',
+      '- **First seen**: 2026-04-24 00:00:00',
+      '- **Last seen**: 2026-04-24 00:00:00',
+      '- **Seed**: 42',
+      '- **Assertion**: some free-form text with no quotes',
+      ''
+    ].join('\n');
+    const parsed = parseFindingsMarkdown(md);
+    expect(parsed.length).toBe(1);
+    expect(parsed[0].assertion).toBe('some free-form text with no quotes');
+  });
 });
