@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.2](https://github.com/nostra-chat/nostra-chat/compare/v0.21.1...v0.21.2) (2026-04-25)
+
+
+### Bug Fixes
+
+* **nostra:** wire incoming P2P/group messages to desktop notifications ([d0944a7](https://github.com/nostra-chat/nostra-chat/commit/d0944a72c89ea285561a0653dd25a8d789f87cc6))
+
 ## [0.21.1](https://github.com/nostra-chat/nostra-chat/compare/v0.21.0...v0.21.1) (2026-04-25)
 
 
