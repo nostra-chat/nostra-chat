@@ -118,9 +118,8 @@ A Web Push pipeline requires a server-side actor that subscribes to the user's g
    - read previewLevel from IDB
    - if A: showNotification('Nostra.chat', {body: 'New message', tag: payload.peer_id})
    - if B/C:
-     a. read privkey from IDB store `nostra-push.privkey_for_sw` (mirrored from
-        localStorage `nostra_identity` at app boot — see "Privkey Access from
-        Service Worker" section below).
+     a. read privkey directly from IDB `Nostra.chat` via SW-safe helper
+        (see "Privkey Access from Service Worker" section below).
      b. decrypt NIP-44 gift-wrap from payload.event_id (or refetch from relay if payload only carries id)
      c. extract sender pubkey from rumor
      d. lookup kind 0 (display name) from IDB nostra-virtual-peers
@@ -213,15 +212,14 @@ Window is configurable via the same IDB store under `aggregation_window_ms` for 
 
 ## Privkey Access from Service Worker
 
-Web Push can wake the Service Worker when no client tab exists. In that case the SW context has access to `caches` and `indexedDB` but **not** `localStorage` (where `nostra_identity` is stored today). For preview level B/C the SW must decrypt NIP-44, which needs the privkey.
+Web Push can wake the Service Worker when no client tab exists. In that case the SW context has access to `caches` and `indexedDB` but **not** `localStorage`. The privkey already lives in IDB database `Nostra.chat` (primary path of `loadIdentity()`; localStorage is only a test fallback), so the SW can read it directly — no main-thread mirror is required.
 
-Strategy:
-- At every app boot, if preview level is B or C, the main thread mirrors the privkey into a dedicated IDB store `nostra-push.privkey_for_sw` (database `Nostra.chat`).
-- If preview level is A (default), the privkey is **not** mirrored — the SW never has decryption capability. This is the secure default.
-- On switch from A → B/C: write the mirror. On B/C → A: delete the mirror.
-- On logout/reset: delete the mirror as part of `nostra-cleanup.ts`.
+What is required is a **gate**: the SW handler must only read the privkey when `preview_level !== 'A'`. The IDB read helper used by the SW must be a SW-safe variant of `loadIdentity()` (no `localStorage` fallback path, since the SW cannot reach `localStorage`).
 
-Implication: choosing B or C raises the device-level surface — anyone with file-system access to the browser profile can read the privkey from IDB (this was already true for `localStorage`, but IDB is sometimes mistakenly considered higher-security; in reality both are origin-bound only). The Settings disclosure must mention this for B/C.
+- **Preview A (default)**: SW handler shows generic notification, never reads privkey.
+- **Preview B/C**: SW handler reads privkey from `Nostra.chat` IDB, decrypts NIP-44, renders preview accordingly.
+
+Threat surface implication: the privkey is already at rest in IDB (status quo since onboarding). This feature does not enlarge that surface; it only gates *use* of the privkey from the SW context. The Settings disclosure for B/C still mentions that the SW will read the privkey to decrypt notification content.
 
 ## Authentication Boundary on Damus
 
