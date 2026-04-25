@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.21.0](https://github.com/nostra-chat/nostra-chat/compare/v0.20.2...v0.21.0) (2026-04-25)
+
+
+### Features
+
+* **nostra:** Fluent Emoji static fallback for stickerless animated emoji ([5f1aa6f](https://github.com/nostra-chat/nostra-chat/commit/5f1aa6f09fcc77048fc1e190b8ac9600c2045418))
+* **nostra:** Nostra Emoji synthetic sticker pack (Fluent) in picker ([1a03f62](https://github.com/nostra-chat/nostra-chat/commit/1a03f620bbbc07348710965ee67215eea5fa1cb6))
+
+
+### Bug Fixes
+
+* **nostra:** attribute outgoing group messages to own user, not group peer ([499a1da](https://github.com/nostra-chat/nostra-chat/commit/499a1da34a9426167feea4757375f39c21cca911))
+* **nostra:** parse entities in createTwebMessage so first render hits big-emoji path ([54d455d](https://github.com/nostra-chat/nostra-chat/commit/54d455dd147ff1664339d95746785fa51ce32e79))
+* **nostra:** preserve outgoing attribution for own group messages across reload ([5127104](https://github.com/nostra-chat/nostra-chat/commit/5127104bdf4791add21a531cf068e23d5ce23db4))
+* **nostra:** reactions strfry e-tag size rejection (regression of FIND-4e18d35d) ([3814fe6](https://github.com/nostra-chat/nostra-chat/commit/3814fe606d0e1371e8f78162053525164ab95c6a))
+* **nostra:** rename leftover eventId reference in sendMessage return ([81e0def](https://github.com/nostra-chat/nostra-chat/commit/81e0defbee4b83a970a738d3e38b6775ab73e054))
+* **nostra:** render Nostra Emoji sticker click as Fluent PNG bubble ([edf6397](https://github.com/nostra-chat/nostra-chat/commit/edf6397783c4f1dd9ba9464451a1934fbf322d84))
+* **nostra:** show chat input in P2P groups by adding default_banned_rights ([2fc2068](https://github.com/nostra-chat/nostra-chat/commit/2fc20688ed1dbe3e029a7212b2f0c49691c6c12c))
+* **nostra:** show sender name in groups via shared User injection helper ([fca4cc1](https://github.com/nostra-chat/nostra-chat/commit/fca4cc13553a889c4b6eef1e2984bf6eeebb6788))
+
 ## [0.20.2](https://github.com/nostra-chat/nostra-chat/compare/v0.20.1...v0.20.2) (2026-04-24)
 
 
