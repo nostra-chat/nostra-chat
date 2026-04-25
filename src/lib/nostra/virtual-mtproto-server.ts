@@ -970,7 +970,7 @@ export class NostraMTProtoServer {
         date: now,
         seq: 0,
         nostraMid: mid,
-        nostraEventId: eventId
+        nostraEventId: messageId
       };
     } catch(err) {
       console.warn(LOG_PREFIX, 'sendMessage: failed', err);
