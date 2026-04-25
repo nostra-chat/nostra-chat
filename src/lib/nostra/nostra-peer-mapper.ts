@@ -8,6 +8,7 @@
 
 import type {User, Chat, Dialog, Message, Peer, PeerNotifySettings} from '@layer';
 import {NostraBridge} from './nostra-bridge';
+import parseEntities from '@lib/richTextProcessor/parseEntities';
 
 export interface CreateUserOpts {
   peerId: number;
@@ -123,6 +124,14 @@ export class NostraPeerMapper {
       from_id = {_: 'peerUser', user_id: opts.fromPeerId} as Peer.peerUser;
     }
 
+    // Parse entities so single-emoji bubbles trigger the big-emoji path on
+    // first render. Without this, `bubbles.ts:6564` skips big-emoji
+    // detection (requires `totalEntities`) and the bubble shows the native
+    // OS glyph until a reload re-saves the message through tweb's
+    // `saveMessages` (which calls parseEntities). Skip when text is empty
+    // (media-only messages have no parseable text).
+    const entities = opts.text ? parseEntities(opts.text) : undefined;
+
     const message: Message.message = {
       _: 'message',
       id: opts.mid,
@@ -131,6 +140,7 @@ export class NostraPeerMapper {
       date: opts.date,
       message: opts.text,
       pFlags,
+      ...(entities && entities.length ? {entities} : {}),
       ...(opts.media ? {media: opts.media} : {})
     } as Message.message;
 
