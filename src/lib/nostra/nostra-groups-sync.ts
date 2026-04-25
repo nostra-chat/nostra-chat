@@ -429,10 +429,25 @@ export async function handleGroupOutgoing(
     console.warn(LOG_PREFIX, 'tx: saveMessage failed; continuing', {err});
   }
 
+  // Resolve own peerId so the bubble + dialog preview attribute the
+  // message to the user instead of falling back to the group peer
+  // (which would render "<group name>: text" in the chat list).
+  let ownPeerId: number | undefined;
+  try {
+    ownPeerId = await mapper.mapPubkey(ownPubkey);
+    await ensureSenderUserInjected({
+      senderPubkey: ownPubkey,
+      peerId: ownPeerId,
+      logPrefix: LOG_PREFIX + ' tx-self'
+    });
+  } catch(err) {
+    console.warn(LOG_PREFIX, 'tx: ensureSenderUserInjected (self) failed; continuing', {err});
+  }
+
   const msg = mapper.createTwebMessage({
     mid,
     peerId: groupPeerId,
-    // fromPeerId omitted for outgoing — pFlags.out = true is the signal.
+    fromPeerId: ownPeerId,
     date: timestampSec,
     text: content,
     isOutgoing: true

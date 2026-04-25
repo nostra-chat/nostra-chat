@@ -119,8 +119,14 @@ export class NostraPeerMapper {
       {_: 'peerChat', chat_id: chatId} as Peer.peerChat :
       {_: 'peerUser', user_id: opts.peerId} as Peer.peerUser;
 
+    // `from_id` is set whenever a sender peerId is provided. For outgoing
+    // group messages this resolves the sender to the user's own User in the
+    // dialog preview ("<my name>: text"); without it, the preview falls
+    // back to the chat peer and shows the group title as the sender.
+    // For 1-on-1 outgoing, callers omit `fromPeerId` and `pFlags.out` alone
+    // remains the ownership signal — preserving the prior behavior.
     let from_id: Peer | undefined;
-    if(!opts.isOutgoing && opts.fromPeerId) {
+    if(opts.fromPeerId) {
       from_id = {_: 'peerUser', user_id: opts.fromPeerId} as Peer.peerUser;
     }
 
