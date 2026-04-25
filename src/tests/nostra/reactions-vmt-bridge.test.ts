@@ -32,15 +32,19 @@ describe('VMT messages.sendReaction handler', () => {
   });
 
   it('handles messages.sendReaction -> calls nostraReactionsPublish.publish', async() => {
+    // 64-hex stub — the handler now guards against legacy `chat-XXX-N` ids
+    // before invoking publish (see "skips publish when relayEventId is not
+    // 64-hex" below), so test fixtures must look like real rumor ids.
+    const targetEventId = 'b'.repeat(64);
     const server = new vmtMod.NostraMTProtoServer({
-      getMessageByPeerMid: () => ({relayEventId: 'evtTarget', senderPubkey: 'peerpk'})
+      getMessageByPeerMid: () => ({relayEventId: targetEventId, senderPubkey: 'peerpk'})
     });
     const result = await server.handleMethod('messages.sendReaction', {
       message: {peerId: 1e16, mid: 42},
       reaction: {_: 'reactionEmoji', emoticon: '👍'}
     });
     expect(publishSpy).toHaveBeenCalledWith(expect.objectContaining({
-      targetEventId: 'evtTarget',
+      targetEventId,
       targetMid: 42,
       targetPeerId: 1e16,
       targetAuthor: 'peerpk',
@@ -75,5 +79,34 @@ describe('VMT messages.sendReaction handler', () => {
     });
     expect(publishSpy).not.toHaveBeenCalled();
     expect(result).toEqual(expect.objectContaining({_: 'updates'}));
+  });
+
+  // Regression: legacy IDB rows / bridge-skipped writes can return a
+  // `chat-XXX-N` app id as relayEventId. NIP-01 fixed-size `e` tags need
+  // 64-hex; strfry rejects ("unexpected size for fixed-size tag: e") and
+  // the user sees nothing. The handler must drop these BEFORE invoking
+  // publish so the bug surfaces only as a console.warn, not a relay error.
+  it('skips publish when relayEventId is not 64-hex (legacy chat-XXX-N row)', async() => {
+    const server = new vmtMod.NostraMTProtoServer({
+      getMessageByPeerMid: () => ({relayEventId: 'chat-1ab2c3d4-7', senderPubkey: 'peerpk'})
+    });
+    const result = await server.handleMethod('messages.sendReaction', {
+      message: {peerId: 1e16, mid: 42},
+      reaction: {_: 'reactionEmoji', emoticon: '👍'}
+    });
+    expect(publishSpy).not.toHaveBeenCalled();
+    expect(result).toEqual(expect.objectContaining({_: 'updates'}));
+  });
+
+  it('publishes when relayEventId is 64-hex', async() => {
+    const hex64 = 'a'.repeat(64);
+    const server = new vmtMod.NostraMTProtoServer({
+      getMessageByPeerMid: () => ({relayEventId: hex64, senderPubkey: 'peerpk'})
+    });
+    await server.handleMethod('messages.sendReaction', {
+      message: {peerId: 1e16, mid: 42},
+      reaction: {_: 'reactionEmoji', emoticon: '👍'}
+    });
+    expect(publishSpy).toHaveBeenCalledWith(expect.objectContaining({targetEventId: hex64}));
   });
 });

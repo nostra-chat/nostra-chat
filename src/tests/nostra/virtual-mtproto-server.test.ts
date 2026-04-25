@@ -394,22 +394,25 @@ describe('NostraMTProtoServer', () => {
       expect(Array.isArray(result.updates)).toBe(true);
     });
 
-    it('persists message to store after sending', async () => {
+    // Persistence is now ChatAPI's responsibility — VMT delegates the row
+    // save entirely (production: chat-api.ts:621-635 keys by `eventId =
+    // publishedRumorId`). The previous "VMT writes a second row with
+    // eventId = chat-XXX-N" path was the source of FIND-4e18d35d's recurrent
+    // strfry rejection; removing it is the fix. This test now just asserts
+    // the delegation contract: `chatAPI.sendText` receives the same content
+    // and a `twebPeerId` so its save can land the full identity triple.
+    it('delegates persistence to chatAPI.sendText (no direct store write from VMT)', async () => {
       await server.handleMethod('messages.sendMessage', {
         peer: {user_id: PEER_ID},
         message: 'persist me',
         random_id: BigInt(1)
       });
 
-      expect(mockStore.saveMessage).toHaveBeenCalledWith(
-        expect.objectContaining({
-          eventId: 'eventId123',
-          content: 'persist me',
-          senderPubkey: OWN_PUBKEY,
-          isOutgoing: true,
-          deliveryState: 'sent'
-        })
+      expect(mockChatAPI.sendText).toHaveBeenCalledWith(
+        'persist me',
+        expect.objectContaining({twebPeerId: expect.any(Number), timestampSec: expect.any(Number)})
       );
+      expect(mockStore.saveMessage).not.toHaveBeenCalled();
     });
 
     it('connects to peer if not already active', async () => {

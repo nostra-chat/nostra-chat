@@ -35,6 +35,13 @@ function isOneToOneConvId(convId: string): boolean {
   return typeof convId === 'string' && ONE_TO_ONE_CONV_ID_RE.test(convId);
 }
 
+// 64-hex Nostr event id (rumor / kind-1059 wrap). NIP-01 fixed-size tags
+// `e` / `p` require 32-byte hex. Used by `sendReaction` to drop publishes
+// whose target row carries a legacy `chat-XXX-N` app id as `eventId` —
+// strfry would reject the kind-7 with "unexpected size for fixed-size
+// tag: e" and the user would see the reaction silently fail.
+const RUMOR_ID_RE = /^[0-9a-f]{64}$/i;
+
 // ─── Action method patterns ──────────────────────────────────────────
 
 const ACTION_PATTERNS = [
@@ -1147,6 +1154,11 @@ export class NostraMTProtoServer {
     const resolved = await this.getMessageByPeerMid(peerId, mid);
     if(!resolved?.relayEventId) {
       console.warn(LOG_PREFIX, 'sendReaction: target message not found', {peerId, mid});
+      return emptyUpdates;
+    }
+
+    if(!RUMOR_ID_RE.test(resolved.relayEventId)) {
+      console.warn(LOG_PREFIX, 'sendReaction: target row missing 64-hex rumor id; skipping publish', {peerId, mid, relayEventId: resolved.relayEventId});
       return emptyUpdates;
     }
 

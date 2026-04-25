@@ -141,23 +141,32 @@ describe('FIND-e49755c1 — mirror/IDB coherence', () => {
     const mockChatAPI = {
       getActivePeer: vi.fn().mockReturnValue(PEER_PUBKEY),
       connect: vi.fn().mockResolvedValue(undefined),
-      sendText: vi.fn().mockImplementation(async(content: string, opts?: {twebPeerId?: number}) => {
-        // Simulate ChatAPI's internal partial save — awaited in production.
+      // Simulates ChatAPI's authoritative save: full identity triple
+      // (mid + twebPeerId + isOutgoing) computed via NostraBridge — exactly
+      // what `chat-api.ts:607-635` does in production. VMT no longer
+      // performs a "second save" with mid; the architectural contract is
+      // that ChatAPI lands a complete row before sendText resolves.
+      sendText: vi.fn().mockImplementation(async(content: string, opts?: {twebPeerId?: number; timestampSec?: number}) => {
+        const eventId = 'ev_send_001';
+        const timestampSec = opts?.timestampSec ?? Math.floor(Date.now() / 1000);
+        const {NostraBridge} = await import('@lib/nostra/nostra-bridge');
+        const mid = await NostraBridge.getInstance().mapEventIdToMid(eventId, timestampSec);
         const row: any = {
-          eventId: 'ev_send_001',
+          eventId,
           conversationId: [OWN_PUBKEY, PEER_PUBKEY].sort().join(':'),
           senderPubkey: OWN_PUBKEY,
           content,
           type: 'text',
-          timestamp: Math.floor(Date.now() / 1000),
-          deliveryState: 'sending'
+          timestamp: timestampSec,
+          deliveryState: 'sent',
+          mid
         };
         if(opts?.twebPeerId !== undefined) {
           row.twebPeerId = opts.twebPeerId;
           row.isOutgoing = true;
         }
         await store.saveMessage(row);
-        return 'ev_send_001';
+        return eventId;
       })
     };
 
