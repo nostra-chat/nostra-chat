@@ -38,6 +38,7 @@ import {NostraPeerMapper} from './nostra-peer-mapper';
 import {getMessageStore} from './message-store';
 import {groupIdToPeerId} from './group-types';
 import {getGroupStore} from './group-store';
+import {ensureSenderUserInjected} from './ensure-sender-user-injected';
 import {MOUNT_CLASS_TO} from '@config/debug';
 import rootScope from '@lib/rootScope';
 
@@ -306,6 +307,19 @@ export async function handleGroupIncoming(
 
   const mid = await mapper.mapEventId(rumorId, timestampSec);
   const senderPeerId = await mapper.mapPubkey(senderPubkey);
+
+  // Without a User entry for the sender, getPeer(senderPeerId) returns
+  // undefined and the bubble title falls back to "Deleted Account"
+  // (getPeerTitle.ts + lang.ts 'HiddenName'). Idempotent — re-run is cheap.
+  try {
+    await ensureSenderUserInjected({
+      senderPubkey,
+      peerId: senderPeerId,
+      logPrefix: LOG_PREFIX + ' rx'
+    });
+  } catch(err) {
+    console.warn(LOG_PREFIX, 'rx: ensureSenderUserInjected failed; continuing', {err});
+  }
 
   try {
     await store.saveMessage({

@@ -6,9 +6,9 @@
  * scattered across nostra-display-bridge and nostra-bridge.
  */
 
-import type {User, Chat, Dialog, Message, Peer, PeerNotifySettings} from '@layer';
+import type {User, Chat, Dialog, Message, MessageEntity, Peer, PeerNotifySettings} from '@layer';
 import {NostraBridge} from './nostra-bridge';
-import parseEntities from '@lib/richTextProcessor/parseEntities';
+import wrapMessageEntities from '@lib/richTextProcessor/wrapMessageEntities';
 
 export interface CreateUserOpts {
   peerId: number;
@@ -124,13 +124,20 @@ export class NostraPeerMapper {
       from_id = {_: 'peerUser', user_id: opts.fromPeerId} as Peer.peerUser;
     }
 
-    // Parse entities so single-emoji bubbles trigger the big-emoji path on
-    // first render. Without this, `bubbles.ts:6564` skips big-emoji
-    // detection (requires `totalEntities`) and the bubble shows the native
-    // OS glyph until a reload re-saves the message through tweb's
-    // `saveMessages` (which calls parseEntities). Skip when text is empty
-    // (media-only messages have no parseable text).
-    const entities = opts.text ? parseEntities(opts.text) : undefined;
+    // Compute entities + totalEntities so single-emoji bubbles trigger the
+    // big-emoji path on first render. Without this, `bubbles.ts:6537/6542`
+    // reads `message.totalEntities` as undefined and the big-emoji
+    // detector at `bubbles.ts:6564` is skipped — the bubble shows the
+    // native OS glyph until tweb's `saveMessages` later runs
+    // `wrapMessageEntities` and populates totalEntities. We replicate
+    // that work up-front so first render matches post-reload appearance.
+    let entities: MessageEntity[] | undefined;
+    let totalEntities: MessageEntity[] | undefined;
+    if(opts.text) {
+      const wrapped = wrapMessageEntities(opts.text, []);
+      entities = wrapped.totalEntities;
+      totalEntities = wrapped.totalEntities;
+    }
 
     const message: Message.message = {
       _: 'message',
@@ -143,6 +150,9 @@ export class NostraPeerMapper {
       ...(entities && entities.length ? {entities} : {}),
       ...(opts.media ? {media: opts.media} : {})
     } as Message.message;
+    if(totalEntities && totalEntities.length) {
+      (message as any).totalEntities = totalEntities;
+    }
 
     // Set mid and peerId explicitly — required for P2P synthetic messages
     // that bypass saveMessages()
