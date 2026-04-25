@@ -13,6 +13,7 @@ import {buildNostraMedia, type NostraFileMetadata} from '@lib/nostra/nostra-medi
 import {logSwallow} from '@lib/nostra/log-swallow';
 import {assertInvariant, validateTwebMessage, validateDialogTopMessage} from '@lib/nostra/bridge-invariants';
 import {ensureSenderUserInjected} from '@lib/nostra/ensure-sender-user-injected';
+import {isGroupPeer} from '@lib/nostra/group-types';
 
 export interface IncomingMessageData {
   senderPubkey: string;
@@ -78,17 +79,125 @@ export function getUnreadForPeer(peerId: number): number {
  * Clear the main-thread unread counter for a peer and re-dispatch the last
  * dialog with unread_count: 0 so the chat-list badge disappears immediately.
  * Called on peer_changed (see nostra-onboarding-integration.ts).
+ *
+ * Source priority for the dialog dispatched: apiManagerProxy.mirrors.dialogs
+ * (set by VMT outgoing send), then `lastDialogs` (set by live incoming this
+ * session), then a freshly-built one from message-store. The store fallback
+ * is what makes post-reload work: `unreadCounts` is restored from
+ * localStorage, but `lastDialogs` is in-memory only and starts empty after
+ * reload, so without the fallback the chat-list badge (rendered from
+ * `getDialogs` → `store.countUnread`) never received a clearing dispatch.
+ *
+ * Also defensively advances the IDB read cursor so the next `getDialogs`
+ * (after another reload) reports unread = 0 even if the standard
+ * `bubbles.ts → readHistory` path didn't fire.
+ *
+ * Handles both P2P peers (`peerId >= 1e15`) and group peers (negative,
+ * GROUP_PEER_BASE range).
  */
-export function resetUnreadForPeer(peerId: number): void {
-  const had = (unreadCounts.get(peerId) ?? 0) > 0;
-  if(!had && !lastDialogs.has(peerId)) return;
-  unreadCounts.set(peerId, 0);
-  persistUnreadCounts();
-  const last = lastDialogs.get(peerId);
-  if(!last) return;
-  const cleared = {...last, unread_count: 0};
-  lastDialogs.set(peerId, cleared);
-  dispatchDialogUpdate(peerId, cleared);
+export async function resetUnreadForPeer(peerId: number): Promise<void> {
+  try {
+    const proxy = (MOUNT_CLASS_TO as any).apiManagerProxy;
+    const mirrored = proxy?.mirrors?.dialogs?.[peerId];
+    const cached = lastDialogs.get(peerId);
+    const had = (unreadCounts.get(peerId) ?? 0) > 0;
+
+    if(had) {
+      unreadCounts.set(peerId, 0);
+      persistUnreadCounts();
+    }
+
+    const conv = await resolveConversation(peerId);
+    const store = conv ? (await import('@lib/nostra/message-store')).getMessageStore() : null;
+
+    let storeUnread = 0;
+    if(conv && store) {
+      try {
+        storeUnread = await store.countUnread(conv.convId, conv.ownPk);
+      } catch{ /* ignore — empty store, IDB closed, etc. */ }
+    }
+    const idbHasUnread = storeUnread > 0;
+    const mirrorHasUnread = (mirrored?.unread_count ?? 0) > 0;
+    const cachedHasUnread = (cached?.unread_count ?? 0) > 0;
+
+    if(!had && !idbHasUnread && !mirrorHasUnread && !cachedHasUnread) return;
+
+    if(conv && store) {
+      try {
+        const recent = await store.getMessages(conv.convId, 1);
+        const top = recent[0]?.mid;
+        if(top != null) await store.setReadCursor(conv.convId, top);
+      } catch(e: any) { logSwallow('MessageHandler.resetUnread.cursor', e); }
+    }
+
+    let base: any = mirrored || cached;
+    if(!base && conv && store) {
+      base = await buildClearedDialogFromStore(peerId, conv, store);
+    }
+    if(!base) return;
+
+    const cleared = {...base, unread_count: 0};
+    if(proxy?.mirrors?.dialogs) {
+      proxy.mirrors.dialogs[peerId] = cleared;
+    }
+    lastDialogs.set(peerId, cleared);
+    dispatchDialogUpdate(peerId, cleared);
+  } catch(e: any) {
+    logSwallow('MessageHandler.resetUnreadForPeer', e);
+  }
+}
+
+interface ConvRef {convId: string; ownPk: string;}
+
+async function resolveConversation(peerId: number): Promise<ConvRef | null> {
+  const ownPk = (window as any).__nostraOwnPubkey;
+  if(!ownPk) return null;
+
+  if(peerId >= 1e15) {
+    const {getPubkey} = await import('@lib/nostra/virtual-peers-db');
+    const peerPubkey = await getPubkey(peerId);
+    if(!peerPubkey) return null;
+    const {getMessageStore} = await import('@lib/nostra/message-store');
+    return {convId: getMessageStore().getConversationId(ownPk, peerPubkey), ownPk};
+  }
+
+  if(isGroupPeer(peerId)) {
+    const {getGroupStore} = await import('@lib/nostra/group-store');
+    const group = await getGroupStore().getByPeerId(peerId);
+    if(!group) return null;
+    return {convId: group.groupId, ownPk};
+  }
+
+  return null;
+}
+
+async function buildClearedDialogFromStore(peerId: number, conv: ConvRef, store: any): Promise<any | null> {
+  const messages = await store.getMessages(conv.convId, 1);
+  const latest = messages[0];
+  if(!latest || latest.mid == null) return null;
+
+  const mapper = new NostraPeerMapper();
+  const isOutgoing = latest.isOutgoing ?? (latest.senderPubkey === conv.ownPk);
+  const fromPeerId = isOutgoing ?
+    undefined :
+    (peerId >= 1e15 ? peerId : await mapper.mapPubkey(latest.senderPubkey));
+
+  const msg = mapper.createTwebMessage({
+    mid: latest.mid,
+    peerId,
+    fromPeerId,
+    date: latest.timestamp,
+    text: latest.content || '',
+    isOutgoing
+  });
+  const dialog = mapper.createTwebDialog({
+    peerId,
+    topMessage: latest.mid,
+    topMessageDate: latest.timestamp,
+    unreadCount: 0
+  });
+  (dialog as any).topMessage = msg;
+  return dialog;
 }
 
 /**

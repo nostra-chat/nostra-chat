@@ -17,6 +17,8 @@ afterAll(() => {
   vi.unmock('@lib/nostra/nostra-bridge');
   vi.unmock('@lib/nostra/nostr-profile');
   vi.unmock('@lib/nostra/virtual-peers-db');
+  vi.unmock('@lib/nostra/message-store');
+  vi.unmock('@lib/nostra/group-store');
   vi.restoreAllMocks();
 });
 
@@ -26,9 +28,26 @@ vi.mock('@lib/nostra/nostr-profile', () => ({
   fetchNostrProfile: vi.fn().mockResolvedValue(null),
   profileToDisplayName: vi.fn().mockReturnValue(null)
 }));
+const mockGetPubkey = vi.fn().mockResolvedValue(undefined);
 vi.mock('@lib/nostra/virtual-peers-db', () => ({
   getMapping: vi.fn().mockResolvedValue(undefined),
-  updateMappingProfile: vi.fn().mockResolvedValue(undefined)
+  updateMappingProfile: vi.fn().mockResolvedValue(undefined),
+  getPubkey: (...args: any[]) => mockGetPubkey(...args)
+}));
+
+// Mock message-store + group-store for resetUnreadForPeer.
+const mockMessageStore = {
+  getConversationId: vi.fn((a: string, b: string) => `conv-${a.slice(0, 4)}-${b.slice(0, 4)}`),
+  countUnread: vi.fn().mockResolvedValue(0),
+  getMessages: vi.fn().mockResolvedValue([]),
+  setReadCursor: vi.fn().mockResolvedValue(undefined)
+};
+vi.mock('@lib/nostra/message-store', () => ({
+  getMessageStore: () => mockMessageStore
+}));
+const mockGroupStoreGetByPeerId = vi.fn().mockResolvedValue(null);
+vi.mock('@lib/nostra/group-store', () => ({
+  getGroupStore: () => ({getByPeerId: (...args: any[]) => mockGroupStoreGetByPeerId(...args)})
 }));
 
 // Mock NostraPeerMapper
@@ -57,11 +76,14 @@ const mockCreateTwebDialog = vi.fn().mockReturnValue({
   pFlags: {}
 });
 
+const mockMapPubkey = vi.fn().mockResolvedValue(2000000000000001);
+
 vi.mock('@lib/nostra/nostra-peer-mapper', () => ({
   NostraPeerMapper: vi.fn().mockImplementation(() => ({
     createTwebMessage: mockCreateTwebMessage,
     createTwebUser: mockCreateTwebUser,
-    createTwebDialog: mockCreateTwebDialog
+    createTwebDialog: mockCreateTwebDialog,
+    mapPubkey: mockMapPubkey
   }))
 }));
 
@@ -108,7 +130,8 @@ import {
   injectIntoMirrors,
   dispatchDialogUpdate,
   handleIncomingMessage,
-  handleIncomingEdit
+  handleIncomingEdit,
+  resetUnreadForPeer
 } from '@lib/nostra/nostra-message-handler';
 import {MOUNT_CLASS_TO} from '@config/debug';
 
@@ -357,6 +380,95 @@ describe('nostra-message-handler', () => {
 
       expect(mockDispatchEvent).not.toHaveBeenCalledWith('message_edit', expect.anything());
       expect(mockSetMessageToStorage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resetUnreadForPeer', () => {
+    const GROUP_PEER_ID = -2_000_000_000_000_001;
+
+    beforeEach(() => {
+      (window as any).__nostraOwnPubkey = OWN_PUBKEY;
+      mockGetPubkey.mockResolvedValue(SENDER_PUBKEY);
+      mockMessageStore.countUnread.mockResolvedValue(0);
+      mockMessageStore.getMessages.mockResolvedValue([]);
+      mockMessageStore.setReadCursor.mockResolvedValue(undefined);
+      mockGroupStoreGetByPeerId.mockResolvedValue(null);
+    });
+
+    it('post-reload: dispatches dialogs_multiupdate even when lastDialogs/mirror are empty', async() => {
+      // Simulate post-reload state: getDialogs at boot returned unread_count > 0
+      // (countUnread reads from IDB), but no live message arrived this session
+      // so the in-memory `lastDialogs` map and the proxy mirror are both empty.
+      mockMessageStore.countUnread.mockResolvedValue(3);
+      mockMessageStore.getMessages.mockResolvedValue([{
+        mid: 99,
+        eventId: 'event-99',
+        senderPubkey: SENDER_PUBKEY,
+        content: 'Hi',
+        timestamp: 1712345678,
+        isOutgoing: false,
+        twebPeerId: PEER_ID
+      }]);
+
+      await resetUnreadForPeer(PEER_ID);
+
+      expect(mockDispatchEvent).toHaveBeenCalledWith(
+        'dialogs_multiupdate',
+        expect.any(Map)
+      );
+      // Defensive cursor advance so a future getDialogs reports 0 unread.
+      expect(mockMessageStore.setReadCursor).toHaveBeenCalledWith(
+        expect.stringContaining('conv-'),
+        99
+      );
+    });
+
+    it('group: clears badge when group has unread messages in store', async() => {
+      mockGroupStoreGetByPeerId.mockResolvedValue({
+        groupId: 'group-abc',
+        name: 'Test Group',
+        members: [],
+        adminPubkey: OWN_PUBKEY,
+        peerId: GROUP_PEER_ID,
+        createdAt: 0,
+        updatedAt: 0
+      });
+      mockMessageStore.countUnread.mockResolvedValue(2);
+      mockMessageStore.getMessages.mockResolvedValue([{
+        mid: 50,
+        eventId: 'g-event-50',
+        senderPubkey: SENDER_PUBKEY,
+        content: 'msg in group',
+        timestamp: 1712345678,
+        isOutgoing: false,
+        twebPeerId: GROUP_PEER_ID
+      }]);
+
+      await resetUnreadForPeer(GROUP_PEER_ID);
+
+      expect(mockDispatchEvent).toHaveBeenCalledWith(
+        'dialogs_multiupdate',
+        expect.any(Map)
+      );
+      expect(mockMessageStore.setReadCursor).toHaveBeenCalledWith('group-abc', 50);
+    });
+
+    it('no-op when no source has unread (cache empty, mirror empty, store has 0)', async() => {
+      mockMessageStore.countUnread.mockResolvedValue(0);
+
+      await resetUnreadForPeer(PEER_ID);
+
+      const dialogCalls = mockDispatchEvent.mock.calls.filter(
+        (c) => c[0] === 'dialogs_multiupdate'
+      );
+      expect(dialogCalls.length).toBe(0);
+      expect(mockMessageStore.setReadCursor).not.toHaveBeenCalled();
+    });
+
+    it('handles missing __nostraOwnPubkey gracefully (no throw)', async() => {
+      delete (window as any).__nostraOwnPubkey;
+      // Should not throw — just no-ops because conv resolution returns null.
+      await expect(resetUnreadForPeer(PEER_ID)).resolves.toBeUndefined();
     });
   });
 });

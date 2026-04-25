@@ -263,7 +263,11 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
         }
         im.addEventListener('peer_changed', (chat: any) => {
           const pid = +chat?.peerId;
-          if(pid) resetUnreadForPeer(pid);
+          if(pid) {
+            resetUnreadForPeer(pid).catch((err) => {
+              console.warn('[NostraOnboardingIntegration] resetUnread error:', err);
+            });
+          }
         });
       };
       attachUnreadReset();
