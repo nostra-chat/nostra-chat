@@ -391,5 +391,18 @@ export async function handleIncomingMessage(
   lastDialogs.set(peerId, dialog);
   dispatchDialogUpdate(peerId, dialog);
 
+  // Fire desktop/system notification when chat is not in the foreground.
+  // Worker's notifyAboutMessage path is bypassed by VMT for P2P peers, so
+  // this is the sole notification trigger for incoming Nostra traffic.
+  try {
+    const {notifyIncoming} = await import('@lib/nostra/nostra-notify');
+    notifyIncoming({
+      peerId,
+      mid: data.mid,
+      senderPubkey: data.senderPubkey,
+      message: data.message
+    }, ownPubkey);
+  } catch(e: any) { console.debug('[MessageHandler] notify dispatch:', e?.message); }
+
   return {msg, peerId, dialog, isNewPeer};
 }
