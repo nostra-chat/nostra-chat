@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.1](https://github.com/nostra-chat/nostra-chat/compare/v0.21.0...v0.21.1) (2026-04-25)
+
+
+### Bug Fixes
+
+* **unread:** clear chat-list badge on peer_changed post-reload + groups ([04f100b](https://github.com/nostra-chat/nostra-chat/commit/04f100b56a4fb26392b97fcd55804c7da4ce7f58))
+
 ## [0.21.0](https://github.com/nostra-chat/nostra-chat/compare/v0.20.2...v0.21.0) (2026-04-25)
 
 
