@@ -76,13 +76,23 @@ export class NostraPeerMapper {
    * Creates a Chat.chat object for a group peer.
    */
   createTwebChat(opts: CreateChatOpts): Chat.chat {
+    // P2P groups have no server-side moderation today — everyone can send.
+    // `default_banned_rights` with empty pFlags makes `hasRights` return true
+    // for all send_* actions in src/lib/appManagers/utils/chats/hasRights.ts.
+    // When per-role permissions land (Telegram-style admin/banned rights),
+    // populate `admin_rights` / `banned_rights` per member from group-store.
     const chat: Chat.chat = {
       _: 'chat',
       id: opts.chatId,
       title: opts.title,
       participants_count: opts.membersCount,
       date: opts.date,
-      pFlags: {}
+      pFlags: {},
+      default_banned_rights: {
+        _: 'chatBannedRights',
+        pFlags: {},
+        until_date: 0
+      }
     } as Chat.chat;
 
     return chat;
