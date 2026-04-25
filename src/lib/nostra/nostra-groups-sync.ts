@@ -308,6 +308,15 @@ export async function handleGroupIncoming(
   const mid = await mapper.mapEventId(rumorId, timestampSec);
   const senderPeerId = await mapper.mapPubkey(senderPubkey);
 
+  // Own-pubkey echoes from the relay subscription must keep
+  // `isOutgoing: true` — otherwise the upsert merge in message-store
+  // overwrites the prior write from `handleGroupOutgoing` and the bubble
+  // flips to the left after reload (the in-memory `sentMessageIds` dedup
+  // resets on each boot, so post-reload re-subscriptions re-deliver own
+  // events). Mirrors the DM design: same-device echo is a no-op merge,
+  // cross-device own message persists as outgoing.
+  const isOutgoing = senderPubkey === ownPubkey;
+
   // Without a User entry for the sender, getPeer(senderPeerId) returns
   // undefined and the bubble title falls back to "Deleted Account"
   // (getPeerTitle.ts + lang.ts 'HiddenName'). Idempotent — re-run is cheap.
@@ -330,10 +339,10 @@ export async function handleGroupIncoming(
       content,
       type: type === 'text' ? 'text' : 'file',
       timestamp: timestampSec,
-      deliveryState: 'delivered',
+      deliveryState: isOutgoing ? 'sent' : 'delivered',
       mid,
       twebPeerId: groupPeerId,
-      isOutgoing: false
+      isOutgoing
     });
   } catch(err) {
     console.warn(LOG_PREFIX, 'rx: saveMessage failed; continuing', {err});
@@ -345,7 +354,7 @@ export async function handleGroupIncoming(
     fromPeerId: senderPeerId,
     date: timestampSec,
     text: content,
-    isOutgoing: false
+    isOutgoing
   });
 
   await injectGroupMessageIntoMirrors(groupPeerId, msg);

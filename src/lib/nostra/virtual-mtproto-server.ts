@@ -660,14 +660,19 @@ export class NostraMTProtoServer {
         const mid = stored.mid;
         const isOutgoing = stored.isOutgoing ?? (stored.senderPubkey === this.ownPubkey);
 
-        // Map sender pubkey → fromPeerId for incoming bubbles (outgoing uses
-        // pFlags.out instead).
+        // Map sender pubkey → fromPeerId for both directions. Without
+        // a from_id on outgoing rows, tweb's chat-list preview falls back
+        // to peer_id (the group) and renders "<group>: text"; the bubble
+        // header attribution likewise resolves to the group instead of
+        // the user. We always include the sender User in the response so
+        // the rebuilt bubble has a valid peer to resolve against.
+        const senderPubkey = isOutgoing ? this.ownPubkey : stored.senderPubkey;
         let fromPeerId: number | undefined;
-        if(!isOutgoing && stored.senderPubkey) {
-          fromPeerId = await this.mapper.mapPubkey(stored.senderPubkey);
+        if(senderPubkey) {
+          fromPeerId = await this.mapper.mapPubkey(senderPubkey);
           if(!usersById.has(fromPeerId)) {
-            const mapping = await getMapping(stored.senderPubkey);
-            const user = this.mapper.createTwebUser({peerId: fromPeerId, firstName: mapping?.displayName, pubkey: stored.senderPubkey});
+            const mapping = await getMapping(senderPubkey);
+            const user = this.mapper.createTwebUser({peerId: fromPeerId, firstName: mapping?.displayName, pubkey: senderPubkey});
             usersById.set(fromPeerId, user);
             users.push(user);
           }
@@ -910,40 +915,30 @@ export class NostraMTProtoServer {
         await this.chatAPI.connect(peerPubkey);
       }
 
-      // Pass `twebPeerId` + `timestampSec` via the sendText opts so ChatAPI's
-      // internal partial save carries twebPeerId + isOutgoing:true AND pins
-      // its row timestamp to the SAME second VMT will use below. The second
-      // save adds `mid`. Pinning the timestamp is critical: if a downstream
-      // consumer (getDialogs / getHistory / refreshDialogPreview) observes
-      // the partial row BEFORE the mid-carrying save merges, the
-      // `latest.mid ?? await mapEventId(latest.eventId, latest.timestamp)`
-      // fallback must compute the IDENTICAL mid VMT writes here. Otherwise
-      // the mirror gains a ghost mid with no IDB counterpart (FIND-e49755c1
-      // residual).
+      // ChatAPI.sendText is the SINGLE writer for the IDB row. It carries the
+      // full identity triple (mid + twebPeerId + isOutgoing) AND keys the row
+      // by `eventId = publishedRumorId` (64-hex), which is the only form
+      // accepted as `['e', ...]` in NIP-25 reactions / NIP-09 deletes.
+      //
+      // Earlier this method also did its own `store.saveMessage({eventId:
+      // chat-XXX-N, ...})` after sendText returned. Because saveMessage
+      // upserts by the unique `eventId` index, that "second save" produced a
+      // SECOND row with a non-hex eventId, which won the cursor scan only
+      // when ChatAPI's save was skipped (no `publishedRumorId` from
+      // relayPool.publish, or NostraBridge mid compute failure). VMT then
+      // looked up that row in `getMessageByPeerMid` and passed the
+      // `chat-XXX-N` string into `['e', targetEventId]` — strfry rejects
+      // with "invalid: unexpected size for fixed-size tag: e". Removing the
+      // duplicate save closes that path.
       const text = params?.message ?? '';
       const twebPeerId = Math.abs(peerId);
       const now = Math.floor(Date.now() / 1000);
 
-      const eventId: string = await this.chatAPI.sendText(text, {twebPeerId, timestampSec: now});
-      const mid = await this.mapper.mapEventId(eventId, now);
-
-      const store = getMessageStore();
-      const conversationId = store.getConversationId(this.ownPubkey, peerPubkey);
-
-      // Authoritative save with mid. Merges with ChatAPI's earlier partial
-      // row via message-store.ts:132-143.
-      await store.saveMessage({
-        eventId,
-        conversationId,
-        senderPubkey: this.ownPubkey,
-        content: text,
-        type: 'text',
-        timestamp: now,
-        deliveryState: 'sent',
-        mid,
-        twebPeerId,
-        isOutgoing: true
-      });
+      const messageId: string = await this.chatAPI.sendText(text, {twebPeerId, timestampSec: now});
+      // mapEventId hashes `messageId + timestamp` into a tweb mid the same
+      // way ChatAPI does on its row save (see chat-api.ts:615), so the value
+      // we use for `injectOutgoingBubble` matches the row's `mid`.
+      const mid = await this.mapper.mapEventId(messageId, now);
 
       // Inject the outgoing bubble directly into the main-thread bubble
       // pipeline. This is the ONLY history_append dispatch path for P2P
