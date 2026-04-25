@@ -143,11 +143,27 @@ const NOSTRA_STICKER_ACCESS_HASH_LONG = '0';
 
 let _cachedDocs: MyDocument[] | undefined;
 let _cachedDocsById: Map<string, MyDocument> | undefined;
+let _cachedDocsByEmoji: Map<string, MyDocument> | undefined;
+
+// `cleanEmoji` (richTextProcessor/fixEmoji) strips U+FE0F variation
+// selectors + skin-tone modifiers — replicate inline so this module
+// stays free of richTextProcessor deps.
+function stripVariationAndSkin(emoji: string): string {
+  return emoji.replace(/️/g, '').replace(/\u{1F3FB}|\u{1F3FC}|\u{1F3FD}|\u{1F3FE}|\u{1F3FF}/gu, '');
+}
 
 export function getNostraStickerDocuments(): MyDocument[] {
   if(!_cachedDocs) {
     _cachedDocs = buildNostraDocuments();
     _cachedDocsById = new Map(_cachedDocs.map((d) => [String(d.id), d]));
+    _cachedDocsByEmoji = new Map();
+    for(const d of _cachedDocs) {
+      const raw = (d as any).nostra_emoji as string;
+      if(!raw) continue;
+      _cachedDocsByEmoji.set(raw, d);
+      const cleaned = stripVariationAndSkin(raw);
+      if(cleaned !== raw) _cachedDocsByEmoji.set(cleaned, d);
+    }
   }
   return _cachedDocs;
 }
@@ -156,6 +172,19 @@ export function getNostraStickerDocById(docId: DocId | string): MyDocument | und
   if(!isNostraStickerDocId(docId)) return undefined;
   if(!_cachedDocsById) getNostraStickerDocuments();
   return _cachedDocsById!.get(String(docId));
+}
+
+/**
+ * Look up the synthetic Nostra doc for a given emoji character.
+ * Matches both the raw form (with U+FE0F) and the cleaned form so callers
+ * pre/post `cleanEmoji` both resolve.
+ */
+export function getNostraStickerDocByEmoji(emoji: string): MyDocument | undefined {
+  if(!emoji) return undefined;
+  if(!_cachedDocsByEmoji) getNostraStickerDocuments();
+  const direct = _cachedDocsByEmoji!.get(emoji);
+  if(direct) return direct;
+  return _cachedDocsByEmoji!.get(stripVariationAndSkin(emoji));
 }
 
 /** Full `messages.stickerSet` response, shape-compatible. */

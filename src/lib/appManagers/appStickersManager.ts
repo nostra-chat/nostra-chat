@@ -29,7 +29,7 @@ import StickerType from '@config/stickerType';
 import {ReferenceContext} from '@lib/storages/references';
 import {STICKERS_LOCAL_IDS, STICKERS_LOCAL_IDS_SET, STICKER_LOCAL_SET_ID, MyMessagesStickerSet, MyStickerSetInput} from '@lib/appManagers/utils/stickers/constants';
 import {getStickerSetInputByDice, getStickerSetInputById, getStickerSetInputByLocalId, getStickerSetInputByShortName, getStickerSetInputByStickerSet} from '@lib/appManagers/utils/stickers/getStickerSetInput';
-import {NOSTRA_STICKER_SET_ID, getNostraStickerSet, getNostraStickerSetHeader} from '@lib/nostra/nostra-sticker-pack';
+import {NOSTRA_STICKER_SET_ID, getNostraStickerSet, getNostraStickerSetHeader, getNostraStickerDocByEmoji} from '@lib/nostra/nostra-sticker-pack';
 
 const CACHE_TIME = 3600e3;
 
@@ -392,7 +392,6 @@ export class AppStickersManager extends AppManager {
     const cacheKey = this.getCacheKey(getStickerSetInputByLocalId(id));
     const stickerSet = this.storage.getFromCache(cacheKey);
     // const stickerSet = await this.getStickerSet({id});
-    if(!stickerSet?.documents) return;
 
     if(isAnimation) {
       if(['🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎'].includes(emoji)) {
@@ -400,9 +399,22 @@ export class AppStickersManager extends AppManager {
       }
     }
 
-    emoji = cleanEmoji(emoji);
-    const pack = stickerSet.packs.find((p) => p.emoticon === emoji);
-    return pack ? this.appDocsManager.getDoc(pack.documents[0]) : undefined;
+    const cleaned = cleanEmoji(emoji);
+    if(stickerSet?.documents) {
+      const pack = stickerSet.packs.find((p) => p.emoticon === cleaned);
+      if(pack) return this.appDocsManager.getDoc(pack.documents[0]);
+    }
+
+    // Nostra fallback: tweb's animated emoji set is empty in Nostra mode.
+    // For the static (non-animation) request, return our synthetic Fluent
+    // doc if one exists — `wrapSticker` then paints the PNG via the
+    // `nostra_fluent_url` short-circuit, so single-emoji bubbles render
+    // the same image the user clicked in the picker.
+    if(!isAnimation) {
+      return getNostraStickerDocByEmoji(emoji) || getNostraStickerDocByEmoji(cleaned);
+    }
+
+    return undefined;
   }
 
   public getAnimatedEmojiSoundDocument(emoji: string) {
