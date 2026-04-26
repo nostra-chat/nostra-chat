@@ -1,9 +1,13 @@
 # Background Push Notifications — Design
 
-Date: 2026-04-26
-Status: Approved (pending implementation plan)
+Date: 2026-04-26 (revised after Damus probe)
+Status: Approved (revised architecture — self-host modular relay)
 Owner: nostra-chat
 Related: shipped local-foreground notifications fix in v0.21.2 (`fix(nostra): wire incoming P2P/group messages to desktop notifications`)
+Server repo: https://github.com/nostra-chat/nostr-webpush-relay (AGPL-3.0)
+Research: `docs/superpowers/research/2026-04-26-damus-push-relay-api.md`, `docs/superpowers/research/2026-04-26-nostr-webpush-options-survey.md`
+
+> **Architecture pivot (2026-04-26)**: original design assumed `notify.damus.io` could serve as the Web Push relay. Probing revealed it is APNS-only (iOS native). The Nostr ecosystem has zero existing Web Push relays. Revised design self-hosts a minimal modular relay (Node.js, ~300 LOC, open source, AGPL-3.0) on the project owner's existing VPS, fronted by Cloudflare for IP masking + DDoS. The push relay endpoint is configurable from Settings so any user can run their own.
 
 ## Problem
 
@@ -30,12 +34,12 @@ A Web Push pipeline requires a server-side actor that subscribes to the user's g
 
 | # | Topic | Decision |
 |---|---|---|
-| 1 | Latency target | Quasi-realtime (~2-5s) — use existing public Nostr push relay (`notify.damus.io`). |
+| 1 | Latency target | Quasi-realtime (~2-5s) — self-hosted Node.js relay on existing VPS (default `https://push.nostra.chat`), open source, modular. |
 | 2 | Notification payload preview | User-configurable: A=generic (default), B=sender+preview, C=sender only. |
 | 3 | Multi-device | All registered devices receive push (A). Per-device dismiss via in-app heartbeat deferred. |
 | 4 | Lifecycle | Auto-register at first boot once `Notification.permission === 'granted'`. Auto-unregister on logout/reset. |
 | 5 | Groups | Aggregation/rate-limit per peer in SW + per-peer mute via existing tweb mute UI. |
-| 6 | Provider failure / vendor lock | Endpoint configurable from Settings → Advanced. Default `notify.damus.io`. |
+| 6 | Provider failure / vendor lock | Endpoint configurable from Settings → Advanced. Default `https://push.nostra.chat` (self-hosted). Users may swap to any compatible relay (own self-host or community-run). |
 | 7 | Test strategy | Real E2E with two Playwright browser contexts hitting Damus relay (separate suite, not in `quick`). |
 
 ## Architecture (Approach 1: Damus thin client)
