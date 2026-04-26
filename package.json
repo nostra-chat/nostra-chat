@@ -27,6 +27,7 @@
     "test:e2e:all:no-bail": "./src/tests/e2e/run-all.sh --no-bail",
     "test:e2e:headed": "E2E_HEADED=1 npx tsx",
     "test:e2e:debug": "E2E_HEADED=1 E2E_SLOWMO=300 npx tsx",
+    "test:e2e:push": "node_modules/.bin/tsx src/tests/e2e/e2e-push-bilateral.ts",
     "fuzz": "tsx src/tests/fuzz/fuzz.ts",
     "pretest:e2e": "rm -rf node_modules/.vite",
     "analyze": "ANALYZE=1 pnpm build",
