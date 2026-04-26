@@ -102,11 +102,18 @@ async function clearNostraData(opts: {keepSeed: boolean}): Promise<string[]> {
 
   // 0a. Unregister from push relay before tearing down the IDB the unregister needs
   //     to read from. Best-effort — never crash cleanup on network failure.
+  //     Wrapped in a 1.5s timeout race so an IDB stuck in 'blocked' state
+  //     (or slow network) doesn't stall logout/reset.
   try {
-    const identity = await loadIdentity();
-    if(identity?.privateKey) {
-      await unsubscribePush({privkeyHex: identity.privateKey});
-    }
+    await Promise.race([
+      (async() => {
+        const identity = await loadIdentity();
+        if(identity?.privateKey) {
+          await unsubscribePush({privkeyHex: identity.privateKey});
+        }
+      })(),
+      new Promise<void>((resolve) => setTimeout(resolve, 1500))
+    ]);
   } catch(e: any) {
     logSwallow('Cleanup.unsubscribePush', e);
   }
