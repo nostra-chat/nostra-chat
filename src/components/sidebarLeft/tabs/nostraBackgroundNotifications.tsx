@@ -130,7 +130,7 @@ const NostraBackgroundNotifications = () => {
 
           <Row
             class="nostra-push-advanced-toggle"
-            onClick={() => setAdvancedOpen(v => !v)}
+            clickable={() => setAdvancedOpen((v) => !v)}
           >
             <Row.Title>{i18n('Nostra.BackgroundPush.Advanced' as any)}</Row.Title>
           </Row>

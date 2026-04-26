@@ -266,8 +266,8 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
 
           const transport = (window as any).__nostraTransport;
           const torActive = transport?.getRuntimeState?.() === 'tor-active';
-          const fetchFn = torActive && typeof transport?.fetch === 'function' ?
-            (input: RequestInfo, init?: RequestInit) => transport.fetch(typeof input === 'string' ? input : input.toString(), init) :
+          const fetchFn: typeof fetch | undefined = torActive && typeof transport?.fetch === 'function' ?
+            ((input: RequestInfo | URL, init?: RequestInit) => transport.fetch(typeof input === 'string' ? input : input.toString(), init)) as typeof fetch :
             undefined;
 
           const vapidKey = await resolveVapidKey();
