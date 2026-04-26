@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.22.0](https://github.com/nostra-chat/nostra-chat/compare/v0.21.2...v0.22.0) (2026-04-26)
+
+
+### Features
+
+* **update:** surface failing chunk + reason in UI and console ([f50e093](https://github.com/nostra-chat/nostra-chat/commit/f50e0937affe254878c687392ccb9061153c0ecf))
+
+
+### Bug Fixes
+
+* **update:** exclude regenerated Tor consensus from bundleHashes ([34bf44c](https://github.com/nostra-chat/nostra-chat/commit/34bf44c563b99a4226d359b7300261136679de22))
+
 ## [0.21.2](https://github.com/nostra-chat/nostra-chat/compare/v0.21.1...v0.21.2) (2026-04-25)
 
 
