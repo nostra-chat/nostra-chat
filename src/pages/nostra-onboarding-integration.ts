@@ -254,14 +254,12 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
 
       // --- Background push notifications ---
       // Auto-subscribe when notification permission is already granted at boot.
-      // VAPID public key is fetched once from the configured push relay
-      // (default https://push.nostra.chat) and cached in localStorage to avoid
-      // a re-fetch on every boot.
+      // VAPID public key is fetched (and localStorage-cached) via resolveVapidKey.
       (async() => {
         try {
           if(typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-          const {subscribePush, getRegistration, fetchVapidPublicKey} = await import('@lib/nostra/nostra-push-client');
-          const {getEndpointBase} = await import('@lib/nostra/nostra-push-storage');
+          const {subscribePush, getRegistration} = await import('@lib/nostra/nostra-push-client');
+          const {resolveVapidKey} = await import('@lib/nostra/nostra-push-helpers');
           const pubkeyHex = identity.publicKey;
           const existing = await getRegistration();
           if(existing && existing.pubkey === pubkeyHex) return;
@@ -272,18 +270,7 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
             (input: RequestInfo, init?: RequestInit) => transport.fetch(typeof input === 'string' ? input : input.toString(), init) :
             undefined;
 
-          const endpointBase = await getEndpointBase();
-          let vapidKey: string | null = null;
-          const cacheKey = `nostra-push-vapid-${endpointBase}`;
-          try {
-            vapidKey = localStorage.getItem(cacheKey);
-          } catch{ /* ignore */ }
-          if(!vapidKey) {
-            vapidKey = await fetchVapidPublicKey({endpointBase, fetchFn});
-            if(vapidKey) {
-              try { localStorage.setItem(cacheKey, vapidKey); } catch{ /* ignore */ }
-            }
-          }
+          const vapidKey = await resolveVapidKey();
           if(!vapidKey) return;
 
           const privkeyHex = identity.privateKey;
