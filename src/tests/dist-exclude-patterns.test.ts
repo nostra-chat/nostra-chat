@@ -40,4 +40,15 @@ describe('DIST_EXCLUDE_PATTERNS — emit-update-manifest / validate-update-manif
     expect(excluded('dist/sw-DkjvAzWg.js')).toBe(false);
     expect(excluded('dist/assets/img/emoji/1f600.png')).toBe(false);
   });
+
+  test('excludes Tor consensus binaries (regenerated each build, served immutable)', () => {
+    expect(excluded('dist/webtor/consensus.br.bin')).toBe(true);
+    expect(excluded('dist/webtor/microdescriptors.br.bin')).toBe(true);
+  });
+
+  test('does NOT exclude other webtor assets that have stable bytes', () => {
+    expect(excluded('dist/webtor/webtor_wasm.js')).toBe(false);
+    expect(excluded('dist/webtor/webtor_wasm_bg.wasm')).toBe(false);
+    expect(excluded('dist/webtor/package.json')).toBe(false);
+  });
 });

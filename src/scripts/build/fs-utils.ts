@@ -31,5 +31,18 @@ export const DIST_EXCLUDE_PATTERNS: RegExp[] = [
   // white screen. Anchored on `/_(headers|redirects)$` so chunks like
   // `_commonjsHelpers-*.js` are not affected.
   /\/_headers$/,
-  /\/_redirects$/
+  /\/_redirects$/,
+  // Tor consensus + microdescriptors are regenerated on every build by
+  // `scripts/update-tor-consensus.mjs` (fresh fetch from torproject.org), so
+  // their bytes change between deploys. They were shipped under
+  // `Cache-Control: immutable, max-age=1y` (see `public/_headers` /webtor/*),
+  // which means CDN edges and browsers happily serve a stale copy after a new
+  // deploy — the manifest hash then no longer matches the served bytes and the
+  // signed-update flow aborts with `chunk-mismatch`. The Tor consensus carries
+  // its own directory-authority signatures (validated by webtor-rs) and has a
+  // dedicated runtime cache + refresh pipeline in `tor-consensus-cache.ts` /
+  // `webtor-fallback.ts`, so it doesn't need to participate in the app-shell
+  // integrity manifest.
+  /\/webtor\/consensus\.br\.bin$/,
+  /\/webtor\/microdescriptors\.br\.bin$/
 ];
