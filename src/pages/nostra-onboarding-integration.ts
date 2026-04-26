@@ -252,6 +252,58 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
       });
       pendingFlush.startPeriodicFlush();
 
+      // --- Background push notifications ---
+      // Auto-subscribe when notification permission is already granted at boot.
+      // VAPID public key is fetched once from the configured push relay
+      // (default https://push.nostra.chat) and cached in localStorage to avoid
+      // a re-fetch on every boot.
+      (async() => {
+        try {
+          if(typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+          const {subscribePush, getRegistration, fetchVapidPublicKey} = await import('@lib/nostra/nostra-push-client');
+          const {getEndpointBase} = await import('@lib/nostra/nostra-push-storage');
+          const pubkeyHex = identity.publicKey;
+          const existing = await getRegistration();
+          if(existing && existing.pubkey === pubkeyHex) return;
+
+          const transport = (window as any).__nostraTransport;
+          const torActive = transport?.getRuntimeState?.() === 'tor-active';
+          const fetchFn = torActive && typeof transport?.fetch === 'function' ?
+            (input: RequestInfo, init?: RequestInit) => transport.fetch(typeof input === 'string' ? input : input.toString(), init) :
+            undefined;
+
+          const endpointBase = await getEndpointBase();
+          let vapidKey: string | null = null;
+          const cacheKey = `nostra-push-vapid-${endpointBase}`;
+          try {
+            vapidKey = localStorage.getItem(cacheKey);
+          } catch{ /* ignore */ }
+          if(!vapidKey) {
+            vapidKey = await fetchVapidPublicKey({endpointBase, fetchFn});
+            if(vapidKey) {
+              try { localStorage.setItem(cacheKey, vapidKey); } catch{ /* ignore */ }
+            }
+          }
+          if(!vapidKey) return;
+
+          const privkeyHex = identity.privateKey;
+          const rec = await subscribePush({
+            pubkeyHex,
+            privkeyHex,
+            vapidPublicKey: vapidKey,
+            fetchFn
+          });
+          if(rec) {
+            rootScope.dispatchEvent('nostra_push_subscription_changed' as any, {
+              state: 'registered',
+              pubkey: rec.pubkey
+            });
+          }
+        } catch(err) {
+          console.warn('[NostraOnboardingIntegration] push subscribe failed:', err);
+        }
+      })();
+
       // Clear the main-thread unread counter as soon as a P2P peer's chat
       // is opened — the standard readHistory path can't decrement synthetic
       // dialogs, so the badge would otherwise stay visible.
