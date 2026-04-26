@@ -11,6 +11,9 @@
 import {clearPeerProfileCache} from './peer-profile-cache';
 import {logSwallow} from './log-swallow';
 import {clearConversationKeyCache} from './nostr-crypto';
+import {unsubscribePush} from '@lib/nostra/nostra-push-client';
+import {destroy as destroyPushStorage} from '@lib/nostra/nostra-push-storage';
+import {loadIdentity} from '@lib/nostra/identity';
 
 // All Nostra IndexedDB database names
 const NOSTRA_DB_NAMES = [
@@ -20,7 +23,8 @@ const NOSTRA_DB_NAMES = [
   'nostra-groups',
   'nostra-reactions',
   'NostraPool',
-  'Nostra.chat'
+  'Nostra.chat',
+  'nostra-push'
 ];
 
 // All Nostra localStorage keys
@@ -96,6 +100,17 @@ async function clearNostraData(opts: {keepSeed: boolean}): Promise<string[]> {
     NOSTRA_LS_KEYS.filter((k) => k !== SEED_LS_KEY) :
     NOSTRA_LS_KEYS;
 
+  // 0a. Unregister from push relay before tearing down the IDB the unregister needs
+  //     to read from. Best-effort — never crash cleanup on network failure.
+  try {
+    const identity = await loadIdentity();
+    if(identity?.privateKey) {
+      await unsubscribePush({privkeyHex: identity.privateKey});
+    }
+  } catch(e: any) {
+    logSwallow('Cleanup.unsubscribePush', e);
+  }
+
   // 0. Tear down the live ChatAPI / relay pool so the key bytes get zeroed
   //    before we delete the IndexedDB that backs the identity. Disconnecting
   //    inside the cleanup path is what triggers `privateKeyBytes.fill(0)` in
@@ -133,6 +148,9 @@ async function clearNostraData(opts: {keepSeed: boolean}): Promise<string[]> {
     const {getGroupStore} = await import('./group-store');
     closes.push(getGroupStore().destroy());
   } catch(e) { logSwallow('Cleanup.groupStore', e); }
+  try {
+    closes.push(destroyPushStorage());
+  } catch(e) { logSwallow('Cleanup.pushStorage', e); }
   await Promise.allSettled(closes);
 
   // 2. Force-close any remaining connections
@@ -150,6 +168,17 @@ async function clearNostraData(opts: {keepSeed: boolean}): Promise<string[]> {
       localStorage.removeItem(key);
     } catch(e) { logSwallow('Cleanup.removeLSKey:' + key, e); }
   }
+
+  // Sweep cached VAPID public keys (keyed by endpointBase, not in the static list).
+  try {
+    const toRemove: string[] = [];
+    for(let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if(k && k.startsWith('nostra-push-vapid-')) toRemove.push(k);
+    }
+    for(const k of toRemove) localStorage.removeItem(k);
+  } catch(e) { logSwallow('Cleanup.vapidLs', e); }
+
   clearPeerProfileCache();
 
   return failed;
