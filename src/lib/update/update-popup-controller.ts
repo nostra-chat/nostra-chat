@@ -2,7 +2,7 @@ import rootScope from '@lib/rootScope';
 import {probe} from './probe';
 import {getActiveVersion} from '@lib/serviceWorker/shell-cache';
 import {getBakedPubkey} from './signing/trusted-keys';
-import {startUpdateSigned} from './update-flow';
+import {startUpdateSigned, type SignedUpdateResult} from './update-flow';
 
 const SNOOZE_VERSION_KEY = 'nostra.update.snoozedVersion';
 const SNOOZE_UNTIL_KEY = 'nostra.update.snoozedUntil';
@@ -97,7 +97,7 @@ export async function probeForManualInstall(): Promise<{manifest: any; signature
   return payload;
 }
 
-export async function acceptUpdate(manifest: any, signature: string, manifestText?: string): Promise<{ok: boolean; reason?: string}> {
+export async function acceptUpdate(manifest: any, signature: string, manifestText?: string): Promise<SignedUpdateResult> {
   return startUpdateSigned(manifest, signature, manifestText);
 }
 

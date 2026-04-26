@@ -28,6 +28,8 @@ export interface ApprovedResult {
   outcome: ApprovedOutcome;
   reason?: string;
   chunk?: string;
+  expected?: string;
+  actual?: string;
 }
 
 async function sha256b64(bytes: ArrayBuffer | Uint8Array): Promise<string> {
@@ -82,13 +84,15 @@ export async function handleUpdateApproved(
       const actual = await sha256b64(ab);
       if(actual !== expectedHash) {
         await caches.delete(pendingName);
-        return {outcome: 'chunk-mismatch', chunk: path};
+        console.error('[update-sw] chunk-mismatch', {chunk: path, expected: expectedHash, actual, size: ab.byteLength, fetched: done, total: entries.length});
+        return {outcome: 'chunk-mismatch', chunk: path, expected: expectedHash, actual};
       }
       await pending.put(path, new Response(ab));
       done++;
       onProgress?.(done, entries.length);
     } catch(e) {
       await caches.delete(pendingName);
+      console.error('[update-sw] network-error', {chunk: path, error: String(e), fetched: done, total: entries.length});
       return {outcome: 'network-error', chunk: path, reason: String(e)};
     }
   }

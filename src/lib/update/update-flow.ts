@@ -122,15 +122,32 @@ export async function startUpdate(manifest: Manifest, abortController?: AbortCon
   }
 }
 
-export async function startUpdateSigned(manifest: any, signature: string, manifestText?: string): Promise<{ok: boolean; reason?: string}> {
+export interface SignedUpdateResult {
+  ok: boolean;
+  outcome?: string;
+  reason?: string;
+  chunk?: string;
+  expected?: string;
+  actual?: string;
+}
+
+export async function startUpdateSigned(manifest: any, signature: string, manifestText?: string): Promise<SignedUpdateResult> {
   const reg = await navigator.serviceWorker.getRegistration();
-  if(!reg || !reg.active) return {ok: false, reason: 'no-active-sw'};
+  if(!reg || !reg.active) return {ok: false, outcome: 'no-active-sw', reason: 'no-active-sw'};
 
   return new Promise((resolve) => {
     const channel = new MessageChannel();
     channel.port1.onmessage = (ev) => {
       if(ev.data?.type === 'UPDATE_RESULT') {
-        resolve({ok: ev.data.outcome === 'applied', reason: ev.data.outcome});
+        const d = ev.data;
+        resolve({
+          ok: d.outcome === 'applied',
+          outcome: d.outcome,
+          reason: d.reason,
+          chunk: d.chunk,
+          expected: d.expected,
+          actual: d.actual
+        });
       }
       // UPDATE_PROGRESS messages ignored here; popup listens separately via its own channel if needed.
     };

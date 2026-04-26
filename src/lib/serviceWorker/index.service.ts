@@ -499,7 +499,7 @@ ctx.addEventListener('message', (event) => {
         (done: number, total: number) => port?.postMessage({type: 'UPDATE_PROGRESS', done, total}),
         (event as any).data.manifestText
       );
-      port?.postMessage({type: 'UPDATE_RESULT', outcome: res.outcome, reason: res.reason, chunk: res.chunk});
+      port?.postMessage({type: 'UPDATE_RESULT', outcome: res.outcome, reason: res.reason, chunk: res.chunk, expected: res.expected, actual: res.actual});
     } catch(e) {
       port?.postMessage({type: 'UPDATE_RESULT', outcome: 'swap-failed', reason: String(e)});
     }
