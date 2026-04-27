@@ -240,7 +240,11 @@ export async function injectGroupCreateDialog(
     peerId: groupPeerId,
     topMessage: serviceMid,
     topMessageDate: timestampSec,
-    unreadCount: 0
+    unreadCount: 0,
+    // Read markers must equal top_message when unread is 0; otherwise tweb's
+    // getDialogs flags this dialog as "noIdsDialogs" and spams reloadConversation.
+    readInboxMaxId: serviceMid,
+    readOutboxMaxId: serviceMid
   });
   dispatchGroupDialogUpdate(groupPeerId, dialog);
 }
@@ -365,7 +369,15 @@ export async function handleGroupIncoming(
     peerId: groupPeerId,
     topMessage: mid,
     topMessageDate: timestampSec,
-    unreadCount: 1
+    unreadCount: 1,
+    // Outbox cursor (= our own read state on members' messages) is consistent
+    // with unreadCount=1: we have not read this incoming message yet, so leave
+    // read_inbox_max_id at 0 isn't safe (after the user reads it tweb wipes
+    // unread → noIdsDialogs branch fires). Set it to mid - 1 to model "all
+    // prior messages read, this one pending". After the user opens the chat,
+    // unread → 0 and the readInboxMaxId is bumped to mid by other paths.
+    readInboxMaxId: mid > 0 ? mid - 1 : 0,
+    readOutboxMaxId: mid
   });
   (dialog as any).topMessage = msg;
   dispatchGroupDialogUpdate(groupPeerId, dialog);
@@ -470,7 +482,11 @@ export async function handleGroupOutgoing(
     peerId: groupPeerId,
     topMessage: mid,
     topMessageDate: timestampSec,
-    unreadCount: 0
+    unreadCount: 0,
+    // Outgoing send: nothing unread. Without read markers tweb spams
+    // reloadConversation for this dialog every getDialogs pass.
+    readInboxMaxId: mid,
+    readOutboxMaxId: mid
   });
   (dialog as any).topMessage = msg;
   dispatchGroupDialogUpdate(groupPeerId, dialog);
