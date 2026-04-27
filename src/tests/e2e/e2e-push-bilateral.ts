@@ -373,17 +373,21 @@ async function pollForNotification(page: Page, timeoutMs: number): Promise<{titl
   let ctxB: BrowserContext | null = null;
   let registeredSub: {endpoint: string; pubkeyHex: string; privkeyHex: string} | null = null;
 
-  const browser = await chromium.launch(launchOptions);
+  // CRITICAL: Chrome disables the Push API in incognito / ephemeral profiles
+  // (https://crbug.com/41124656). Playwright's `browser.newContext()` creates
+  // an ephemeral profile, so pushManager.subscribe() always returns
+  // "permission denied" there. Use launchPersistentContext() with a real
+  // on-disk userDataDir for context A so Push API is enabled. Context B
+  // can stay ephemeral — it doesn't subscribe.
+  const profileDirA = await import('node:fs').then((fs) =>
+    fs.mkdtempSync(require('node:os').tmpdir() + '/nostra-push-ctxA-'));
+  console.log('[push-bilateral] using persistent profile for A:', profileDirA);
+  const browser = await chromium.launch(launchOptions); // for B only
 
   try {
-    // --- Context A: notifications pre-granted ---
-    // Playwright's grantPermissions() updates navigator.permissions API but
-    // NOT Notification.permission in headless Chromium (known bug). We patch
-    // Notification.permission via addInitScript so the app's auto-subscribe
-    // check sees 'granted'. This doesn't help pushManager.subscribe() (which
-    // uses a different native permission check) but ensures the app fires the
-    // auto-subscribe attempt, which we wait for below.
-    ctxA = await browser.newContext({
+    // --- Context A: persistent profile (non-incognito) so Push API works ---
+    ctxA = await chromium.launchPersistentContext(profileDirA, {
+      ...launchOptions,
       permissions: ['notifications']
     });
     await ctxA.grantPermissions(['notifications'], {origin: APP_URL});
@@ -624,6 +628,10 @@ async function pollForNotification(page: Page, timeoutMs: number): Promise<{titl
     if(ctxA) await ctxA.close().catch(() => {});
     if(ctxB) await ctxB.close().catch(() => {});
     await browser.close().catch(() => {});
+    try {
+      const fs = await import('node:fs');
+      fs.rmSync(profileDirA, {recursive: true, force: true});
+    } catch{} // eslint-disable-line no-empty
   }
 
   process.exit(0);
