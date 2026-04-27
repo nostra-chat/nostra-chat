@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.1](https://github.com/nostra-chat/nostra-chat/compare/v0.23.0...v0.23.1) (2026-04-27)
+
+
+### Bug Fixes
+
+* **update:** preserve Content-Type when caching chunks during signed-update ([#101](https://github.com/nostra-chat/nostra-chat/issues/101)) ([13492b1](https://github.com/nostra-chat/nostra-chat/commit/13492b1ee9eb03405753615a4b8f9778e3783cbe))
+
 ## [0.23.0](https://github.com/nostra-chat/nostra-chat/compare/v0.22.0...v0.23.0) (2026-04-27)
 
 
