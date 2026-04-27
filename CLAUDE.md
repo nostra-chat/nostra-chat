@@ -189,6 +189,8 @@ For deep subsystem notes (Tor runtime, Vitest/E2E test quirks, profile sync inte
 
 ### Worker Context
 - Managers run in a DedicatedWorker even with `noSharedWorker=true`. `src/lib/appManagers/` + `src/lib/storages/` run Worker-side where `window` is undefined — never import window-touching modules there without `typeof window !== 'undefined'` guards.
+- `loadIdentity()` returns `{publicKey, privateKey}` as **hex strings** (not base64). No conversion needed before passing to `nostr-tools` helpers like `finalizeEvent` (with `hexToBytes`) or before signing NIP-98 headers.
+- `@noble/hashes/utils` exports require the explicit `.js` suffix in this version (e.g. `import {hexToBytes} from '@noble/hashes/utils.js'`). Bare `'@noble/hashes/utils'` resolves but with missing exports.
 - `getSelf()` returns `undefined` in Nostra mode (no MTProto auth) — guard all `.id` access.
 - `rootScope.myId === NULL_PEER_ID` (0) → `isOurMessage()` uses `pFlags.out` as fallback.
 - Worker `rootScope` events don't cross to main thread (separate instances). Only `message_sent`/`messages_pending` are mirrored via MessagePort.
@@ -265,6 +267,14 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 ### Nostra Module Architecture
 `nostra-onboarding-integration.ts` is a thin orchestrator (~240 lines) wiring: `nostra-message-handler.ts` (incoming message builder), `nostra-pending-flush.ts` (queue for closed-chat peers), `nostra-read-receipts.ts` (batch on peer open), `nostra-delivery-ui.ts` (bubble sent/delivered/read icons). `chat-api-receive.ts` extracts `handleRelayMessage` with `ReceiveContext` DI as pure step functions (`isDeleteNotification`, `parseMessageContent`, `extractFileMetadata`, `isDuplicate`). All Nostra rootScope events are typed in `BroadcastEvents` (rootScope.ts) — no `as any` casts.
 
+### Background Push Notifications
+- Client subscribes via `nostra-push-client.ts` to a self-hosted Nostr → Web Push relay (NOT in this repo). Default endpoint `https://push.nostra.chat`; configurable via Settings → Notifications → Advanced.
+- Server source: https://github.com/nostra-chat/nostr-webpush-relay (AGPL-3.0, Node.js). HTTP contract in that repo's `docs/PROTOCOL.md`.
+- Auth: NIP-98 signed events (`buildNip98Header` in `nostra-push-client.ts`).
+- SW handler: `src/lib/serviceWorker/nostra-push.ts` — discriminates on `payload.app === 'nostra-webpush-relay'`. Decryption gated by user's preview level (A=generic / B=full / C=sender-only); when A, privkey is never read in SW.
+- SW-safe identity loader: `nostra-identity-sw.ts` (IDB-only, no `localStorage` fallback — SW context lacks it).
+- Privacy disclosure: `docs/PUSH-NOTIFICATIONS.md`.
+
 ### MTProto Intercept (`apiManager.ts`)
 - `nostraIntercept()` tries dynamic server first (main thread only), then checks `NOSTRA_STATIC`, then `NOSTRA_BRIDGE_METHODS` (Worker→Main via MessagePort), then action prefixes, then fallback `{pFlags: {}}`.
 - `NOSTRA_STATIC` must return properly shaped responses — `{pFlags: {}}` causes "Cannot read properties" errors in managers.
@@ -293,6 +303,8 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 - **strfry rejects events silently.** LocalRelay responds with `["OK", eventId, false, "reason"]` for rejected events but `src/lib/nostra/nostr-relay.ts` has no `case 'OK'` handler — rejections are dropped on the floor. When a publish "succeeds" but the event never appears in `getAllEvents()`, the relay rejected it. Add a temporary OK-logger in the `switch(type)` default branch to surface the reason.
 - **Vite-plugin-checker overlay blocks Playwright clicks in headless.** Any ESLint warning (including superfluous `eslint-disable-next-line no-console` when no `no-console` rule exists) renders `<vite-plugin-checker-error-overlay>` that intercepts pointer events → `.click()` retries then times out. Before debugging a click timeout, check the dev server log for ESLint warnings. Don't add eslint-disable pragmas that aren't needed.
 - **Stale `pnpm start` from removed worktrees occupy :8080.** `git worktree remove` doesn't kill the dev-server process; it keeps serving from the deleted path. New `pnpm start` in a fresh worktree falls to :8081/:8082. Fuzz harness hardcodes `APP_URL=http://localhost:8080` → "Failed to fetch dynamically imported module" errors. Fix: `ss -tlnp | grep ':808'` + `kill <pid>` before starting new server.
+- **Push API E2E tests MUST use `chromium.launchPersistentContext()`**, NOT `chromium.launch().newContext()`. Chrome blocks Push API in incognito/ephemeral profiles (crbug/41124656) → `pushManager.subscribe()` returns "permission denied". Reference: `src/tests/e2e/e2e-push-bilateral.ts`.
+- In a persistent context the installed Service Worker intercepts `/src/...` requests and 404s them — the dynamic-import pattern from `e2e-reactions-bilateral.ts` (`import('/src/lib/nostra/...')`) won't work. Use UI-driven Playwright clicks/fills instead.
 
 **Adding a fuzz artifact** — `src/tests/fuzz/invariants/<tier>.ts` (one file per tier: `console.ts`, `bubbles.ts`, `delivery.ts`, `avatar.ts` = cheap; `state.ts`, `queue.ts` = medium; `regression.ts` = regression). Register in `invariants/index.ts`. Add a Vitest in the same directory. Same additive pattern for `postconditions/<category>.ts`.
 
