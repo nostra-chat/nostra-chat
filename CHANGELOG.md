@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.0](https://github.com/nostra-chat/nostra-chat/compare/v0.22.0...v0.23.0) (2026-04-27)
+
+
+### Features
+
+* **push:** background notifications via self-hosted nostr-webpush-relay ([#99](https://github.com/nostra-chat/nostra-chat/issues/99)) ([e1a58ec](https://github.com/nostra-chat/nostra-chat/commit/e1a58ecda7f5cd2a16142ea84e3dff09925828cd))
+
 ## [0.22.0](https://github.com/nostra-chat/nostra-chat/compare/v0.21.2...v0.22.0) (2026-04-26)
 
 
