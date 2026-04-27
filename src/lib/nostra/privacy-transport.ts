@@ -209,6 +209,26 @@ export class PrivacyTransport {
     await this.bootstrap();
   }
 
+  /**
+   * TorMode-aware HTTP fetch. When Tor is active and the webtorClient is
+   * ready, proxies the request through the circuit. Falls back to
+   * globalThis.fetch when Tor is not active or not available.
+   *
+   * webtorClient.fetch() returns the response body as a plain string —
+   * wrap it in a Response so callers can use .json()/.text() uniformly.
+   */
+  public async fetch(url: string, init?: RequestInit): Promise<Response> {
+    if(
+      this.mode !== 'off' &&
+      this.webtorClient &&
+      this.getRuntimeState() === 'tor-active'
+    ) {
+      const text = await this.webtorClient.fetch(url);
+      return new Response(text, {status: 200, headers: {'Content-Type': 'application/json'}});
+    }
+    return globalThis.fetch(url, init);
+  }
+
   // ─── Private ───────────────────────────────────────────────────
 
   private setState(state: PrivacyTransportState, error?: string): void {

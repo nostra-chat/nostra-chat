@@ -286,6 +286,7 @@ export type BroadcastEvents = {
   'nostra_reaction_added': {peerId: number; mid: number; emoji: string},
   'nostra_reactions_changed': {peerId: PeerId | number; mid: number},
   'nostra_message_edit': {peerId: number; mid: number; senderPubkey: string; originalEventId: string; newContent: string; editedAt: number},
+  'nostra_push_subscription_changed': {state: 'registered' | 'unregistered' | 'error'; pubkey?: string},
   'nostra_file_upload_progress': {peerId: number; mid: number; percent: number},
   'nostra_file_upload_failed': {peerId: number; mid: number; error: string},
   'nostra_file_upload_completed': {peerId: number; mid: number; url: string; realMid: number},

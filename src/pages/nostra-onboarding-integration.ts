@@ -252,6 +252,45 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
       });
       pendingFlush.startPeriodicFlush();
 
+      // --- Background push notifications ---
+      // Auto-subscribe when notification permission is already granted at boot.
+      // VAPID public key is fetched (and localStorage-cached) via resolveVapidKey.
+      (async() => {
+        try {
+          if(typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+          const {subscribePush, getRegistration} = await import('@lib/nostra/nostra-push-client');
+          const {resolveVapidKey} = await import('@lib/nostra/nostra-push-helpers');
+          const pubkeyHex = identity.publicKey;
+          const existing = await getRegistration();
+          if(existing && existing.pubkey === pubkeyHex) return;
+
+          const transport = (window as any).__nostraTransport;
+          const torActive = transport?.getRuntimeState?.() === 'tor-active';
+          const fetchFn: typeof fetch | undefined = torActive && typeof transport?.fetch === 'function' ?
+            ((input: RequestInfo | URL, init?: RequestInit) => transport.fetch(typeof input === 'string' ? input : input.toString(), init)) as typeof fetch :
+            undefined;
+
+          const vapidKey = await resolveVapidKey();
+          if(!vapidKey) return;
+
+          const privkeyHex = identity.privateKey;
+          const rec = await subscribePush({
+            pubkeyHex,
+            privkeyHex,
+            vapidPublicKey: vapidKey,
+            fetchFn
+          });
+          if(rec) {
+            rootScope.dispatchEvent('nostra_push_subscription_changed' as any, {
+              state: 'registered',
+              pubkey: rec.pubkey
+            });
+          }
+        } catch(err) {
+          console.warn('[NostraOnboardingIntegration] push subscribe failed:', err);
+        }
+      })();
+
       // Clear the main-thread unread counter as soon as a P2P peer's chat
       // is opened — the standard readHistory path can't decrement synthetic
       // dialogs, so the badge would otherwise stay visible.

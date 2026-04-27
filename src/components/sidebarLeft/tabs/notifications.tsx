@@ -17,6 +17,7 @@ import Button from '@components/buttonTsx';
 import cancelEvent from '@helpers/dom/cancelEvent';
 import {useHotReloadGuard} from '@lib/solidjs/hotReloadGuard';
 import {IconTsx} from '@components/iconTsx';
+import NostraBackgroundNotifications from '@components/sidebarLeft/tabs/nostraBackgroundNotifications';
 
 const NotImplementedBadge = () => (
   <IconTsx
@@ -316,6 +317,7 @@ const Notifications = () => {
   return (
     <>
       <NotificationsSection />
+      <NostraBackgroundNotifications />
       <SoundSection />
       <SoundEffectsSection />
       <NotifySection
