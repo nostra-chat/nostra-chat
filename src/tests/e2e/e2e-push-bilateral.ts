@@ -127,18 +127,50 @@ async function createIdentity(page: Page, displayName: string): Promise<string> 
 }
 
 async function addPeerAsContact(page: Page, peerNpub: string, peerName: string): Promise<void> {
-  await page.evaluate(async({pk, nm}) => {
-    if(typeof (0 as any).toPeerId !== 'function') {
-      // eslint-disable-next-line no-extend-native
-      (Number.prototype as any).toPeerId = function(isChat?: boolean) {
-        return isChat === undefined ? +this : (isChat ? -Math.abs(+this) : +this);
-      };
-      (Number.prototype as any).toChatId = function() { return Math.abs(+this); };
-      (Number.prototype as any).isPeerId = function() { return true; };
-    }
-    const {addP2PContact} = await import('/src/lib/nostra/add-p2p-contact.ts');
-    await addP2PContact({pubkey: pk, nickname: nm, source: 'e2e-push-bilateral'});
-  }, {pk: peerNpub, nm: peerName});
+  // UI-driven add — avoids dynamic import of /src/... modules which the
+  // installed Service Worker intercepts and 404s in the persistent context.
+  // Path: #new-menu → "Add Contact" → fill nickname + npub → click "Add".
+
+  // Wait until the main UI is ready (own pubkey set means onboarding is done).
+  await page.waitForFunction(
+    () => typeof (window as any).__nostraOwnPubkey === 'string' &&
+          (window as any).__nostraOwnPubkey.length === 64,
+    null,
+    {timeout: 30000}
+  );
+  await page.waitForTimeout(500);
+
+  // Open the new-chats menu (pencil button in the top-right of the sidebar).
+  await page.locator('#new-menu').click({timeout: 10000});
+  await page.waitForTimeout(400);
+
+  // Click the "Add to contacts" menu item (i18n key: AddContact).
+  await page.locator('.btn-menu-item', {hasText: 'Add to contacts'}).first().click({timeout: 5000});
+  await page.waitForTimeout(600);
+
+  // The .popup-add-contact-overlay should now be visible.
+  await page.waitForSelector('.popup-add-contact-overlay', {timeout: 8000});
+
+  // Fill nickname (optional field, appears first in DOM).
+  if(peerName) {
+    await page.locator('.popup-add-contact-overlay input[placeholder="Nickname (optional)"]')
+      .fill(peerName);
+    await page.waitForTimeout(200);
+  }
+
+  // Fill npub (second input). Use fill() — clipboard paste is not needed.
+  await page.locator('.popup-add-contact-overlay input[placeholder="npub1..."]')
+    .fill(peerNpub);
+  await page.waitForTimeout(200);
+
+  // Click the "Add" button (btn-color-primary).
+  await page.locator('.popup-add-contact-overlay button.btn-color-primary').click({timeout: 5000});
+
+  // Wait for popup to close (overlay element removed from DOM).
+  await page.waitForSelector('.popup-add-contact-overlay', {state: 'detached', timeout: 15000});
+
+  // Brief settle — addP2PContact is async and mirrors are populated after.
+  await page.waitForTimeout(2000);
 }
 
 async function readFirstP2PPeerId(page: Page): Promise<number> {
