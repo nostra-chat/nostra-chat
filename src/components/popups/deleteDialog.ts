@@ -10,6 +10,7 @@ import {FormatterArguments, LangPackKey} from '@lib/langPack';
 import rootScope from '@lib/rootScope';
 import wrapPeerTitle from '@components/wrappers/peerTitle';
 import PopupPeer, {PopupPeerButtonCallbackCheckboxes, PopupPeerOptions} from '@components/popups/peer';
+import {isGroupPeer} from '@lib/nostra/group-types';
 
 export default class PopupDeleteDialog {
   constructor(
@@ -47,13 +48,27 @@ export default class PopupDeleteDialog {
       onSelect && onSelect(promise);
     }; */
 
-    const callbackLeave = (e: MouseEvent, checked: PopupPeerButtonCallbackCheckboxes, flush = checkboxes && !!checked.size) => {
-      let promise = managers.appChatsManager.leave(peerId.toChatId());
+    // Nostra P2P groups never reach the worker's appChatsManager.leave path
+    // because tweb's `leaveChat` reads `appUsersManager.getSelf().id`, which is
+    // undefined in Nostra mode (Worker context guard documented in CLAUDE.md).
+    // Route them through GroupAPI.leaveGroupByPeerId, which broadcasts
+    // `group_leave`, deletes the local store record, and cleans the mirror.
+    const isP2PGroup = isGroupPeer(peerId);
+    const groupAPI = (window as any).__nostraGroupAPI as {leaveGroupByPeerId?: (id: number) => Promise<void>} | undefined;
 
-      if(flush) {
-        promise = promise.then(() => {
+    const callbackLeave = (e: MouseEvent, checked: PopupPeerButtonCallbackCheckboxes, flush = checkboxes && !!checked.size) => {
+      let promise: Promise<any>;
+      if(isP2PGroup && groupAPI?.leaveGroupByPeerId) {
+        promise = groupAPI.leaveGroupByPeerId(peerId).then(() => {
           return managers.appMessagesManager.flushHistory({peerId});
-        }) as any;
+        });
+      } else {
+        promise = managers.appChatsManager.leave(peerId.toChatId());
+        if(flush) {
+          promise = promise.then(() => {
+            return managers.appMessagesManager.flushHistory({peerId});
+          }) as any;
+        }
       }
 
       onSelect?.(promise);
@@ -70,6 +85,12 @@ export default class PopupDeleteDialog {
         promise = managers.appMessagesManager.flushHistory({peerId, justClear: false, revoke: true, threadOrSavedId: threadId});
       } else if(peerId.isUser()) {
         promise = managers.appMessagesManager.flushHistory({peerId, justClear: false, revoke: checkboxes ? !!checked.size : undefined});
+      } else if(isP2PGroup && groupAPI?.leaveGroupByPeerId) {
+        // For Nostra P2P groups "Delete" and "Leave" are functionally equivalent —
+        // there is no server-side group, just the local record + relay broadcast.
+        promise = groupAPI.leaveGroupByPeerId(peerId).then(() => {
+          return managers.appMessagesManager.flushHistory({peerId});
+        });
       } else {
         if(checked.size) {
           promise = managers.appChatsManager.delete(peerId.toChatId());

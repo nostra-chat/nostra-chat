@@ -110,15 +110,27 @@ export async function addP2PContact(opts: AddP2PContactOptions): Promise<AddP2PC
   // Seed a contact-init message in the store so the Worker's getDialogs()
   // can find this conversation after a reload. VMT.getHistory filters these
   // synthetic entries out so they never render as a bubble.
+  //
+  // CRITICAL: `seedMid` MUST be non-zero even if ownPubkey is not yet ready.
+  // A dialog with top_message=0 enters tweb's "something strange with dialog"
+  // branch (appMessagesManager.ts) on every getDialogs pass and breaks the
+  // virtual-scroller fetch loop (no progress → infinite refetch). The mid
+  // computation does not depend on ownPubkey, only the message-store seed
+  // does — so we compute the mid unconditionally and skip the persist when
+  // ownPubkey is missing.
   const ownPubkey = (window as any).__nostraOwnPubkey;
-  let seedMid = 0;
   const seedTimestamp = Math.floor(Date.now() / 1000);
-  if(ownPubkey) {
+  const initEventId = 'contact-init-' + hexPubkey;
+  let seedMid = 0;
+  try {
+    seedMid = await mapper.mapEventId(initEventId, seedTimestamp);
+  } catch(err) {
+    console.warn('[' + src + '] mapEventId failed:', err);
+  }
+  if(ownPubkey && seedMid) {
     try {
       const store = getMessageStore();
       const conversationId = store.getConversationId(ownPubkey, hexPubkey);
-      const initEventId = 'contact-init-' + hexPubkey;
-      seedMid = await mapper.mapEventId(initEventId, seedTimestamp);
       await store.saveMessage({
         eventId: initEventId,
         conversationId,
