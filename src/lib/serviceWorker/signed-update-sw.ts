@@ -87,7 +87,18 @@ export async function handleUpdateApproved(
         console.error('[update-sw] chunk-mismatch', {chunk: path, expected: expectedHash, actual, size: ab.byteLength, fetched: done, total: entries.length});
         return {outcome: 'chunk-mismatch', chunk: path, expected: expectedHash, actual};
       }
-      await pending.put(path, new Response(ab));
+      // Preserve Content-Type from the original response. Constructing
+      // `new Response(ab)` with no init drops all headers — the cached entry
+      // is then served on next load with empty Content-Type, and the browser's
+      // strict MIME check rejects ES module scripts ("Failed to load module
+      // script: Expected a JavaScript-or-Wasm module script but the server
+      // responded with a MIME type of """). Mirrors the install-time path,
+      // which uses `unwrapRedirected(res)` for the same reason.
+      await pending.put(path, new Response(ab, {
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers
+      }));
       done++;
       onProgress?.(done, entries.length);
     } catch(e) {

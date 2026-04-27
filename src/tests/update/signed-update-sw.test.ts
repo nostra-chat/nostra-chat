@@ -82,6 +82,62 @@ describe('handleUpdateApproved', () => {
     expect(active?.version).toBe('0.12.0');
   });
 
+  it('preserves Content-Type from origin so cached ES modules pass strict-MIME on next load', async() => {
+    // Regression for 0.23.0 white-screen: the SW used to cache via
+    // `new Response(ab)` with no init, dropping all headers. Browsers then
+    // reject ES module scripts served from that cache because the response
+    // has no Content-Type ("Failed to load module script: Expected a
+    // JavaScript-or-Wasm module script but the server responded with a MIME
+    // type of """). The fix reconstructs the Response preserving res.headers.
+    const priv = ed.utils.randomSecretKey();
+    const pub = await ed.getPublicKeyAsync(priv);
+    const indexJs = new TextEncoder().encode('export const x = 1;');
+    const swJs = new TextEncoder().encode('/* sw */');
+    const manifest: any = {
+      schemaVersion: 2, version: '0.13.0', gitSha: 'x', published: '2026-01-01',
+      swUrl: './sw.js', signingKeyFingerprint: 'ed25519:x',
+      securityRelease: false, securityRollback: false,
+      bundleHashes: {
+        './index-D4FOSvD8.js': await sha256b64(indexJs),
+        './sw.js': await sha256b64(swJs)
+      },
+      changelog: '', alternateSources: {}, rotation: null
+    };
+    const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest));
+    const sig = bytesToBase64(await ed.signAsync(manifestBytes, priv));
+    global.fetch = vi.fn(async(url: string) => {
+      if(url.endsWith('index-D4FOSvD8.js')) {
+        return new Response(indexJs, {headers: {'content-type': 'application/javascript'}});
+      }
+      if(url.endsWith('sw.js')) {
+        return new Response(swJs, {headers: {'content-type': 'application/javascript'}});
+      }
+      throw new Error('unexpected url ' + url);
+    }) as any;
+    await setActiveVersion('0.12.0', 'ed25519:x');
+    // Snoop on the pending cache: capture the Response objects the SW writes
+    // BEFORE atomicSwap drains the cache. This is the exact write site where
+    // the bug lived (`new Response(ab)` stripped Content-Type).
+    const captured = new Map<string, Response>();
+    const origCachesOpen = (globalThis as any).caches.open.bind((globalThis as any).caches);
+    (globalThis as any).caches.open = async(name: string) => {
+      const c = await origCachesOpen(name);
+      if(name.endsWith('-pending')) {
+        const origPut = c.put.bind(c);
+        c.put = async(r: any, res: Response) => {
+          captured.set(typeof r === 'string' ? r : r.url, res.clone());
+          return origPut(r, res);
+        };
+      }
+      return c;
+    };
+    const res = await handleUpdateApproved(manifest, sig, bytesToBase64(pub));
+    expect(res.outcome).toBe('applied');
+    const cached = captured.get('./index-D4FOSvD8.js');
+    expect(cached).toBeDefined();
+    expect(cached!.headers.get('content-type')).toBe('application/javascript');
+  });
+
   it('rejects if signature is bad (defense in depth)', async() => {
     const priv = ed.utils.randomSecretKey();
     const pub = await ed.getPublicKeyAsync(priv);
