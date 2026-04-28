@@ -513,11 +513,21 @@ export class NostraMTProtoServer {
             }
           }
 
+          // Mark the dialog as fully read by setting both read cursors to the
+          // top message id. Without this, tweb's getDialogs branch in
+          // appMessagesManager triggers `noIdsDialogs` for every group on every
+          // pass (top_message > 0, both read markers 0, unread_count 0) →
+          // calls reloadConversation → static stub returns empty → no fix →
+          // infinite spam loop. The 1:1 branch above already does this with
+          // a real readCursor; groups have no per-cursor read state yet, so
+          // mid is the safe lower bound (≥ any historical message we'd have).
           const dialog = this.mapper.createTwebDialog({
             peerId,
             topMessage: mid,
             topMessageDate: topDate,
-            isGroup: true
+            isGroup: true,
+            readInboxMaxId: mid,
+            readOutboxMaxId: mid
           });
 
           dialogs.push(dialog);
@@ -631,14 +641,65 @@ export class NostraMTProtoServer {
    */
   private async getGroupHistory(peerId: number, params: any): Promise<any> {
     const {getGroupStore} = await import('./group-store');
+    const {groupIdToPeerId: g2p} = await import('./group-types');
     const groupStore = getGroupStore();
-    const group = await groupStore.getByPeerId(peerId);
+    let group = await groupStore.getByPeerId(peerId);
+
+    // Self-heal for orphan groups: messages may exist in message-store under
+    // 'group:<groupId>' even when the group record is missing from groupStore
+    // (e.g. message arrived before the group_create payload, or the record
+    // was dropped by an older client). Resolve by scanning conversation IDs
+    // and computing groupIdToPeerId for each — bounded by the number of
+    // groups the user has ever exchanged messages with.
+    const store = getMessageStore();
+    if(!group) {
+      try {
+        const convIds = await store.getAllConversationIds();
+        for(const convId of convIds) {
+          if(!convId.startsWith('group:')) continue;
+          const candidateId = convId.slice('group:'.length);
+          const candidatePeerId = await g2p(candidateId);
+          if(candidatePeerId === peerId) {
+            // Synthesize a minimal record + persist so future lookups hit
+            // the indexed path. Members are reconstructed from message
+            // senders we have on disk; admin defaults to ownPubkey for
+            // safety (worst case the user re-elects on next group_admin_transfer).
+            const sample = await store.getMessages(convId, 50);
+            const memberSet = new Set<string>();
+            let earliest = Math.floor(Date.now() / 1000);
+            for(const m of sample) {
+              if(m.senderPubkey) memberSet.add(m.senderPubkey);
+              if(m.timestamp && m.timestamp < earliest) earliest = m.timestamp;
+            }
+            if(this.ownPubkey) memberSet.add(this.ownPubkey);
+            group = {
+              groupId: candidateId,
+              name: 'Group',
+              adminPubkey: this.ownPubkey || '',
+              members: Array.from(memberSet),
+              peerId,
+              createdAt: earliest,
+              updatedAt: earliest
+            };
+            try {
+              await groupStore.save(group);
+              console.warn(LOG_PREFIX, 'getGroupHistory: rebuilt orphan group record', {groupId: candidateId, peerId, members: group.members.length});
+            } catch(err) {
+              console.warn(LOG_PREFIX, 'getGroupHistory: rebuild persist failed (continuing in-memory)', err);
+            }
+            break;
+          }
+        }
+      } catch(err) {
+        console.warn(LOG_PREFIX, 'getGroupHistory: orphan recovery scan failed', err);
+      }
+    }
+
     if(!group) {
       console.warn(LOG_PREFIX, 'getGroupHistory: no group found for peerId', peerId);
       return {_: 'messages.messages', messages: [], users: [], chats: [], count: 0};
     }
 
-    const store = getMessageStore();
     const convId = `group:${group.groupId}`;
     const limit = params?.limit ?? 50;
     const offsetDate = params?.offset_date || undefined;

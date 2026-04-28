@@ -48,7 +48,21 @@ export default async function wrapStickerEmoji(options: Modify<Parameters<typeof
       return {render: Promise.resolve(null), downloaded: true} as any;
     }
 
-    throw new Error('no sticker');
+    // Final fallback: render the bare unicode emoji as text. The OS / system
+    // emoji font draws something visible — better than throwing "no sticker"
+    // (unhandled rejection cascade observed in chat-list empty placeholder
+    // for `📂` and similar emoji not yet in FLUENT_EMOJI_MAP).
+    const span = document.createElement('span');
+    span.textContent = emoji;
+    span.style.display = 'inline-flex';
+    span.style.alignItems = 'center';
+    span.style.justifyContent = 'center';
+    span.style.width = '100%';
+    span.style.height = '100%';
+    span.style.fontSize = (Math.min(width || 64, height || 64) * 0.8) + 'px';
+    span.style.lineHeight = '1';
+    div.append(span);
+    return {render: Promise.resolve(null), downloaded: true} as any;
   }
 
   return wrapSticker({

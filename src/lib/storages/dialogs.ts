@@ -1399,6 +1399,28 @@ export default class DialogsStorage extends AppManager {
       return false;
     }
 
+    // Nostra phantom-dialog guard: a tweb peerless contact created before
+    // ownPubkey was ready ends up with `top_message: 0` and no draft. Tweb's
+    // getDialogs post-processing logs "something strange with dialog" for
+    // each one on every refresh, and the phantom never gets a server-side
+    // top_message that would heal it. Refuse to push it through filters /
+    // folder arrays so it never appears in the chat-list iteration.
+    if(_isDialog && peerId.isUser() && !dialog.top_message && !(dialog as Dialog).draft && !isSaved) {
+      const existing = this.dialogs[peerId];
+      if(existing) {
+        // Boot self-heal: an older client may have pushed this phantom into
+        // folder arrays already. Drop it from there so getFolderDialogs no
+        // longer iterates it. We leave `this.dialogs[peerId]` alone — that
+        // map is owned by the storage cache.
+        for(const folderId in this.folders) {
+          const arr = this.folders[folderId].dialogs;
+          const idx = arr.indexOf(existing as any);
+          if(idx !== -1) arr.splice(idx, 1);
+        }
+      }
+      return false;
+    }
+
     if(isTopic) {
       const cache = this.getForumTopicsCache(peerId);
       cache.index.indexObject(topicId, dialog.title);

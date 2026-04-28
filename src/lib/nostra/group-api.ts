@@ -292,6 +292,25 @@ export class GroupAPI {
     this.log('[GroupAPI] left group:', groupId);
   }
 
+  /**
+   * Leave a group resolved by tweb peerId. Routes the popup-driven
+   * `appChatsManager.leave(chatId)` call (which would crash on Nostra
+   * because `getSelf()` is undefined) to the proper group lifecycle.
+   *
+   * If the group is missing from the local store but a mirror entry
+   * still exists (orphan from an older client version, or a group
+   * received via rx without a persisted record), best-effort: skip the
+   * broadcast and just clean up the mirror so the chat list row vanishes.
+   */
+  async leaveGroupByPeerId(peerId: number): Promise<void> {
+    const group = await this.store.getByPeerId(peerId);
+    if(group) {
+      return this.leaveGroup(group.groupId);
+    }
+    this.log('[GroupAPI] leaveGroupByPeerId: orphan peer (no store record), cleaning mirror only:', peerId);
+    await cleanupGroupChatInjection(peerId);
+  }
+
   // ─── Incoming message handling ────────────────────────────────
 
   /**
