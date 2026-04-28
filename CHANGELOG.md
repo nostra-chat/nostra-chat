@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.3](https://github.com/nostra-chat/nostra-chat/compare/v0.23.2...v0.23.3) (2026-04-28)
+
+
+### Bug Fixes
+
+* **nostra:** re-sort chat list to top when receiving a P2P message ([#105](https://github.com/nostra-chat/nostra-chat/issues/105)) ([1254190](https://github.com/nostra-chat/nostra-chat/commit/12541908b3cd2aec373ae2da598db536e30b13b4))
+
 ## [0.23.1](https://github.com/nostra-chat/nostra-chat/compare/v0.23.0...v0.23.1) (2026-04-27)
 
 
