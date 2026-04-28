@@ -62,12 +62,16 @@
         #nostra-boot-splash .nbs-title span{color:#8774e1}
         #nostra-boot-splash .nbs-description{font-size:.9rem;line-height:1.55;opacity:.72;margin:0 0 1.75rem}
         #nostra-boot-splash .nbs-divider{width:3rem;height:1px;background:currentColor;opacity:.15;margin:0 0 1.5rem}
-        #nostra-boot-splash .nbs-spinner{width:36px;height:36px;border:3px solid rgba(135,116,225,.2);border-top-color:#8774e1;border-radius:50%;animation:nbs-spin .9s linear infinite}
-        #nostra-boot-splash .nbs-msg{margin-top:1rem;font-size:.95rem;opacity:.78}
+        #nostra-boot-splash .nbs-progress{position:relative;width:min(20rem,80%);height:6px;background:rgba(135,116,225,.12);border-radius:999px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(135,116,225,.08)}
+        #nostra-boot-splash .nbs-progress-fill{position:absolute;top:0;bottom:0;left:0;width:30%;border-radius:999px;background:linear-gradient(90deg,#8774e1 0%,#a193ff 50%,#8774e1 100%);background-size:200% 100%;box-shadow:0 0 12px rgba(135,116,225,.55);animation:nbs-shimmer 1.6s linear infinite,nbs-indeterminate 1.4s cubic-bezier(.65,.05,.36,1) infinite;transition:width .42s cubic-bezier(.22,1,.36,1),left .42s cubic-bezier(.22,1,.36,1)}
+        #nostra-boot-splash.determinate .nbs-progress-fill{left:0!important;animation:nbs-shimmer 1.6s linear infinite}
+        #nostra-boot-splash.complete .nbs-progress-fill{background:linear-gradient(90deg,#5cc453,#7fd06f);box-shadow:0 0 12px rgba(92,196,83,.55);animation:none}
+        #nostra-boot-splash .nbs-msg{margin-top:1rem;font-size:.95rem;opacity:.82;min-height:1.4em}
         #nostra-boot-splash .nbs-msg-slow{margin-top:.6rem;font-size:.8rem;opacity:.55;line-height:1.45;max-width:26rem;display:none}
         #nostra-boot-splash.slow .nbs-msg-slow{display:block}
-        @keyframes nbs-spin{to{transform:rotate(360deg)}}
-        @media(prefers-reduced-motion:reduce){#nostra-boot-splash .nbs-spinner{animation-duration:2s}}
+        @keyframes nbs-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+        @keyframes nbs-indeterminate{0%{left:-30%;width:30%}50%{left:35%;width:55%}100%{left:100%;width:30%}}
+        @media(prefers-reduced-motion:reduce){#nostra-boot-splash .nbs-progress-fill{animation:none;left:0;width:35%}}
         @media(max-width:480px){#nostra-boot-splash .nbs-description{font-size:.85rem}#nostra-boot-splash .nbs-title{font-size:1.5rem}}
       </style>
       <div class="nbs-box">
@@ -75,8 +79,10 @@
         <h1 class="nbs-title">Nostra<span>.chat</span></h1>
         <p class="nbs-description">Nostra.chat is a 100% client-side Progressive Web App for decentralized messaging, forked from Telegram Web K. It replaces the Telegram backend with peer-to-peer encrypted chat over Nostr relays and integrates Tor via WASM for network-level privacy. No servers, no accounts, no install &mdash; just cryptographic keys and a browser.</p>
         <div class="nbs-divider" aria-hidden="true"></div>
-        <div class="nbs-spinner" aria-hidden="true"></div>
-        <div class="nbs-msg">Preparing application&hellip;</div>
+        <div class="nbs-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="Loading progress">
+          <div class="nbs-progress-fill"></div>
+        </div>
+        <div class="nbs-msg">Loading application&hellip;</div>
         <div class="nbs-msg-slow">First install may take up to a minute &mdash; the service worker is caching the full bundle for offline use.</div>
       </div>
     </div>
@@ -94,6 +100,9 @@
         var splash=document.getElementById('nostra-boot-splash');
         if(!splash)return;
         var slow=null,safety=null;
+        var fill=splash.querySelector('.nbs-progress-fill');
+        var bar=splash.querySelector('.nbs-progress');
+        var msg=splash.querySelector('.nbs-msg');
         function remove(){
           if(slow)clearTimeout(slow);
           if(safety)clearTimeout(safety);
@@ -101,9 +110,28 @@
           splash.classList.add('fade-out');
           setTimeout(function(){if(splash.parentNode)splash.parentNode.removeChild(splash);},300);
         }
+        // step<=0 → indeterminate (default state, animation left untouched).
+        // step>=1 → determinate; bar transitions to step/total width.
+        // step>=total → switch to "complete" green styling.
+        function setProgress(step,total,label){
+          if(!fill||!bar)return;
+          if(typeof label==='string'&&msg){msg.textContent=label;}
+          if(step<=0||!total){
+            splash.classList.remove('determinate','complete');
+            fill.style.width='';
+            bar.setAttribute('aria-valuenow','0');
+            return;
+          }
+          var pct=Math.max(0,Math.min(100,Math.round((step/total)*100)));
+          splash.classList.add('determinate');
+          fill.style.width=pct+'%';
+          bar.setAttribute('aria-valuenow',String(pct));
+          if(step>=total){splash.classList.add('complete');}
+        }
         slow=setTimeout(function(){splash.classList.add('slow');},5000);
         safety=setTimeout(remove,120000);
         window.__hideBootSplash=remove;
+        window.__bootProgress=setProgress;
       })();
     </script>
     <svg style="position: absolute; top: -10000px; left: -10000px;">

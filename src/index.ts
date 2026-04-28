@@ -393,6 +393,11 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
 
 /* false &&  */document.addEventListener('DOMContentLoaded', async() => {
   const perf = performance.now();
+  // Boot splash progress: src/index.ts has finished parsing and started
+  // executing — switch the splash bar from indeterminate to determinate.
+  // Total of 4 phases: workspace setup, integrity, account, ready.
+  const bootProgress = (window as any).__bootProgress as undefined | ((step: number, total: number, label?: string) => void);
+  bootProgress?.(1, 4, 'Setting up workspace');
   // Nostra.chat: Telegram redirect disabled -- this is not a Telegram client
   // randomlyChooseVersionFromSearch();
   setSidebarLeftWidth();
@@ -405,6 +410,7 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
   listenForWindowPrint();
   cancelImageEvents();
   setRootClasses();
+  bootProgress?.(2, 4, 'Verifying integrity');
 
   // Update integrity bootstrap — runs before IDB / worker init so a compromise
   // alert can take over the page before any sensitive data is loaded.
@@ -487,6 +493,7 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
     await install();
   }
 
+  bootProgress?.(3, 4, 'Loading account');
   await checkLastActiveAccountFromTMe();
 
   if(IS_INSTALL_PROMPT_SUPPORTED) {
@@ -501,6 +508,7 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
   // (passcode screen, onboarding, or the chat list). The splash was mounted
   // inline in index.html; see the comment there for why we rely on an explicit
   // hook rather than MutationObserver.
+  bootProgress?.(4, 4, 'Ready');
   requestAnimationFrame(() => (window as any).__hideBootSplash?.());
 
   await PasscodeLockScreenController.waitForUnlock(async() => {
