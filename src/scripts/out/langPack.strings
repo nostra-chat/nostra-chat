@@ -3963,6 +3963,9 @@
 "Update.Consent.RotatesTo" = "This release rotates the signing key to";
 "Update.Consent.ReleaseNotes" = "Release notes";
 "Update.Consent.ChunksVerified" = "%1$d/%2$d chunks verified";
+"Update.Consent.PhaseDownloading" = "Downloading & verifying";
+"Update.Consent.PhaseInstalling" = "Installing update";
+"Update.Consent.PhaseFinalizing" = "Almost done…";
 "Update.Consent.Ignore" = "Ignore";
 "Update.Consent.Accept" = "Accept";
 "Update.Consent.Applying" = "Applying…";

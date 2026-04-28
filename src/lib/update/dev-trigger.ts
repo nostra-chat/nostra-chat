@@ -50,5 +50,13 @@ export async function install(): Promise<void> {
     return {manifest, signature};
   };
 
-  console.info('[DEV] update popup trigger ready — call __triggerUpdatePopup() from the console');
+  // UI-only progress preview: mounts the popup with a synthetic progress signal that
+  // walks 0 → total over `durationMs`. No service worker involvement.
+  (window as any).__previewUpdateProgress = async(opts: {total?: number; durationMs?: number} = {}) => {
+    const {previewUpdateProgress} = await import('@components/popups/updateConsent/mount');
+    previewUpdateProgress(opts);
+    console.info('[DEV] preview popup mounted — click "Accept" to watch the synthetic progress bar');
+  };
+
+  console.info('[DEV] update popup trigger ready — call __triggerUpdatePopup() or __previewUpdateProgress() from the console');
 }

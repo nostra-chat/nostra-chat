@@ -131,13 +131,26 @@ export interface SignedUpdateResult {
   actual?: string;
 }
 
-export async function startUpdateSigned(manifest: any, signature: string, manifestText?: string): Promise<SignedUpdateResult> {
+export interface SignedUpdateOptions {
+  onProgress?: (done: number, total: number) => void;
+}
+
+export async function startUpdateSigned(
+  manifest: any,
+  signature: string,
+  manifestText?: string,
+  opts: SignedUpdateOptions = {}
+): Promise<SignedUpdateResult> {
   const reg = await navigator.serviceWorker.getRegistration();
   if(!reg || !reg.active) return {ok: false, outcome: 'no-active-sw', reason: 'no-active-sw'};
 
   return new Promise((resolve) => {
     const channel = new MessageChannel();
     channel.port1.onmessage = (ev) => {
+      if(ev.data?.type === 'UPDATE_PROGRESS') {
+        opts.onProgress?.(ev.data.done, ev.data.total);
+        return;
+      }
       if(ev.data?.type === 'UPDATE_RESULT') {
         const d = ev.data;
         resolve({
@@ -149,7 +162,6 @@ export async function startUpdateSigned(manifest: any, signature: string, manife
           actual: d.actual
         });
       }
-      // UPDATE_PROGRESS messages ignored here; popup listens separately via its own channel if needed.
     };
     reg.active!.postMessage({type: 'UPDATE_APPROVED', manifest, signature, manifestText}, [channel.port2]);
   });

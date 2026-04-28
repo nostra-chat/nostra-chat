@@ -1,5 +1,6 @@
+import {createSignal} from 'solid-js';
 import {render} from 'solid-js/web';
-import {UpdateConsent} from './index';
+import {UpdateConsent, type UpdateProgress} from './index';
 import {acceptUpdate, declineUpdate} from '@lib/update/update-popup-controller';
 import type {SignedUpdateResult} from '@lib/update/update-flow';
 import {getActiveVersion} from '@lib/serviceWorker/shell-cache';
@@ -35,23 +36,66 @@ function shortHash(h?: string): string {
   return `${m[1]}${m[2].slice(0, 6)}…${m[2].slice(-4)}`;
 }
 
+export function previewUpdateProgress(opts: {total?: number; durationMs?: number} = {}): void {
+  const total = opts.total ?? 24;
+  const durationMs = opts.durationMs ?? 4000;
+  const host = document.createElement('div');
+  host.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center';
+  document.body.appendChild(host);
+  const [progress, setProgress] = createSignal<UpdateProgress | null>(null);
+  const dispose = render(() => (
+    <UpdateConsent
+      currentVersion='0.0.0'
+      newManifest={{
+        version: '99.0.0',
+        gitSha: 'devdev0deadbeef',
+        published: new Date().toISOString(),
+        signingKeyFingerprint: 'ed25519:dev-stub',
+        rotation: null,
+        changelog: '## Preview mode\n- Synthetic progress\n- No service worker'
+      }}
+      installedFingerprint='ed25519:dev-stub'
+      progress={progress()}
+      onAccept={async() => {
+        const stepMs = Math.max(16, Math.floor(durationMs / total));
+        for(let i = 1; i <= total; i++) {
+          setProgress({done: i, total});
+          await new Promise(r => setTimeout(r, stepMs));
+        }
+        await new Promise(r => setTimeout(r, 600));
+        dispose();
+        host.remove();
+      }}
+      onDecline={() => { dispose(); host.remove(); }}
+    />
+  ), host);
+}
+
 export async function showUpdateConsentPopup(manifest: any, signature: string, manifestText?: string) {
   const active = await getActiveVersion();
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center';
   document.body.appendChild(host);
+  const [progress, setProgress] = createSignal<UpdateProgress | null>(null);
   const dispose = render(() => (
     <UpdateConsent
       currentVersion={active?.version ?? 'unknown'}
       newManifest={manifest}
       installedFingerprint={active?.keyFingerprint ?? ''}
+      progress={progress()}
       onAccept={async() => {
-        const res = await acceptUpdate(manifest, signature, manifestText);
+        const total = Object.keys(manifest?.bundleHashes || {}).length || 1;
+        setProgress({done: 0, total});
+        const res = await acceptUpdate(manifest, signature, manifestText, {
+          onProgress: (done, t) => setProgress({done, total: t || total})
+        });
         if(res.ok) {
+          setProgress({done: total, total});
           if(confirm(I18n.format('Update.Consent.AppliedReloadPrompt', true))) location.reload();
           dispose();
           host.remove();
         } else {
+          setProgress(null);
           console.error('[update] failed', res);
           throw new Error(formatUpdateError(res));
         }

@@ -1,5 +1,10 @@
-import {createSignal, Show} from 'solid-js';
+import {createSignal, createMemo, Show} from 'solid-js';
 import I18n from '@lib/langPack';
+
+export interface UpdateProgress {
+  done: number;
+  total: number;
+}
 
 export interface UpdateConsentProps {
   currentVersion: string;
@@ -12,6 +17,7 @@ export interface UpdateConsentProps {
     changelog?: string;
   };
   installedFingerprint: string;
+  progress?: UpdateProgress | null;
   onAccept: () => Promise<void>;
   onDecline: () => void;
 }
@@ -31,13 +37,50 @@ const S = {
   changelogPre: 'white-space:pre-wrap;max-height:10rem;overflow-y:auto;margin:0.5rem 0 0 0;padding:0.75rem;background:rgba(255,255,255,0.05);border-radius:0.5rem;font-size:0.85rem',
   actions: 'display:flex;gap:0.75rem;justify-content:flex-end;margin-top:1.5rem',
   btn: 'padding:0.6rem 1.25rem;border:none;border-radius:0.5rem;font-size:0.95rem;cursor:pointer;background:transparent;color:var(--primary-text-color,#fff)',
-  btnPrimary: 'padding:0.6rem 1.25rem;border:none;border-radius:0.5rem;font-size:0.95rem;cursor:pointer;background:var(--primary-color,#8774e1);color:#fff;font-weight:600'
+  btnPrimary: 'padding:0.6rem 1.25rem;border:none;border-radius:0.5rem;font-size:0.95rem;cursor:pointer;background:var(--primary-color,#8774e1);color:#fff;font-weight:600',
+  progressWrap: 'margin:1.25rem 0 0.25rem;padding:1rem 1.1rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:0.65rem',
+  progressHeader: 'display:flex;justify-content:space-between;align-items:baseline;margin-bottom:0.6rem;font-size:0.85rem',
+  progressPhase: 'font-weight:600;color:var(--primary-text-color,#fff);letter-spacing:0.01em',
+  progressPercent: 'font-variant-numeric:tabular-nums;color:var(--primary-color,#8774e1);font-weight:600',
+  progressPercentDone: 'font-variant-numeric:tabular-nums;color:var(--green-color,#5cc453);font-weight:600',
+  progressTrack: 'position:relative;height:8px;background:rgba(255,255,255,0.07);border-radius:999px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.04)',
+  progressFill: 'position:absolute;inset:0 auto 0 0;border-radius:999px;background:linear-gradient(90deg,var(--primary-color,#8774e1) 0%,#a193ff 50%,var(--primary-color,#8774e1) 100%);background-size:200% 100%;transition:width 320ms cubic-bezier(0.22,1,0.36,1);box-shadow:0 0 12px rgba(135,116,225,0.55);animation:nostra-update-shimmer 1.6s linear infinite',
+  progressFillDone: 'position:absolute;inset:0 auto 0 0;border-radius:999px;background:linear-gradient(90deg,var(--green-color,#5cc453),#7fd06f);transition:width 320ms cubic-bezier(0.22,1,0.36,1);box-shadow:0 0 12px rgba(92,196,83,0.55)',
+  progressMeta: 'display:flex;justify-content:space-between;align-items:center;margin-top:0.55rem;font-size:0.78rem;color:var(--secondary-text-color,#9d9d9d);font-variant-numeric:tabular-nums'
 };
 
+const SHIMMER_KEYFRAMES = '@keyframes nostra-update-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}@keyframes nostra-update-pulse{0%,100%{opacity:0.55}50%{opacity:1}}';
+
+let shimmerInjected = false;
+function injectShimmerStyle() {
+  if(shimmerInjected || typeof document === 'undefined') return;
+  shimmerInjected = true;
+  const style = document.createElement('style');
+  style.setAttribute('data-nostra-update-shimmer', '');
+  style.textContent = SHIMMER_KEYFRAMES;
+  document.head.appendChild(style);
+}
+
 export function UpdateConsent(props: UpdateConsentProps) {
+  injectShimmerStyle();
   const [busy, setBusy] = createSignal(false);
-  const [progress] = createSignal<{done: number; total: number} | null>(null);
   const [error, setError] = createSignal<string>('');
+
+  const progressData = createMemo(() => props.progress ?? null);
+  const percent = createMemo(() => {
+    const p = progressData();
+    if(!p || p.total <= 0) return 0;
+    return Math.min(100, Math.round((p.done / p.total) * 100));
+  });
+  const isComplete = createMemo(() => {
+    const p = progressData();
+    return !!p && p.total > 0 && p.done >= p.total;
+  });
+  const phaseLabel = createMemo(() => {
+    if(!progressData()) return '';
+    if(isComplete()) return I18n.format('Update.Consent.PhaseInstalling', true);
+    return I18n.format('Update.Consent.PhaseDownloading', true);
+  });
 
   const keyMatches = () =>
     !!props.newManifest.signingKeyFingerprint &&
@@ -81,9 +124,28 @@ export function UpdateConsent(props: UpdateConsentProps) {
           <pre style={S.changelogPre}>{props.newManifest.changelog}</pre>
         </details>
       </Show>
-      <Show when={progress()}>
-        <progress value={progress()!.done} max={progress()!.total} />
-        <p>{I18n.format('Update.Consent.ChunksVerified', true, [progress()!.done, progress()!.total])}</p>
+      <Show when={progressData()}>
+        <div style={S.progressWrap} role='status' aria-live='polite'>
+          <div style={S.progressHeader}>
+            <span style={S.progressPhase}>{phaseLabel()}</span>
+            <span style={isComplete() ? S.progressPercentDone : S.progressPercent}>{percent()}%</span>
+          </div>
+          <div
+            style={S.progressTrack}
+            role='progressbar'
+            aria-valuenow={progressData()!.done}
+            aria-valuemin='0'
+            aria-valuemax={progressData()!.total}
+          >
+            <div style={`${isComplete() ? S.progressFillDone : S.progressFill};width:${percent()}%`} />
+          </div>
+          <div style={S.progressMeta}>
+            <span>{I18n.format('Update.Consent.ChunksVerified', true, [progressData()!.done, progressData()!.total])}</span>
+            <Show when={isComplete()}>
+              <span style='color:var(--green-color,#5cc453);font-weight:600'>{I18n.format('Update.Consent.PhaseFinalizing', true)}</span>
+            </Show>
+          </div>
+        </div>
       </Show>
       <Show when={error()}>
         <p style={S.error}>{error()}</p>
