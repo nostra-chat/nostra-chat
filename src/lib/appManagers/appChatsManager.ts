@@ -548,7 +548,12 @@ export class AppChatsManager extends AppManager {
   }
 
   public leaveChat(id: ChatId) {
-    return this.deleteChatUser(id, this.appUsersManager.getSelf().id);
+    // Nostra context: getSelf() can return undefined when the Virtual MTProto
+    // self mapping hasn't been registered yet. Reject cleanly instead of
+    // throwing a synchronous TypeError that becomes an unhandled rejection.
+    const self = this.appUsersManager.getSelf();
+    if(!self) return Promise.reject(new Error('leaveChat: self user not loaded'));
+    return this.deleteChatUser(id, self.id);
   }
 
   public leave(id: ChatId) {
