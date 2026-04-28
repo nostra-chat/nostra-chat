@@ -91,6 +91,7 @@ vi.mock('@lib/nostra/nostra-peer-mapper', () => ({
 const mockDispatchEvent = vi.fn();
 const mockSetMessageToStorage = vi.fn().mockResolvedValue(undefined);
 const mockInvalidateHistoryCache = vi.fn().mockResolvedValue(undefined);
+const mockSetDialogTopMessage = vi.fn().mockResolvedValue(undefined);
 const mockInjectP2PUser = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('@lib/rootScope', () => ({
@@ -99,7 +100,8 @@ vi.mock('@lib/rootScope', () => ({
     managers: {
       appMessagesManager: {
         setMessageToStorage: (...args: any[]) => mockSetMessageToStorage(...args),
-        invalidateHistoryCache: (...args: any[]) => mockInvalidateHistoryCache(...args)
+        invalidateHistoryCache: (...args: any[]) => mockInvalidateHistoryCache(...args),
+        setDialogTopMessage: (...args: any[]) => mockSetDialogTopMessage(...args)
       },
       appUsersManager: {
         injectP2PUser: (...args: any[]) => mockInjectP2PUser(...args)
@@ -263,6 +265,26 @@ describe('nostra-message-handler', () => {
 
       // Should have invalidated history cache
       expect(mockInvalidateHistoryCache).toHaveBeenCalledWith(PEER_ID);
+    });
+
+    it('bumps Worker dialog index via setDialogTopMessage so chat list re-sorts', async() => {
+      await handleIncomingMessage(makeData(), OWN_PUBKEY);
+
+      expect(mockSetDialogTopMessage).toHaveBeenCalledTimes(1);
+      const [msgArg] = mockSetDialogTopMessage.mock.calls[0];
+      expect(msgArg.mid).toBe(2000000001);
+      expect(msgArg.peerId).toBe(PEER_ID);
+    });
+
+    it('tolerates setDialogTopMessage failure (e.g. dialog not yet in dialogsStorage)', async() => {
+      mockSetDialogTopMessage.mockRejectedValueOnce(new Error('no dialog'));
+      const result = await handleIncomingMessage(makeData(), OWN_PUBKEY);
+      expect(result).not.toBeNull();
+      // Local dialogs_multiupdate dispatch is still expected for new-peer path
+      expect(mockDispatchEvent).toHaveBeenCalledWith(
+        'dialogs_multiupdate',
+        expect.any(Map)
+      );
     });
   });
 
