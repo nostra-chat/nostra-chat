@@ -277,6 +277,26 @@ export class NostrRelay {
   }
 
   /**
+   * Send a payload only if the underlying WebSocket is OPEN.
+   *
+   * Why: callers reach this from `setTimeout` closures (query timeouts) and
+   * from state-change cascades (`onopen`/`onclose` → pool → backfill). Between
+   * scheduling and firing the socket can transition to CONNECTING (during
+   * reconnect) or CLOSING — calling `send()` then throws `InvalidStateError`.
+   * Skipping silently is correct: a CLOSE on a stale subscription is a no-op
+   * for the remote, and publishes that race a reconnect are retried by the
+   * relay pool's higher-level retry layer.
+   */
+  private safeSend(payload: string): boolean {
+    const ws = this.ws;
+    if(ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(payload);
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Disconnect from the relay
    */
   disconnect(): void {
@@ -334,7 +354,7 @@ export class NostrRelay {
 
       // Publish ALL wraps to relay (self-send + recipient)
       for(const wrap of wraps) {
-        this.ws?.send(JSON.stringify(['EVENT', wrap]));
+        this.safeSend(JSON.stringify(['EVENT', wrap]));
       }
 
       // Return the first event ID (recipient wrap)
@@ -384,7 +404,7 @@ export class NostrRelay {
       const timeout = setTimeout(() => {
         this.log.warn('[NostrRelay] query timeout for:', queryId, 'returning', collected.length, 'partial results');
         this.queryResolvers.delete(queryId);
-        this.ws?.send(JSON.stringify(['CLOSE', queryId]));
+        this.safeSend(JSON.stringify(['CLOSE', queryId]));
         resolve(collected);
       }, 10_000);
 
@@ -396,7 +416,7 @@ export class NostrRelay {
         }
       });
 
-      this.ws?.send(JSON.stringify(['REQ', queryId, filter]));
+      this.safeSend(JSON.stringify(['REQ', queryId, filter]));
     });
 
     this.log('[NostrRelay] query complete:', result.length, 'messages');
@@ -419,7 +439,7 @@ export class NostrRelay {
     return new Promise<NostrEvent[]>((resolve) => {
       const timeout = setTimeout(() => {
         this.rawQueryResolvers.delete(queryId);
-        try { this.ws?.send(JSON.stringify(['CLOSE', queryId])); } catch(e) { logSwallow('NostrRelay.queryRawEvents.closeReq', e); }
+        this.safeSend(JSON.stringify(['CLOSE', queryId]));
         resolve(collected);
       }, 10_000);
 
@@ -431,7 +451,7 @@ export class NostrRelay {
         }
       });
 
-      this.ws?.send(JSON.stringify(['REQ', queryId, filter]));
+      this.safeSend(JSON.stringify(['REQ', queryId, filter]));
     });
   }
 
@@ -459,7 +479,7 @@ export class NostrRelay {
       '#p': [this.publicKey]
     };
 
-    this.ws?.send(JSON.stringify(['REQ', this.subscriptionId, filter]));
+    this.safeSend(JSON.stringify(['REQ', this.subscriptionId, filter]));
     this.isSubscribed = true;
   }
 
@@ -473,7 +493,7 @@ export class NostrRelay {
 
     this.log('[NostrRelay] unsubscribing from messages');
 
-    this.ws?.send(JSON.stringify(['CLOSE', this.subscriptionId]));
+    this.safeSend(JSON.stringify(['CLOSE', this.subscriptionId]));
     this.isSubscribed = false;
   }
 
@@ -508,7 +528,9 @@ export class NostrRelay {
       throw new Error('Not connected to relay');
     }
 
-    this.ws?.send(JSON.stringify(['EVENT', event]));
+    if(!this.safeSend(JSON.stringify(['EVENT', event]))) {
+      throw new Error('Not connected to relay');
+    }
   }
 
   /**
@@ -547,7 +569,9 @@ export class NostrRelay {
     };
 
     const signedEvent = finalizeEvent(eventTemplate, this.privateKey);
-    this.ws?.send(JSON.stringify(['EVENT', signedEvent]));
+    if(!this.safeSend(JSON.stringify(['EVENT', signedEvent]))) {
+      throw new Error('Not connected to relay');
+    }
 
     const eventId = (signedEvent as any).id || '';
     this.log('[NostrRelay] published metadata event:', eventId.slice(0, 8) + '...');
@@ -562,7 +586,9 @@ export class NostrRelay {
       throw new Error('Not connected to relay');
     }
 
-    this.ws?.send(JSON.stringify(['EVENT', event]));
+    if(!this.safeSend(JSON.stringify(['EVENT', event]))) {
+      throw new Error('Not connected to relay');
+    }
   }
 
   // ==================== Dual-Mode Transport (Phase 3) ====================
@@ -866,12 +892,12 @@ export class NostrRelay {
           if(queryResolver) {
             this.log('[NostrRelay] EOSE received for query:', subId, 'with', queryResolver.events.length, 'events');
             // Close the query subscription
-            this.ws?.send(JSON.stringify(['CLOSE', subId]));
+            this.safeSend(JSON.stringify(['CLOSE', subId]));
             this.queryResolvers.delete(subId);
             queryResolver.resolve(queryResolver.events);
           } else if(rawResolver) {
             this.log('[NostrRelay] EOSE received for raw query:', subId, 'with', rawResolver.events.length, 'events');
-            this.ws?.send(JSON.stringify(['CLOSE', subId]));
+            this.safeSend(JSON.stringify(['CLOSE', subId]));
             this.rawQueryResolvers.delete(subId);
             rawResolver.resolve(rawResolver.events);
           } else {
