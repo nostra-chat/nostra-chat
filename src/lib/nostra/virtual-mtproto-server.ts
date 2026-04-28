@@ -345,6 +345,12 @@ export class NostraMTProtoServer {
       case 'messages.deleteMessages':
         return this.deleteMessages(params);
 
+      case 'messages.deleteHistory':
+        return this.deleteHistory(params, false);
+
+      case 'channels.deleteHistory':
+        return this.deleteHistory(params, true);
+
       case 'messages.readHistory':
         return this.readHistory(params);
 
@@ -1563,6 +1569,58 @@ export class NostraMTProtoServer {
       pts: 1,
       pts_count: mids.length
     };
+  }
+
+  // Wipe the message-store rows for a deleted 1:1 or group conversation.
+  // Without this the dialog briefly disappears (tweb flushStoragesByPeerId
+  // clears its in-memory cache) but every old bubble re-surfaces the moment
+  // getDialogs / getHistory re-reads IndexedDB — e.g. when the user reopens
+  // the chat from the contact list.
+  private async deleteHistory(params: any, isChannel: boolean): Promise<any> {
+    const method = isChannel ? 'channels.deleteHistory' : 'messages.deleteHistory';
+    const peerId = isChannel ?
+      -Math.abs(Number(params?.channel?.channel_id ?? 0)) :
+      extractPeerId(params?.peer);
+
+    // messages.deleteHistory expects messages.affectedHistory (offset:0 signals
+    // the doFlushHistory loop in appMessagesManager to terminate and call
+    // flushStoragesByPeerId). channels.deleteHistory's caller only checks for
+    // a truthy result — `true` matches the legacy fallback shape.
+    const buildResponse = () => isChannel ? true : {
+      _: 'messages.affectedHistory',
+      pts: 1,
+      pts_count: 0,
+      offset: 0
+    };
+
+    if(peerId === null || peerId === 0) {
+      return buildResponse();
+    }
+
+    try {
+      const store = getMessageStore();
+      let convId: string | null = null;
+
+      if(peerId < 0) {
+        const {getGroupStore} = await import('./group-store');
+        const group = await getGroupStore().getByPeerId(peerId);
+        if(group) convId = `group:${group.groupId}`;
+      } else if(this.ownPubkey) {
+        const pubkey = await getPubkey(Math.abs(peerId));
+        if(pubkey) convId = store.getConversationId(this.ownPubkey, pubkey);
+      }
+
+      if(convId) {
+        await store.deleteMessages(convId);
+        console.log(LOG_PREFIX, method, 'wiped conversation', convId);
+      } else {
+        console.warn(LOG_PREFIX, method, 'could not resolve conversationId for peerId', peerId);
+      }
+    } catch(err) {
+      console.warn(LOG_PREFIX, method, 'error:', err);
+    }
+
+    return buildResponse();
   }
 
   private async readHistory(params: any): Promise<any> {

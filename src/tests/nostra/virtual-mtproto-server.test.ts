@@ -44,6 +44,7 @@ const mockStore = vi.hoisted(() => ({
   getConversationId: vi.fn((a: string, b: string) => [a, b].sort().join(':')),
   saveMessage: vi.fn(),
   deleteByMid: vi.fn(),
+  deleteMessages: vi.fn(),
   getReadCursor: vi.fn(),
   setReadCursor: vi.fn(),
   countUnread: vi.fn()
@@ -502,6 +503,57 @@ describe('NostraMTProtoServer', () => {
 
       expect(result._).toBe('messages.affectedMessages');
       expect(result.pts_count).toBe(0);
+    });
+  });
+
+  describe('messages.deleteHistory', () => {
+    beforeEach(() => {
+      mockStore.deleteMessages.mockResolvedValue(undefined);
+    });
+
+    it('wipes the conversation in message-store for a 1:1 peer', async () => {
+      const result = await server.handleMethod('messages.deleteHistory', {
+        peer: {user_id: PEER_ID},
+        max_id: 0
+      });
+
+      expect(result._).toBe('messages.affectedHistory');
+      expect(result.offset).toBe(0);
+      expect(mockStore.deleteMessages).toHaveBeenCalledWith(CONVERSATION_ID);
+    });
+
+    it('does not call deleteMessages when peer pubkey cannot be resolved', async () => {
+      mockGetPubkey.mockResolvedValueOnce(null);
+
+      const result = await server.handleMethod('messages.deleteHistory', {
+        peer: {user_id: 999999},
+        max_id: 0
+      });
+
+      expect(result._).toBe('messages.affectedHistory');
+      expect(result.offset).toBe(0);
+      expect(mockStore.deleteMessages).not.toHaveBeenCalled();
+    });
+
+    it('returns affectedHistory when peer is missing', async () => {
+      const result = await server.handleMethod('messages.deleteHistory', {});
+
+      expect(result._).toBe('messages.affectedHistory');
+      expect(mockStore.deleteMessages).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('channels.deleteHistory', () => {
+    it('returns truthy and is a no-op for unknown groups', async () => {
+      mockStore.deleteMessages.mockResolvedValue(undefined);
+
+      const result = await server.handleMethod('channels.deleteHistory', {
+        channel: {channel_id: 42},
+        max_id: 0
+      });
+
+      expect(result).toBe(true);
+      expect(mockStore.deleteMessages).not.toHaveBeenCalled();
     });
   });
 
