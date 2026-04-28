@@ -44,8 +44,8 @@ export async function bootHarness(opts: HarnessOptions = {}): Promise<{
   };
   const browser = await chromium.launch(launch);
 
-  const userA = await createUser(browser, 'userA', 'Alice-Fuzz', relay.url, opts);
-  const userB = await createUser(browser, 'userB', 'Bob-Fuzz', relay.url, opts);
+  const userA = await createUser(browser, 'userA', 'Alice-Fuzz', relay, opts);
+  const userB = await createUser(browser, 'userB', 'Bob-Fuzz', relay, opts);
 
   await linkContacts(userA, userB);
   await warmupHandshake(userA, userB);
@@ -73,13 +73,16 @@ async function createUser(
   browser: Browser,
   id: UserId,
   displayName: string,
-  relayUrl: string,
+  relay: LocalRelay,
   opts: HarnessOptions
 ): Promise<UserHandle> {
   const context = await browser.newContext();
-  await context.addInitScript((url) => {
-    (window as any).__nostraTestRelays = [{url, read: true, write: true}];
-  }, relayUrl);
+  // injectInto sets __nostraTestRelays AND disables Tor — the latter is
+  // critical: with mode='when-available' the headless webtor bootstrap
+  // stalls, gating initGlobalSubscription on a promise that never resolves.
+  // The receiver's relay pool then never connects and B→A delivery
+  // silently fails (warmup step 1, all bidirectional fuzz scenarios).
+  await relay.injectInto(context);
 
   // Blossom mock: intercept PUT/POST to upload/media endpoints, hash body,
   // stash bytes under window.__fuzzBlossomUploads, and return a fake

@@ -14,7 +14,11 @@ export interface UserHandle {
    *  Optional so existing unit-test UserHandle fakes (reactions/bubbles/…)
    *  keep compiling without forced backfill. */
   pubkeyHex?: string;
-  /** peerId the OTHER user sees when talking to this user */
+  /** Deterministic virtual peerId for the OTHER user — i.e. the peerId
+   *  THIS user uses to address `other`. Set by linkContacts as
+   *  `injectContact(self, other)`. Pass it as the `peerId` argument when
+   *  this user opens / sends to the other user (e.g. in setPeer or
+   *  appMessagesManager.sendText). */
   remotePeerId: number;
   /** Console lines captured since harness start (ring buffer). */
   consoleLog: string[];
