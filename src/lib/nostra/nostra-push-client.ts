@@ -49,19 +49,35 @@ const LOG_PREFIX = '[NostraPushClient]';
 
 /**
  * GET /info → fetch VAPID public key. Returns null on any failure.
+ *
+ * A "Failed to fetch" TypeError almost always means the relay is missing
+ * `Access-Control-Allow-Origin` for the Nostra.chat origin (see
+ * docs/PUSH-NOTIFICATIONS.md → "CORS requirement"). The browser also logs
+ * the underlying CORS reason just before this warning fires.
  */
 export async function fetchVapidPublicKey(opts: {endpointBase?: string; fetchFn?: FetchFn} = {}): Promise<string | null> {
+  let base: string | undefined;
   try {
-    const base = opts.endpointBase ?? (await getEndpointBase());
+    base = opts.endpointBase ?? (await getEndpointBase());
     const fetchFn = opts.fetchFn || globalThis.fetch.bind(globalThis);
     const res = await fetchFn(`${base}/info`, {method: 'GET'});
-    if(!res.ok) return null;
+    if(!res.ok) {
+      console.warn(LOG_PREFIX, `/info HTTP ${res.status} from ${base}`);
+      return null;
+    }
     const json = await res.json();
     return typeof json?.vapid_public_key === 'string' && json.vapid_public_key.length > 0 ?
       json.vapid_public_key :
       null;
   } catch(e: any) {
-    console.warn(LOG_PREFIX, '/info fetch failed:', e?.message);
+    const msg = e?.message ?? String(e);
+    const corsLikely = /Failed to fetch|NetworkError/i.test(msg);
+    console.warn(
+      LOG_PREFIX,
+      `/info fetch failed for ${base}:`,
+      msg,
+      corsLikely ? '— likely missing Access-Control-Allow-Origin on the relay (see docs/PUSH-NOTIFICATIONS.md)' : ''
+    );
     return null;
   }
 }

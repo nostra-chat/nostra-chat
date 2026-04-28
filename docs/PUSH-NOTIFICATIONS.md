@@ -38,6 +38,18 @@ For B and C, the Service Worker reads your private key from local storage (Index
 
 Advanced users can swap the push relay from Settings → Notifications → Advanced. The protocol is documented at the relay's repository. To self-host, see [github.com/nostra-chat/nostr-webpush-relay](https://github.com/nostra-chat/nostr-webpush-relay).
 
+## CORS requirement (operators)
+
+The relay's HTTP endpoints (`/info`, `/subscription/*`) are called from the Nostra.chat origin via `fetch()`. The server **must** respond with permissive CORS headers, otherwise the browser blocks the response and push subscription silently fails:
+
+```
+Access-Control-Allow-Origin: https://nostra.chat
+Access-Control-Allow-Methods: GET, PUT, DELETE
+Access-Control-Allow-Headers: Content-Type, Authorization
+```
+
+If you observe `[NostraPushClient] /info fetch failed` with `Failed to fetch` in the browser console (and a `No 'Access-Control-Allow-Origin' header is present` warning above it), the relay is missing CORS headers. Fix on the server — the client cannot work around this.
+
 ## Disabling
 
 Settings → Notifications → "Enable background notifications" toggle off sends an authenticated DELETE to the push relay and removes the local subscription. Logging out or resetting local data does the same.
