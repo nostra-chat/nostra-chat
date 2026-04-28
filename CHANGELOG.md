@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.24.1](https://github.com/nostra-chat/nostra-chat/compare/v0.24.0...v0.24.1) (2026-04-28)
+
+
+### Bug Fixes
+
+* **nostra:** runtime errors — leaveChat crash, WebSocket send race, push CORS docs ([#108](https://github.com/nostra-chat/nostra-chat/issues/108)) ([f951694](https://github.com/nostra-chat/nostra-chat/commit/f951694b8c11cf040a6cecf351cee9cce243889e))
+* **nostra:** wipe message-store on chat deletion so messages don't resurface ([033e8a8](https://github.com/nostra-chat/nostra-chat/commit/033e8a8064a33ed8f643398b3f82139adbc347f4))
+
 ## [0.24.0](https://github.com/nostra-chat/nostra-chat/compare/v0.23.3...v0.24.0) (2026-04-28)
 
 
