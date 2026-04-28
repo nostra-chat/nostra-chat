@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.24.0](https://github.com/nostra-chat/nostra-chat/compare/v0.23.3...v0.24.0) (2026-04-28)
+
+
+### Features
+
+* **boot:** add progress bar to boot splash ([e911631](https://github.com/nostra-chat/nostra-chat/commit/e9116316de462de08fba4c61b34306e326fd20df))
+* **update:** show live progress bar in update consent popup ([5a12308](https://github.com/nostra-chat/nostra-chat/commit/5a1230850648b87384e0c38ac8cadb6048e82a29))
+
 ## [0.23.3](https://github.com/nostra-chat/nostra-chat/compare/v0.23.2...v0.23.3) (2026-04-28)
 
 
