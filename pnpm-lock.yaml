@@ -210,6 +210,9 @@ importers:
       vitest:
         specifier: ^0.34.6
         version: 0.34.6(jsdom@22.1.0)(playwright@1.59.1)(sass@1.69.6)
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
 
 packages:
 
@@ -3765,6 +3768,9 @@ packages:
     resolution: {integrity: sha512-9bnSc/HEW2uRy67wc+T8UwauLuPJVn28jb+GtJY16iiKWyvmYJRXVT4UamsAEGQfPohgr2q4Tq0sQbQlxTfi1g==}
     engines: {node: '>=12.20'}
 
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+
 snapshots:
 
   '@aashutoshrathi/word-wrap@1.2.6': {}
@@ -7273,3 +7279,5 @@ snapshots:
   yocto-queue@0.1.0: {}
 
   yocto-queue@1.0.0: {}
+
+  zod@3.25.76: {}

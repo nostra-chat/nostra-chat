@@ -29,6 +29,9 @@
     "test:e2e:debug": "E2E_HEADED=1 E2E_SLOWMO=300 npx tsx",
     "test:e2e:push": "node_modules/.bin/tsx src/tests/e2e/e2e-push-bilateral.ts",
     "fuzz": "tsx src/tests/fuzz/fuzz.ts",
+    "explorer:driver": "tsx scripts/explorer/driver.ts",
+    "explorer:replay": "tsx scripts/explorer/replay.ts",
+    "test:explorer": "vitest run src/tests/explorer/",
     "pretest:e2e": "rm -rf node_modules/.vite",
     "analyze": "ANALYZE=1 pnpm build",
     "generate-mtproto-types": "node ./src/scripts/generate_mtproto_types.js src/",
@@ -101,7 +104,8 @@
     "vite-plugin-checker": "^0.8.0",
     "vite-plugin-handlebars": "^1.6.0",
     "vite-plugin-solid": "^2.8.0",
-    "vitest": "^0.34.6"
+    "vitest": "^0.34.6",
+    "zod": "^3.23.8"
   },
   "packageManager": "pnpm@9.15.3+sha512.1f79bc245a66eb0b07c5d4d83131240774642caaa86ef7d0434ab47c0d16f66b04e21e0c086eb61e62c77efc4d7f7ec071afad3796af64892fae66509173893a",
   "dependencies": {

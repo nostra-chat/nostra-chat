@@ -71,3 +71,6 @@ docs/fuzz-reports/
 
 signing-private.key
 *.private.key
+
+# Explorer volatile run state (non-finding runs)
+docs/explorer-reports/runs/
