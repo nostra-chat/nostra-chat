@@ -1,7 +1,8 @@
 import {createServer, type Socket} from 'node:net';
 import {unlinkSync, existsSync, mkdirSync} from 'node:fs';
 import {join} from 'node:path';
-import {bootHarness, type FuzzContext} from '../../src/tests/fuzz/harness';
+import {bootHarness} from '../../src/tests/fuzz/harness';
+import type {FuzzContext} from '../../src/tests/fuzz/types';
 import {decodeMessages, encodeMessage, RequestSchema, type Request, type Response} from './ipc';
 import {registry} from './intents/registry';
 import {checkHard} from './oracles/hard';
