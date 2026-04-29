@@ -140,8 +140,16 @@ async function createUser(
   await page.waitForTimeout(15000);
   await dismissOverlays(page);
 
+  // First-install info popup ("Got it") can intercept onboarding clicks. Dismiss
+  // it if present before driving the auth flow.
+  const gotIt = page.getByRole('button', {name: 'Got it'});
+  if(await gotIt.isVisible().catch(() => false)) {
+    await gotIt.click({force: true});
+    await page.waitForTimeout(500);
+  }
+
   await page.getByRole('button', {name: 'Create New Identity'}).waitFor({state: 'visible', timeout: 30000});
-  await page.getByRole('button', {name: 'Create New Identity'}).click();
+  await page.getByRole('button', {name: 'Create New Identity'}).click({force: true});
   await page.waitForTimeout(2000);
 
   const npub = await page.evaluate(() => {
@@ -153,12 +161,14 @@ async function createUser(
     return '';
   });
 
-  await page.getByRole('button', {name: 'Continue'}).click();
+  await dismissOverlays(page);
+  await page.getByRole('button', {name: 'Continue'}).click({force: true});
   await page.waitForTimeout(2000);
   const nameInput = page.getByRole('textbox');
   if(await nameInput.isVisible()) {
     await nameInput.fill(displayName);
-    await page.getByRole('button', {name: 'Get Started'}).click();
+    await dismissOverlays(page);
+    await page.getByRole('button', {name: 'Get Started'}).click({force: true});
   }
   await page.waitForTimeout(8000);
   log(`${id} onboarded (${npub.slice(0, 14)}…)`);
