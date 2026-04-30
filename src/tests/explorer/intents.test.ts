@@ -3,8 +3,17 @@ import {z} from 'zod';
 import {registry} from '../../../scripts/explorer/intents/registry';
 
 describe('intent registry', () => {
-  it('returns an object (catalog grows in subsequent tasks)', () => {
-    expect(typeof registry).toBe('object');
+  it('catalog has at least 20 intents covering all 7 areas', () => {
+    const names = Object.keys(registry);
+    expect(names.length).toBeGreaterThanOrEqual(20);
+    const areas = new Set(Object.values(registry).map((d) => d.area));
+    expect(areas).toContain('messaging');
+    expect(areas).toContain('navigation');
+    expect(areas).toContain('profile');
+    expect(areas).toContain('edge');
+    expect(areas).toContain('network');
+    expect(areas).toContain('settings');
+    expect(areas).toContain('media');
   });
 
   it('every intent has name, area, paramsSchema, description, exec', () => {
