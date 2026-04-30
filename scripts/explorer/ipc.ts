@@ -11,6 +11,21 @@ export const AtomicActionSchema = z.discriminatedUnion('type', [
   z.object({type: z.literal('evaluate'), page: PageIdSchema, script: z.string()})
 ]);
 
+export const ExpectationPayloadSchema = z.discriminatedUnion('type', [
+  z.object({type: z.literal('element_appears'), page: PageIdSchema, selector_hint: z.string(), text_contains: z.string().optional(), timeout_ms: z.number().int().nonnegative()}),
+  z.object({type: z.literal('element_disappears'), page: PageIdSchema, selector_hint: z.string(), timeout_ms: z.number().int().nonnegative()}),
+  z.object({type: z.literal('text_changes'), page: PageIdSchema, selector_hint: z.string(), from: z.string().optional(), to_contains: z.string(), timeout_ms: z.number().int().nonnegative()}),
+  z.object({type: z.literal('navigation_to'), page: PageIdSchema, url_pattern: z.string(), timeout_ms: z.number().int().nonnegative()}),
+  z.object({type: z.literal('count_equals'), page: PageIdSchema, selector_hint: z.string(), count: z.number().int().nonnegative(), timeout_ms: z.number().int().nonnegative()}),
+  z.object({type: z.literal('value_changes'), page: PageIdSchema, selector_hint: z.string(), expected: z.string(), timeout_ms: z.number().int().nonnegative()})
+]);
+
+export const InvariantSpecSchema = z.object({
+  name: z.string().min(1),
+  description: z.string(),
+  fnBody: z.string().min(1)
+});
+
 export const RequestSchema = z.discriminatedUnion('cmd', [
   z.object({id: z.string(), cmd: z.literal('capture')}),
   z.object({
@@ -23,6 +38,17 @@ export const RequestSchema = z.discriminatedUnion('cmd', [
     id: z.string(),
     cmd: z.literal('atomic'),
     actions: z.array(AtomicActionSchema)
+  }),
+  z.object({
+    id: z.string(),
+    cmd: z.literal('verify_expectation'),
+    expectation: ExpectationPayloadSchema
+  }),
+  z.object({
+    id: z.string(),
+    cmd: z.literal('run_invariant'),
+    spec: InvariantSpecSchema,
+    timeout_ms: z.number().int().nonnegative().default(5000)
   }),
   z.object({id: z.string(), cmd: z.literal('teardown')})
 ]);

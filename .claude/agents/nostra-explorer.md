@@ -46,9 +46,7 @@ Generate up to 5 invariant fn bodies that should hold throughout the session. Ex
 - `INV-bilateral-message-count`: `const a = await ctx.pageA.locator('.bubble.is-out').count(); const b = await ctx.pageB.locator('.bubble.is-in').count(); return {ok: a === b};`
 - `INV-no-error-toasts`: `const t = await ctx.pageA.locator('.toast-error, .notification-error').count(); return {ok: t === 0};`
 
-Send them to the driver as a special `intent` call with `intentName: '__internal_register_invariants'` (NOTE: the driver does NOT have this intent in F1/F2a/F2b — for F2c, you call `compileInvariant` + `runInvariant` directly via inline `pnpm exec tsx -e ...` shell-outs, since the driver IPC protocol doesn't yet host invariants). For each invariant, store the compiled handle in your subagent state (a JSON file at `/tmp/exp-${SOCKET#/tmp/exp-}/invariants.json` containing the spec strings — recompiled at each periodic check).
-
-Banned patterns are enforced by `compileInvariant` itself; if your body contains `require`/`process`/etc. it will throw and you'll skip that invariant.
+Store them in your subagent state as a list of `{name, description, fnBody}` objects. Persist to `/tmp/exp-${SOCKET#/tmp/exp-}/invariants.json` for replay/debug. Run them via the driver IPC `run_invariant` command (F2c.1) — the driver compiles each spec inside its `node:vm` sandbox with banned-pattern check and returns `{ok, value?, message?}`. If a spec contains `require`/`process`/`fs`/etc., the driver returns `ok=false` with the banned-pattern error; skip that invariant on subsequent ticks.
 
 # Step 4 — Loop
 
@@ -77,17 +75,21 @@ Loop while `step < $BUDGET_STEPS && (Date.now() - start) < $BUDGET_MS`:
   ```
   Or for atomic: `{"cmd":"atomic","actions":[...]}`. Note: F1 driver returns "not implemented in F1 yet" for atomic — for F2c, prefer catalog intents whenever possible.
 
-  4.5. **Verify expectation**: call the F2a verifier inline:
+  4.5. **Verify expectation** via the F2c.1 driver IPC `verify_expectation` command:
   ```bash
-  pnpm exec tsx -e "import('./scripts/explorer/oracles/expectations.ts').then(m => m.verifyExpectation(<exp>, <pages>).then(r => console.log(JSON.stringify(r))))"
+  pnpm exec tsx scripts/explorer/socket-client.ts $SOCKET '{"id":"verify-N","cmd":"verify_expectation","expectation":<exp-json>}'
   ```
-  (NOTE: the verifier needs Playwright Page handles, which live inside the driver process — for F2c MVP you call it via a special driver command. If the driver doesn't expose this command, fall back to inferring expectation outcome from the next `capture` snapshot. Document this gap in your finding artifact if it arises.)
+  The driver runs the verifier against its resident `pageA`/`pageB` Page handles and returns `{ok, reason?, observed?}`. If `ok=false` → candidate Oracle B finding (proceed to step 4.9 for triage).
 
   4.6. **Append step** to `trace`: `{step, intent, params, atomic_trace, expectation, observation_summary}`. Persist `trace` to `/tmp/exp-${SOCKET#/tmp/exp-}/trace.jsonl` (append-only).
 
   4.7. **Oracle A check** (driver returned this in `data.hard_findings`): if non-empty → CANDIDATE finding (Oracle A is deterministic, NO triage needed).
 
-  4.8. **Oracle D periodic check** (every 10 steps): for each compiled invariant, run `runInvariant(inv, {pageA, pageB}, 5000)`. If any returns `{ok: false}` → CANDIDATE finding (Oracle D is deterministic, NO triage needed).
+  4.8. **Oracle D periodic check** (every 10 steps): for each invariant spec, send `run_invariant` to the driver:
+  ```bash
+  pnpm exec tsx scripts/explorer/socket-client.ts $SOCKET '{"id":"inv-N","cmd":"run_invariant","spec":<spec-json>,"timeout_ms":5000}'
+  ```
+  The driver compiles and executes inside its `node:vm` sandbox against live pages, returns `{ok, value?, message?}`. If `ok=false` and the message is NOT a banned-pattern error → CANDIDATE finding (Oracle D is deterministic, NO triage needed). If `ok=false` because of banned-pattern, skip that invariant on subsequent ticks.
 
   4.9. **Oracle B candidate**: if the typed expectation verifier returned `{ok: false}` → this is a candidate that NEEDS TRIAGE. Dispatch the `nostra-explorer-triage` subagent with: goal, trace so far, failed expectation, observation. Wait for its JSON verdict. If `verdict == REAL_BUG` → CANDIDATE accepted. If `verdict == UNFOUNDED` → log to `docs/explorer-reports/triage-rejected.jsonl` and continue the loop (do NOT break). If `verdict == RETRY_WITH_WIDER_TIMEOUT` → re-emit the same expectation with 3× timeout and re-verify once.
 

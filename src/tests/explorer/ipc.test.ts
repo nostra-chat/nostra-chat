@@ -34,4 +34,37 @@ describe('ipc framing', () => {
     const parsed = RequestSchema.safeParse({id: '1', cmd: 'wat'});
     expect(parsed.success).toBe(false);
   });
+
+  it('parses a verify_expectation request with a typed expectation payload', () => {
+    const parsed = RequestSchema.safeParse({
+      id: '1',
+      cmd: 'verify_expectation',
+      expectation: {
+        type: 'element_appears',
+        page: 'A',
+        selector_hint: 'send-button',
+        timeout_ms: 1000
+      }
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('parses a run_invariant request with a spec payload', () => {
+    const parsed = RequestSchema.safeParse({
+      id: '2',
+      cmd: 'run_invariant',
+      spec: {name: 'INV-x', description: 'x', fnBody: 'return {ok: true};'},
+      timeout_ms: 3000
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('rejects a verify_expectation with an unknown expectation type', () => {
+    const parsed = RequestSchema.safeParse({
+      id: '3',
+      cmd: 'verify_expectation',
+      expectation: {type: 'wat', page: 'A', selector_hint: 'x', timeout_ms: 100}
+    });
+    expect(parsed.success).toBe(false);
+  });
 });

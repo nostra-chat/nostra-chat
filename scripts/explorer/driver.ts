@@ -6,6 +6,8 @@ import type {FuzzContext} from '../../src/tests/fuzz/types';
 import {decodeMessages, encodeMessage, RequestSchema, type Request, type Response} from './ipc';
 import {registry} from './intents/registry';
 import {checkHard} from './oracles/hard';
+import {verifyExpectation, type Expectation, type Pages} from './oracles/expectations';
+import {compileInvariant, runInvariant, type SandboxContext} from './oracles/invariants';
 
 interface DriverState {
   ctx: FuzzContext;
@@ -118,6 +120,26 @@ async function dispatch(req: Request, state: DriverState): Promise<Response> {
     }
     case 'atomic': {
       return {id: req.id, ok: false, error: 'atomic dispatch not implemented in F1'};
+    }
+    case 'verify_expectation': {
+      try {
+        const pages: Pages = {pageA: state.ctx.users.userA.page, pageB: state.ctx.users.userB.page};
+        const result = await verifyExpectation(req.expectation as Expectation, pages);
+        return {id: req.id, ok: result.ok, data: result};
+      } catch(err: any) {
+        return {id: req.id, ok: false, error: `verify_expectation threw: ${err?.message ?? String(err)}`};
+      }
+    }
+    case 'run_invariant': {
+      try {
+        const compiled = compileInvariant(req.spec);
+        const sandbox: SandboxContext = {pageA: state.ctx.users.userA.page, pageB: state.ctx.users.userB.page};
+        const result = await runInvariant(compiled, sandbox, req.timeout_ms);
+        return {id: req.id, ok: result.ok, data: result};
+      } catch(err: any) {
+        // compileInvariant throws on banned-pattern match — surface as ok=false with reason.
+        return {id: req.id, ok: false, error: `run_invariant: ${err?.message ?? String(err)}`};
+      }
     }
     case 'teardown':
       await state.teardown();
