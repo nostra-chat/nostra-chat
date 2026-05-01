@@ -94,7 +94,7 @@ export async function verifyExpectation(exp: Expectation, pages: Pages): Promise
       while(Date.now() < deadline) {
         const loc = await resolveSelector(page, exp.selector_hint);
         if(loc) {
-          const value = await loc.inputValue().catch(() => null);
+          const value = await loc.inputValue().catch((): null => null);
           if(value === exp.expected) return {ok: true};
         }
         await page.waitForTimeout(100);

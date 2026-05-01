@@ -7,7 +7,7 @@ import {decodeMessages, encodeMessage, RequestSchema, type Request, type Respons
 import {registry} from './intents/registry';
 import {checkHard} from './oracles/hard';
 import {verifyExpectation, type Expectation, type Pages} from './oracles/expectations';
-import {compileInvariant, runInvariant, type SandboxContext} from './oracles/invariants';
+import {compileInvariant, runInvariant, type SandboxContext, type InvariantSpec} from './oracles/invariants';
 
 interface DriverState {
   ctx: FuzzContext;
@@ -132,7 +132,7 @@ async function dispatch(req: Request, state: DriverState): Promise<Response> {
     }
     case 'run_invariant': {
       try {
-        const compiled = compileInvariant(req.spec);
+        const compiled = compileInvariant(req.spec as InvariantSpec);
         const sandbox: SandboxContext = {pageA: state.ctx.users.userA.page, pageB: state.ctx.users.userB.page};
         const result = await runInvariant(compiled, sandbox, req.timeout_ms);
         return {id: req.id, ok: result.ok, data: result};

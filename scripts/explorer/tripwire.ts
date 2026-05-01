@@ -100,11 +100,12 @@ export function checkDiff(diff: string): TripwireResult {
 }
 
 async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = [];
+  const parts: string[] = [];
+  process.stdin.setEncoding('utf8');
   for await(const chunk of process.stdin) {
-    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+    parts.push(typeof chunk === 'string' ? chunk : (chunk as Buffer).toString('utf8'));
   }
-  return Buffer.concat(chunks).toString('utf8');
+  return parts.join('');
 }
 
 function isMain(): boolean {

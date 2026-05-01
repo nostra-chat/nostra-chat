@@ -84,7 +84,7 @@ describe('explorer fixer stage-1 classification schema', () => {
     });
     const r = parseClassification(raw);
     expect(r.ok).toBe(false);
-    if(!r.ok) expect(r.reason).toMatch(/not in enum/);
+    if(r.ok === false) expect(r.reason).toMatch(/not in enum/);
   });
 
   it('rejects confidence out of [0,1]', () => {
