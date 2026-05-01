@@ -60,8 +60,8 @@ Emit your classification by **writing** to `$FIND_DIR/fix-attempt-1/classificati
 Rules:
 - The `scope_files` field declares the files you intend to edit. Stage 4 enforces this softly; stage 6 commits only what you actually staged.
 - If your classification is DISALLOWED — write the file, then run:
-  ```
-  pnpm exec tsx -e "import('$REPO_ROOT/scripts/explorer/signature.ts').then(m => m.markReportOnly('$REPO_ROOT/docs/explorer-reports/seen-signatures.json', '$SIGNATURE', 'category-disallowed:<category>'))"
+  ```bash
+  pnpm exec tsx "$REPO_ROOT/scripts/explorer/mark-status.ts" report-only "$REPO_ROOT/docs/explorer-reports/seen-signatures.json" "$SIGNATURE" "category-disallowed:<category>"
   ```
   Then emit the final RESULT with `Verdict: REPORT-ONLY` and exit. Do NOT proceed to stage 2.
 - If the JSON is malformed or the category is not in the enum, retry once. If retry also fails, fall through to REPORT-ONLY with reason `classification-malformed`.
@@ -111,8 +111,8 @@ On abort:
 2. Write `$FIND_DIR/fix-attempt-1/diff.patch` (`git diff --staged > diff.patch` before rollback)
 3. `git reset --hard main` in the worktree (rollback)
 4. Mark report-only:
-   ```
-   pnpm exec tsx -e "import('$REPO_ROOT/scripts/explorer/signature.ts').then(m => m.markReportOnly('$REPO_ROOT/docs/explorer-reports/seen-signatures.json', '$SIGNATURE', 'tripwire:<first-pattern-name>'))"
+   ```bash
+   pnpm exec tsx "$REPO_ROOT/scripts/explorer/mark-status.ts" report-only "$REPO_ROOT/docs/explorer-reports/seen-signatures.json" "$SIGNATURE" "tripwire:<first-pattern-name>"
    ```
 5. Emit RESULT with `Verdict: REPORT-ONLY` + reason. Exit. Do NOT touch the worktree further; the cleanup script removes it later.
 
@@ -141,7 +141,10 @@ If `FAIL` non-empty:
 1. Write `$FIND_DIR/fix-attempt-1/stage-failed.txt` (which gate failed + last 200 lines of output)
 2. `git -C "$WORKTREE" diff --staged > $FIND_DIR/fix-attempt-1/diff.patch`
 3. `git -C "$WORKTREE" reset --hard main` — rollback
-4. `markReportOnly` with reason `gate-failed:$FAIL`
+4. Mark report-only:
+   ```bash
+   pnpm exec tsx "$REPO_ROOT/scripts/explorer/mark-status.ts" report-only "$REPO_ROOT/docs/explorer-reports/seen-signatures.json" "$SIGNATURE" "gate-failed:$FAIL"
+   ```
 5. Emit RESULT with `Verdict: REPORT-ONLY` + gate. Exit.
 
 NEVER use `--no-verify`, `--no-edit`, `--force`, `--no-gpg-sign`, or any flag that bypasses the gate.
@@ -171,7 +174,7 @@ Then check `gh` auth:
 ```bash
 gh auth status >/dev/null 2>&1 || {
   echo "[fixer] gh CLI not authenticated — branch pushed but PR not opened"
-  pnpm exec tsx -e "import('$REPO_ROOT/scripts/explorer/signature.ts').then(m => m.markReportOnly('$REPO_ROOT/docs/explorer-reports/seen-signatures.json', '$SIGNATURE', 'gh-not-authed'))"
+  pnpm exec tsx "$REPO_ROOT/scripts/explorer/mark-status.ts" report-only "$REPO_ROOT/docs/explorer-reports/seen-signatures.json" "$SIGNATURE" "gh-not-authed"
   # Emit RESULT with Verdict: REPORT-ONLY + branch pushed; exit
 }
 ```
@@ -182,7 +185,7 @@ Soft cap on open draft PRs (per spec §5 Rate limit):
 OPEN=$(gh pr list --state open --search "head:explorer/fix-" --json number | jq 'length')
 if [ "$OPEN" -ge 5 ]; then
   echo "[fixer] $OPEN explorer fix PRs already open — refusing to add more"
-  pnpm exec tsx -e "import('$REPO_ROOT/scripts/explorer/signature.ts').then(m => m.markReportOnly('$REPO_ROOT/docs/explorer-reports/seen-signatures.json', '$SIGNATURE', 'rate-limit:5-prs-open'))"
+  pnpm exec tsx "$REPO_ROOT/scripts/explorer/mark-status.ts" report-only "$REPO_ROOT/docs/explorer-reports/seen-signatures.json" "$SIGNATURE" "rate-limit:5-prs-open"
   # Emit RESULT, exit
 fi
 ```
@@ -224,7 +227,7 @@ PR_URL=$(gh pr create --draft --title "fix(explorer): <one-line description>" --
 Then mark `fix-pr-open`:
 
 ```bash
-pnpm exec tsx -e "import('$REPO_ROOT/scripts/explorer/signature.ts').then(m => m.markFixPrOpen('$REPO_ROOT/docs/explorer-reports/seen-signatures.json', '$SIGNATURE', {fixPr: '$PR_URL', fixBranch: '$BRANCH'}))"
+pnpm exec tsx "$REPO_ROOT/scripts/explorer/mark-status.ts" fix-pr-open "$REPO_ROOT/docs/explorer-reports/seen-signatures.json" "$SIGNATURE" "$PR_URL" "$BRANCH"
 ```
 
 # Stage 7 — Final summary
