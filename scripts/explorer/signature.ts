@@ -7,14 +7,18 @@ export interface SignatureKey {
   hash: string;
 }
 
+export type SeenStatus = 'open' | 'fix-pr-open' | 'fixed' | 'report-only' | 'allowlisted';
+
 export interface SeenEntry {
   find_id: string;
   occurrences: number;
   first_seen: string;
   last_seen: string;
-  status: 'open' | 'fixed' | 'allowlisted';
+  status: SeenStatus;
   fix_pr?: string;
   fix_branch?: string;
+  /** When status === 'report-only', reason set by the fixer (e.g. 'category-disallowed:messageport'). */
+  report_only_reason?: string;
 }
 
 export type SeenStore = Record<string, SeenEntry>;
@@ -62,4 +66,26 @@ export async function recordSighting(storePath: string, s: Sighting): Promise<Re
   existing.last_seen = s.timestamp;
   writeFileSync(storePath, JSON.stringify(store, null, 2) + '\n', 'utf8');
   return {isNew: false, regression, entry: existing};
+}
+
+async function patchEntry(storePath: string, signature: string, patch: Partial<SeenEntry>): Promise<SeenEntry> {
+  const store = await loadStore(storePath);
+  const existing = store[signature];
+  if(!existing) throw new Error(`patchEntry: signature not found: ${signature}`);
+  const next: SeenEntry = {...existing, ...patch};
+  store[signature] = next;
+  writeFileSync(storePath, JSON.stringify(store, null, 2) + '\n', 'utf8');
+  return next;
+}
+
+export async function markFixPrOpen(storePath: string, signature: string, opts: {fixPr: string; fixBranch: string}): Promise<SeenEntry> {
+  return patchEntry(storePath, signature, {status: 'fix-pr-open', fix_pr: opts.fixPr, fix_branch: opts.fixBranch});
+}
+
+export async function markFixed(storePath: string, signature: string): Promise<SeenEntry> {
+  return patchEntry(storePath, signature, {status: 'fixed'});
+}
+
+export async function markReportOnly(storePath: string, signature: string, reason: string): Promise<SeenEntry> {
+  return patchEntry(storePath, signature, {status: 'report-only', report_only_reason: reason});
 }

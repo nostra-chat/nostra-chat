@@ -2,7 +2,7 @@ import {describe, expect, it, beforeEach, afterEach} from 'vitest';
 import {mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {computeSignature, recordSighting, loadStore, type Sighting} from '../../../scripts/explorer/signature';
+import {computeSignature, recordSighting, loadStore, markFixPrOpen, markFixed, markReportOnly, type Sighting} from '../../../scripts/explorer/signature';
 
 describe('explorer signature', () => {
   let tmpRoot: string;
@@ -68,5 +68,42 @@ describe('explorer signature', () => {
     expect(result.isNew).toBe(false);
     expect(result.regression).toBe(true);
     expect(result.entry.status).toBe('fixed');
+  });
+
+  describe('status helpers', () => {
+    it('markFixPrOpen sets status + fix_pr + fix_branch', async() => {
+      const storePath = join(tmpRoot, 'seen-signatures.json');
+      const sig = 'messaging:x:A:console_error:abc';
+      await recordSighting(storePath, {signature: sig, findId: 'FIND-1', timestamp: 't0'});
+      const updated = await markFixPrOpen(storePath, sig, {fixPr: 'https://github.com/x/y/pull/42', fixBranch: 'explorer/fix-FIND-1'});
+      expect(updated.status).toBe('fix-pr-open');
+      expect(updated.fix_pr).toBe('https://github.com/x/y/pull/42');
+      expect(updated.fix_branch).toBe('explorer/fix-FIND-1');
+      const reloaded = await loadStore(storePath);
+      expect(reloaded[sig].status).toBe('fix-pr-open');
+    });
+
+    it('markFixed flips status to fixed (called when PR merges)', async() => {
+      const storePath = join(tmpRoot, 'seen-signatures.json');
+      const sig = 'messaging:y:A:console_error:abc';
+      await recordSighting(storePath, {signature: sig, findId: 'FIND-2', timestamp: 't0'});
+      await markFixPrOpen(storePath, sig, {fixPr: 'pr', fixBranch: 'br'});
+      const updated = await markFixed(storePath, sig);
+      expect(updated.status).toBe('fixed');
+    });
+
+    it('markReportOnly stores reason for audit', async() => {
+      const storePath = join(tmpRoot, 'seen-signatures.json');
+      const sig = 'messaging:z:A:console_error:abc';
+      await recordSighting(storePath, {signature: sig, findId: 'FIND-3', timestamp: 't0'});
+      const updated = await markReportOnly(storePath, sig, 'category-disallowed:messageport');
+      expect(updated.status).toBe('report-only');
+      expect(updated.report_only_reason).toBe('category-disallowed:messageport');
+    });
+
+    it('patchEntry-style helpers throw if signature missing', async() => {
+      const storePath = join(tmpRoot, 'seen-signatures.json');
+      await expect(markFixPrOpen(storePath, 'never:seen:0:0', {fixPr: 'x', fixBranch: 'y'})).rejects.toThrow();
+    });
   });
 });
