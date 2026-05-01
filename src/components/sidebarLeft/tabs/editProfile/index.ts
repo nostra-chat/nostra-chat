@@ -65,11 +65,7 @@ export default class AppEditProfileTab extends SliderSuperTab {
       Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
 
     return {
-      bioMaxLength: withTimeout(
-        rootScope.managers.apiManager.getLimit('bio'),
-        500,
-        255
-      ),
+      bioMaxLength: 255,
       userFull: withTimeout(
         rootScope.managers.appProfileManager.getProfile(rootScope.myId.toUserId()),
         500,

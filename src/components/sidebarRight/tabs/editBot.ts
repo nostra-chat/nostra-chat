@@ -33,8 +33,7 @@ export default class AppEditBotTab extends SliderSuperTab {
 
     const inputFields: InputField[] = [];
 
-    const [bioMaxLength, user, botInfo] = await Promise.all([
-      this.managers.apiManager.getLimit('bio'),
+    const [user, botInfo] = await Promise.all([
       this.managers.appUsersManager.getUser(botId),
       this.managers.appProfileManager.getBotInfo(botId)
     ]);
@@ -52,7 +51,7 @@ export default class AppEditBotTab extends SliderSuperTab {
       this.aboutInputField = new InputField({
         label: 'DescriptionPlaceholder',
         name: 'bio',
-        maxLength: bioMaxLength
+        maxLength: 255
       });
 
       inputWrapper.append(this.firstNameInputField.container, this.aboutInputField.container);
