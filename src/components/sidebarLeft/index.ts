@@ -746,9 +746,11 @@ export class AppSidebarLeft extends SidebarSlider {
       text: 'Settings',
       separator: true,
       onClick: () => {
-        closeTabsBefore(() => {
-          this.createTab(AppSettingsTab).open();
-        });
+        setTimeout(() => { // menu doesn't close if no timeout — see SavedMessages
+          closeTabsBefore(() => {
+            this.createTab(AppSettingsTab).open();
+          });
+        }, 0);
       }
     }, darkModeBtn, animationsBtn, {
       icon: 'animations',
