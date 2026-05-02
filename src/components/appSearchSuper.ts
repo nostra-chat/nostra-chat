@@ -1466,7 +1466,18 @@ export default class AppSearchSuper {
             setResults(value.dialogs.map((d) => d.peerId), this.searchGroups.contacts, true);
           }
         })
-      ]);
+      ]).then(() => {
+        if(!middleware()) return;
+        const messagesGroup = this.searchGroups.messages;
+        const noResults =
+          !this.searchGroups.contacts.list.childElementCount &&
+          !this.searchGroups.globalContacts.list.childElementCount &&
+          !messagesGroup.list.childElementCount;
+        if(noResults && messagesGroup.createPlaceholder && !messagesGroup.placeholder) {
+          messagesGroup.setActive();
+          messagesGroup.addPlaceholder(messagesGroup.createPlaceholder());
+        }
+      });
     } else if(!this.searchContext.peerId && !this.searchContext.minDate) {
       const [appState] = useAppState();
       const renderRecentSearch = (setActive = true) => {
