@@ -94,8 +94,7 @@ export default class AppSettingsTab extends SliderSuperTab {
     const renderFromCache = () => {
       const cached = loadCachedProfile()?.profile;
       if(cached) {
-        const name = cached.display_name || cached.name;
-        if(name) nameEl.textContent = name;
+        nameEl.textContent = cached.display_name || cached.name || '';
         if(cached.picture && avatarEl.src !== cached.picture) {
           avatarEl.src = cached.picture;
           hasRealPicture = true;
