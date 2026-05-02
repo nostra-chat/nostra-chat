@@ -40,8 +40,18 @@ export function buildSelectorCandidates(hint: string): SelectorCandidate[] {
 /**
  * Given a page and a hint, return the first Locator that matches the priority
  * chain. Returns null if nothing resolves.
+ *
+ * Hints starting with `.` or `[` are treated as raw Playwright CSS selectors
+ * and tried first (covers compound selectors like `.bubble.is-out` and
+ * attribute selectors like `[data-mid]` that the heuristic chain mishandles).
  */
 export async function resolveSelector(page: Page, hint: string): Promise<Locator | null> {
+  const trimmed = hint?.trim() ?? '';
+  if(trimmed.startsWith('.') || trimmed.startsWith('[')) {
+    const loc = page.locator(trimmed).first();
+    const count = await loc.count().catch(() => 0);
+    if(count > 0) return loc;
+  }
   const candidates = buildSelectorCandidates(hint);
   for(const c of candidates) {
     let loc: Locator;
@@ -58,9 +68,13 @@ export async function resolveSelector(page: Page, hint: string): Promise<Locator
       case 'aria':
         loc = page.locator(`[aria-label="${cssEscape(c.value)}"]`).first();
         break;
-      case 'class':
-        loc = page.locator(`.${cssEscape(c.value).replace(/ /g, '.')}`).first();
+      case 'class': {
+        // Strip any leading dot the caller may have included so we don't end up
+        // with `..foo` (which Playwright treats as an invalid pseudo-element).
+        const stripped = c.value.replace(/^\.+/, '');
+        loc = page.locator(`.${cssEscape(stripped).replace(/ /g, '.')}`).first();
         break;
+      }
     }
     const count = await loc.count().catch(() => 0);
     if(count > 0) return loc;
