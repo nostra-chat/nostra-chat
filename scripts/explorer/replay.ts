@@ -42,8 +42,11 @@ async function main() {
       console.log(`[replay] step ${step.step}: ${step.intent} ${JSON.stringify(step.params)}`);
       const def = registry[step.intent];
       if(!def) {
-        console.error(`[replay] unknown intent ${step.intent}, aborting`);
-        process.exit(3);
+        // LLM-driven traces emit observation/probe intents (capture, run_invariant,
+        // verify_expectation_oracle_b, diagnostic, act_*) that aren't catalog
+        // intents. Skip them — they don't drive state, only observe it.
+        console.warn(`[replay] skipping unknown intent ${step.intent} (observation-only)`);
+        continue;
       }
       const parsed = def.paramsSchema.safeParse(step.params);
       if(!parsed.success) {
