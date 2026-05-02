@@ -134,7 +134,7 @@ export default abstract class ApiManagerMethods extends AppManager {
     return this.invokeApiSingleProcess<T, R>({
       method,
       processResult: (result) => {
-        if(result._.includes('NotModified')) {
+        if(result?._?.includes('NotModified')) {
           // this.debug && this.log.warn('NotModified saved!', method, queryJSON);
           return cached.result;
         }
