@@ -48,7 +48,9 @@ export const forward_message: IntentDef<z.infer<typeof ForwardMessageParams>> = 
     try {
       await rightClickRandomBubble(u.page, false);
       trace.push({type: 'click', page: pageOf(params.from), selector: 'bubble (right-click)'});
-      const forwardBtn = u.page.getByRole('menuitem', {name: /forward/i}).or(u.page.getByText(/forward/i)).first();
+      // Scope to active context-menu to avoid matching hidden i18n template spans
+      // (e.g. "Forwarded from" markers inside bubble bodies).
+      const forwardBtn = u.page.locator('#bubble-contextmenu.active .btn-menu-item', {hasText: /^Forward$/i}).first();
       await forwardBtn.click({timeout: 3000});
       trace.push({type: 'click', page: pageOf(params.from), selector: 'menu Forward'});
       const peerOpt = u.page.getByText(params.toPeer, {exact: false}).first();
@@ -74,7 +76,9 @@ export const pin_message: IntentDef<z.infer<typeof PinMessageParams>> = {
     try {
       await rightClickRandomBubble(u.page, false);
       trace.push({type: 'click', page: pageOf(params.user), selector: 'bubble (right-click)'});
-      const pinBtn = u.page.getByRole('menuitem', {name: /^pin/i}).or(u.page.getByText(/^pin/i)).first();
+      // Scope to active context-menu — /^pin/i matches hidden "Pinned Message"
+      // i18n template span inside .chat-info pinned-banner shell otherwise.
+      const pinBtn = u.page.locator('#bubble-contextmenu.active .btn-menu-item', {hasText: /^Pin$/i}).first();
       await pinBtn.click({timeout: 3000});
       trace.push({type: 'click', page: pageOf(params.user), selector: 'menu Pin'});
       const confirmBtn = u.page.getByRole('button', {name: /^pin|confirm|ok/i}).first();
@@ -99,14 +103,17 @@ export const delete_for_everyone: IntentDef<z.infer<typeof DeleteForEveryonePara
     try {
       await rightClickRandomBubble(u.page, true);
       trace.push({type: 'click', page: pageOf(params.user), selector: 'own bubble (right-click)'});
-      const delBtn = u.page.getByRole('menuitem', {name: /^delete/i}).or(u.page.getByText(/^delete/i)).first();
+      // Scope to active context-menu — /^delete/i matches "Deleted account" peer
+      // titles in chatlist (data-peer-id="0") otherwise.
+      const delBtn = u.page.locator('#bubble-contextmenu.active .btn-menu-item', {hasText: /^Delete$/i}).first();
       await delBtn.click({timeout: 3000});
-      const forEveryone = u.page.getByLabel(/everyone|all/i).first();
+      // Real popup label is "Also delete for {peer-name}" — neither "everyone" nor "all".
+      const forEveryone = u.page.getByLabel(/^Also delete for /i).first();
       if(await forEveryone.isVisible().catch(() => false)) {
         await forEveryone.check({timeout: 1000});
         trace.push({type: 'click', page: pageOf(params.user), selector: 'for everyone checkbox'});
       }
-      const confirmBtn = u.page.getByRole('button', {name: /^delete|confirm|ok/i}).first();
+      const confirmBtn = u.page.locator('.popup-container.active button.btn-primary', {hasText: /^DELETE$/i}).first();
       await confirmBtn.click({timeout: 3000});
       return {ok: true, atomic_trace: trace, observations: []};
     } catch(err: any) {

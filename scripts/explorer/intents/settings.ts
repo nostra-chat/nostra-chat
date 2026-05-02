@@ -16,8 +16,10 @@ const SetLanguageParams = z.object({
 const pageOf = (u: 'userA'|'userB'): 'A'|'B' => u === 'userA' ? 'A' : 'B';
 
 async function openSettings(page: Page): Promise<void> {
-  await page.locator('.sidebar-header .btn-menu-toggle').first().click({timeout: 3000});
-  await page.getByText('Settings', {exact: false}).first().click({timeout: 3000});
+  // Prefer folders-sidebar menu button (visible when body.has-folders-sidebar);
+  // fall back to chatlist-header on layouts without it.
+  await page.locator('.folders-sidebar .sidebar-tools-button, .sidebar-header__btn-container.is-visible .sidebar-tools-button, .sidebar-header .btn-menu-toggle').first().click({timeout: 3000});
+  await page.locator('.btn-menu.active .btn-menu-item', {hasText: /^Settings$/i}).first().click({timeout: 3000});
 }
 
 export const toggle_theme: IntentDef<z.infer<typeof ToggleThemeParams>> = {

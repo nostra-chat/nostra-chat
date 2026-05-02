@@ -24,10 +24,14 @@ export const open_settings: IntentDef<z.infer<typeof OpenSettingsParams>> = {
     const u = ctx.users[params.page];
     const trace: AtomicAction[] = [];
     try {
-      const menuBtn = u.page.locator('.sidebar-header .btn-menu-toggle, [data-testid="settings-button"]').first();
-      trace.push({type: 'click', page: pageOf(params.page), selector: '.sidebar-header button[name="menu-toggle"]'});
+      // Prefer the folders-sidebar menu button (visible when body.has-folders-sidebar);
+      // fall back to the chatlist-header button on layouts where it isn't collapsed.
+      const menuBtn = u.page.locator('.folders-sidebar .sidebar-tools-button, .sidebar-header__btn-container.is-visible .sidebar-tools-button, .sidebar-header .btn-menu-toggle').first();
+      trace.push({type: 'click', page: pageOf(params.page), selector: 'visible menu-toggle button'});
       await menuBtn.click({timeout: 3000});
-      const settingsItem = u.page.getByText('Settings', {exact: false}).first();
+      // Scope to the active hamburger menu — bare "Settings" text matches hidden
+      // i18n template spans elsewhere in the DOM.
+      const settingsItem = u.page.locator('.btn-menu.active .btn-menu-item', {hasText: /^Settings$/i}).first();
       trace.push({type: 'click', page: pageOf(params.page), selector: 'menu Settings item'});
       await settingsItem.click({timeout: 3000});
       return {ok: true, atomic_trace: trace, observations: []};
