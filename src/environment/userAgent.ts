@@ -6,25 +6,31 @@
 
 import ctx from '@environment/ctx';
 
-export const USER_AGENT = navigator ? navigator.userAgent : null;
-export const IS_APPLE = navigator.userAgent.search(/OS X|iPhone|iPad|iOS/i) !== -1;
-export const IS_ANDROID = navigator.userAgent.toLowerCase().indexOf('android') !== -1;
-export const IS_CHROMIUM = /Chrome/.test(navigator.userAgent) && /Google Inc/.test(navigator.vendor);
+// `navigator` is unavailable in node-pool vitest workers that load this module
+// before vitest finishes installing the jsdom globals. Reference it via a
+// guarded shim so the bare module evaluation can't throw ReferenceError.
+const NAV: Navigator | null = typeof navigator !== 'undefined' ? navigator : null;
+const UA = NAV?.userAgent ?? '';
+
+export const USER_AGENT = NAV ? NAV.userAgent : null;
+export const IS_APPLE = UA.search(/OS X|iPhone|iPad|iOS/i) !== -1;
+export const IS_ANDROID = UA.toLowerCase().indexOf('android') !== -1;
+export const IS_CHROMIUM = /Chrome/.test(UA) && /Google Inc/.test(NAV?.vendor ?? '');
 export const CHROMIUM_VERSION = (() => {
   try {
-    return +navigator.userAgent.match(/Chrom(?:e|ium)\/(.+?)(?:\s|\.)/)[1];
+    return +UA.match(/Chrom(?:e|ium)\/(.+?)(?:\s|\.)/)[1];
   } catch(err) {
   }
 })();
 
 // https://stackoverflow.com/a/58065241
-export const IS_APPLE_MOBILE = (/iPad|iPhone|iPod/.test(navigator.platform) ||
-  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) &&
+export const IS_APPLE_MOBILE = !!NAV && (/iPad|iPhone|iPod/.test(NAV.platform) ||
+  (NAV.platform === 'MacIntel' && NAV.maxTouchPoints > 1)) &&
   !(ctx as any).MSStream;
 
 export const IS_SAFARI = !!('safari' in ctx) || !!(USER_AGENT && (/\b(iPad|iPhone|iPod)\b/.test(USER_AGENT) || (!!USER_AGENT.match('Safari') && !USER_AGENT.match('Chrome'))))/*  || true */;
-export const IS_FIREFOX = navigator.userAgent.toLowerCase().indexOf('firefox') > -1;
+export const IS_FIREFOX = UA.toLowerCase().indexOf('firefox') > -1;
 
 export const IS_MOBILE_SAFARI = IS_SAFARI && IS_APPLE_MOBILE;
 
-export const IS_MOBILE = (navigator.maxTouchPoints === undefined || navigator.maxTouchPoints > 0) && navigator.userAgent.search(/iOS|iPhone OS|Android|BlackBerry|BB10|Series ?[64]0|J2ME|MIDP|opera mini|opera mobi|mobi.+Gecko|Windows Phone/i) != -1;
+export const IS_MOBILE = !!NAV && (NAV.maxTouchPoints === undefined || NAV.maxTouchPoints > 0) && UA.search(/iOS|iPhone OS|Android|BlackBerry|BB10|Series ?[64]0|J2ME|MIDP|opera mini|opera mobi|mobi.+Gecko|Windows Phone/i) != -1;
