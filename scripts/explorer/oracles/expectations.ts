@@ -7,7 +7,8 @@ export type Expectation =
   | {type: 'text_changes'; page: 'A'|'B'; selector_hint: string; from?: string; to_contains: string; timeout_ms: number}
   | {type: 'navigation_to'; page: 'A'|'B'; url_pattern: string; timeout_ms: number}
   | {type: 'count_equals'; page: 'A'|'B'; selector_hint: string; count: number; timeout_ms: number}
-  | {type: 'value_changes'; page: 'A'|'B'; selector_hint: string; expected: string; timeout_ms: number};
+  | {type: 'value_changes'; page: 'A'|'B'; selector_hint: string; expected: string; timeout_ms: number}
+  | {type: 'bilateral_message_propagation'; from: 'A'|'B'; text_contains: string; timeout_ms: number};
 
 export interface VerifyResult {
   ok: boolean;
@@ -23,8 +24,10 @@ export interface Pages {
 const pickPage = (pages: Pages, p: 'A'|'B'): Page => p === 'A' ? pages.pageA : pages.pageB;
 
 export async function verifyExpectation(exp: Expectation, pages: Pages): Promise<VerifyResult> {
-  const page = pickPage(pages, exp.page);
   const deadline = Date.now() + exp.timeout_ms;
+  const page = exp.type === 'bilateral_message_propagation' ?
+    pickPage(pages, exp.from) :
+    pickPage(pages, exp.page);
 
   switch(exp.type) {
     case 'element_appears': {
@@ -100,6 +103,26 @@ export async function verifyExpectation(exp: Expectation, pages: Pages): Promise
         await page.waitForTimeout(100);
       }
       return {ok: false, reason: `value_changes expected="${exp.expected}" not observed within ${exp.timeout_ms}ms`};
+    }
+    case 'bilateral_message_propagation': {
+      // Sender's outgoing bubble appears AND receiver's incoming bubble appears,
+      // both containing text_contains. Implements design spec §4 Oracle B.
+      const senderPage = pickPage(pages, exp.from);
+      const receiverPage = pickPage(pages, exp.from === 'A' ? 'B' : 'A');
+      const seen = {sender: false, receiver: false};
+      while(Date.now() < deadline) {
+        if(!seen.sender) {
+          const text = await senderPage.locator('.bubbles-inner .bubble.is-out').last().textContent().catch(() => '') ?? '';
+          if(text.includes(exp.text_contains)) seen.sender = true;
+        }
+        if(!seen.receiver) {
+          const text = await receiverPage.locator('.bubbles-inner .bubble.is-in').last().textContent().catch(() => '') ?? '';
+          if(text.includes(exp.text_contains)) seen.receiver = true;
+        }
+        if(seen.sender && seen.receiver) return {ok: true};
+        await page.waitForTimeout(100);
+      }
+      return {ok: false, reason: `bilateral_message_propagation text="${exp.text_contains}" not propagated bilaterally within ${exp.timeout_ms}ms (sender=${seen.sender} receiver=${seen.receiver})`};
     }
   }
 }
