@@ -469,6 +469,11 @@ namespace I18n {
         const s = pluralRules.select(v);
         // @ts-ignore
         input = str[s + '_value'] || str['other_value'];
+      } else if(str._ === 'langPackStringPluralized') {
+        // * static usage of a plural key (e.g. ButtonMenuItem labels) — fall back
+        // * to other_value so the raw key never leaks into the DOM
+        // @ts-ignore
+        input = str['other_value'] || str['one_value'] || key;
       } else if(str._ === 'langPackString') {
         input = str.value;
       } else {
