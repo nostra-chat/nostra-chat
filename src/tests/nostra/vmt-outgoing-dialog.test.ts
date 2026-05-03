@@ -40,6 +40,13 @@ const apiProxyStub: any = {mirrors: {messages: {}, dialogs: {}, peers: {}}};
 let NostraMTProtoServer: any;
 
 beforeAll(async() => {
+  // Wipe the module cache so other test files' un-mocked imports of
+  // @lib/rootScope don't leak through the dynamic `await import('@lib/rootScope')`
+  // calls inside virtual-mtproto-server.ts (those bypass the surface-level
+  // import map mock and hit whatever was cached first). This was the root
+  // cause of the vmt-outgoing-dialog flake (1 of 3 runs failed because the
+  // dispatch fell through to the real, unobserved rootScope).
+  vi.resetModules();
   vi.doMock('@lib/rootScope', () => ({
     default: {
       dispatchEvent: dispatchEventSpy,
@@ -110,6 +117,25 @@ beforeAll(async() => {
   NostraMTProtoServer = mod.NostraMTProtoServer;
 });
 
+/**
+ * Poll until `predicate()` returns truthy or `timeoutMs` elapses. The
+ * injectOutgoingBubble dispatch chain awaits multiple dynamic imports
+ * (rootScope + config/debug) before firing dialogs_multiupdate; on a
+ * cold module cache or a busy host, those resolve well past a hardcoded
+ * 20ms wait. Polling removes the timing flake (was: 1 of 3 runs failed
+ * "expected 0 to be greater than or equal to 1").
+ */
+async function waitFor<T>(predicate: () => T | undefined, timeoutMs = 1000, stepMs = 10): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  while(Date.now() < deadline) {
+    const value = predicate();
+    if(value) return value;
+    await new Promise(r => setTimeout(r, stepMs));
+  }
+  // Last-chance evaluation so the failing assertion shows the real state.
+  return predicate() as T;
+}
+
 describe('VMT sendMessage: outgoing dialog bump (regression)', () => {
   let server: any;
 
@@ -128,6 +154,11 @@ describe('VMT sendMessage: outgoing dialog bump (regression)', () => {
     });
   });
 
+  const collectDialogCalls = () => [
+    ...dispatchEventSpy.mock.calls,
+    ...dispatchEventSingleSpy.mock.calls
+  ].filter(c => c[0] === 'dialogs_multiupdate');
+
   it('dispatches dialogs_multiupdate on outgoing P2P send', async() => {
     await server.handleMethod('messages.sendMessage', {
       peer: {user_id: PEER_ID},
@@ -135,15 +166,10 @@ describe('VMT sendMessage: outgoing dialog bump (regression)', () => {
       random_id: BigInt(1)
     });
 
-    // The injectOutgoingBubble pipeline awaits a dynamic rootScope import
-    // before firing the dispatch; yield a microtask to flush it.
-    await new Promise(r => setTimeout(r, 20));
-
-    const allCalls = [
-      ...dispatchEventSpy.mock.calls,
-      ...dispatchEventSingleSpy.mock.calls
-    ];
-    const dialogCalls = allCalls.filter(c => c[0] === 'dialogs_multiupdate');
+    const dialogCalls = await waitFor(() => {
+      const calls = collectDialogCalls();
+      return calls.length >= 1 ? calls : undefined;
+    });
     expect(dialogCalls.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -154,13 +180,11 @@ describe('VMT sendMessage: outgoing dialog bump (regression)', () => {
       random_id: BigInt(2)
     });
 
-    await new Promise(r => setTimeout(r, 20));
-
-    const allCalls = [
-      ...dispatchEventSpy.mock.calls,
-      ...dispatchEventSingleSpy.mock.calls
-    ];
-    const [, payload] = allCalls.find(c => c[0] === 'dialogs_multiupdate') || [];
+    const dialogCalls = await waitFor(() => {
+      const calls = collectDialogCalls();
+      return calls.length >= 1 ? calls : undefined;
+    });
+    const payload = dialogCalls[0][1];
     expect(payload).toBeInstanceOf(Map);
 
     const entry = Array.from((payload as Map<any, any>).values())[0] as any;
@@ -177,13 +201,14 @@ describe('VMT sendMessage: outgoing dialog bump (regression)', () => {
       random_id: BigInt(3)
     });
 
-    await new Promise(r => setTimeout(r, 20));
+    const keys = await waitFor(() => {
+      const ks = Object.keys(apiProxyStub.mirrors.dialogs);
+      return ks.length >= 1 ? ks : undefined;
+    });
+    expect(keys.length).toBeGreaterThanOrEqual(1);
 
     // The dialog may be keyed by either the numeric peerId or the tweb
     // PeerId (which, for user peers, is the same number). Accept both.
-    const keys = Object.keys(apiProxyStub.mirrors.dialogs);
-    expect(keys.length).toBeGreaterThanOrEqual(1);
-
     const dialog = apiProxyStub.mirrors.dialogs[keys[0]];
     expect(dialog).toBeTruthy();
     expect(dialog.top_message).toBe(MID);
