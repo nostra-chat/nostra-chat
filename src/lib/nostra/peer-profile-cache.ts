@@ -15,6 +15,7 @@
 import rootScope from '@lib/rootScope';
 import {DEFAULT_RELAYS} from './nostr-relay-pool';
 import {queryRelayForProfileWithMeta, type NostrProfile} from './nostr-profile';
+import {updateMappingProfile} from './virtual-peers-db';
 
 export const PEER_PROFILE_CACHE_PREFIX = 'nostra-peer-profile-cache:';
 
@@ -76,11 +77,38 @@ export async function refreshPeerProfileFromRelays(pubkey: string, peerId: PeerI
   saveCachedPeerProfile(pubkey, {profile: best.profile, created_at: best.created_at});
   console.log(`${LOG_PREFIX} refreshed ${pubkey.slice(0, 8)}... created_at=${best.created_at}`);
 
+  // Persist into virtual-peers-db so subsequent appUsersManager.getApiUser
+  // returns the new displayName (chatlist re-renders fall back on this).
+  // Wraps in try/catch — IDB may be locked / closed during teardown and we
+  // should not surface that to the caller.
+  try {
+    const displayName = best.profile.display_name || best.profile.name || '';
+    if(displayName) {
+      await updateMappingProfile(pubkey, displayName, best.profile);
+    }
+  } catch(err) {
+    console.warn(`${LOG_PREFIX} updateMappingProfile failed:`, err);
+  }
+
   rootScope.dispatchEventSingle('nostra_peer_profile_updated', {
     peerId,
     pubkey,
     profile: best.profile
   });
+
+  // Fan out to the tweb-native rendering events so the chatlist's
+  // .user-title and the chat topbar's .person-title refresh on the next
+  // tick. Without this, the right-sidebar User Info row updates (via the
+  // nostra_peer_profile_updated listener in stores/peerNostraProfile.ts)
+  // but the chatlist row + topbar keep showing the stale displayName until
+  // a chat switch forces a fresh getApiUser. FIND-5329aa12.
+  // Cast to any: tweb's typed signatures expect a UserId for user_update
+  // and a {peerId, threadId} for peer_title_edit; the receivers care only
+  // about identity, not provenance.
+  if(peerId.isUser?.()) {
+    rootScope.dispatchEvent('user_update', peerId.toUserId() as any);
+  }
+  rootScope.dispatchEvent('peer_title_edit', {peerId} as any);
 }
 
 /**

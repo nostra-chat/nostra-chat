@@ -119,6 +119,31 @@ describe('refreshPeerProfileFromRelays', () => {
     });
   });
 
+  test('also dispatches peer_title_edit so chatlist + topbar refresh (FIND-5329aa12)', async() => {
+    queryRelayForProfileWithMeta.mockResolvedValue({profile: {display_name: 'Alice-Updated', name: 'alice'}, created_at: 200, pubkey: PUBKEY});
+
+    await refreshPeerProfileFromRelays(PUBKEY, PEER_ID);
+
+    // Tweb-native event that .person-title and .user-title listen to.
+    expect(dispatchEventSingle).toHaveBeenCalledWith('peer_title_edit', {peerId: PEER_ID});
+  });
+
+  test('persists displayName into virtual-peers-db so getApiUser sees fresh data', async() => {
+    // Seed an existing mapping so updateMappingProfile has something to update
+    const {storeMapping, getMapping} = await import('@lib/nostra/virtual-peers-db');
+    await storeMapping(PUBKEY, PEER_ID as unknown as number);
+
+    queryRelayForProfileWithMeta.mockResolvedValue({profile: {display_name: 'Alice-Renamed'}, created_at: 200, pubkey: PUBKEY});
+
+    await refreshPeerProfileFromRelays(PUBKEY, PEER_ID);
+
+    const mapping = await getMapping(PUBKEY);
+    // updateMappingProfile only sets displayName when none was present, so a
+    // freshly-seeded mapping (no nickname) should pick up the new name.
+    expect(mapping?.displayName).toBe('Alice-Renamed');
+    expect(mapping?.nostrProfile?.display_name).toBe('Alice-Renamed');
+  });
+
   test('does NOT write or dispatch when relay data is older than cache', async() => {
     saveCachedPeerProfile(PUBKEY, {profile: {name: 'cached'}, created_at: 500});
     queryRelayForProfileWithMeta.mockResolvedValue({profile: {name: 'old'}, created_at: 200, pubkey: PUBKEY});
@@ -144,7 +169,10 @@ describe('refreshPeerProfileFromRelays', () => {
     await refreshPeerProfileFromRelays(PUBKEY, PEER_ID);
 
     expect(loadCachedPeerProfile(PUBKEY)?.profile.name).toBe('fresh');
-    expect(dispatchEventSingle).toHaveBeenCalledTimes(1);
+    // Both nostra_peer_profile_updated AND peer_title_edit fire (the latter
+    // added in the FIND-5329aa12 fix). Assert each by name rather than total.
+    expect(dispatchEventSingle).toHaveBeenCalledWith('nostra_peer_profile_updated', expect.any(Object));
+    expect(dispatchEventSingle).toHaveBeenCalledWith('peer_title_edit', {peerId: PEER_ID});
   });
 
   test('tolerates relay rejections', async() => {
