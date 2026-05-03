@@ -385,6 +385,21 @@ export default class PopupNewMedia extends PopupElement {
       if(currentPopup === this) {
         currentPopup = undefined;
       }
+
+      // PopupElement.show() called blurActiveElement() to hide the mobile
+      // keyboard when the popup opened. On dismiss we restore the caret to
+      // the chat input so the very next keystroke / send-button click reaches
+      // it (FIND-12ebc512: first send after popup-new-media close was
+      // silently dropped because focus had no resting place — input event
+      // never fired, .is-empty class persisted, onBtnSendClick fell through
+      // to the voice-recorder branch instead of sendMessage). This is also
+      // a real-world UX win: users no longer have to click the input again.
+      const messageInput = this.chat?.input?.messageInput;
+      if(messageInput?.isContentEditable && document.body.contains(messageInput)) {
+        try {
+          placeCaretAtEnd(messageInput, false, true);
+        } catch{ /* swallow — focus restore is best-effort */ }
+      }
     });
 
     if(this.chat.type === ChatType.Scheduled && this.isEditing()) {
