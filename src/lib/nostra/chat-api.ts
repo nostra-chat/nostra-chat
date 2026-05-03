@@ -465,7 +465,7 @@ export class ChatAPI {
    *   IDB row (FIND-e49755c1 residual).
    * @returns The generated message ID
    */
-  async sendText(content: string, opts?: {mid?: number; twebPeerId?: number; timestampSec?: number}): Promise<string> {
+  async sendText(content: string, opts?: {mid?: number; twebPeerId?: number; timestampSec?: number; replyTo?: {eventId: string; relayUrl?: string}}): Promise<string> {
     return this.sendMessage('text', content, opts);
   }
 
@@ -516,7 +516,7 @@ export class ChatAPI {
   private async sendMessage(
     type: ChatMessageType,
     content: string,
-    opts?: {mid?: number; twebPeerId?: number; timestampSec?: number}
+    opts?: {mid?: number; twebPeerId?: number; timestampSec?: number; replyTo?: {eventId: string; relayUrl?: string}}
   ): Promise<string> {
     const messageId = this.generateMessageId();
     // If caller provided an authoritative seconds-precision timestamp, pin
@@ -567,7 +567,7 @@ export class ChatAPI {
           timestamp
         });
 
-        const result: PublishResult = await this.relayPool.publish(peerOwnId!, plaintext);
+        const result: PublishResult = await this.relayPool.publish(peerOwnId!, plaintext, opts?.replyTo);
         publishedRumorId = result.rumorId;
 
         if(result.successes.length > 0) {
@@ -619,6 +619,18 @@ export class ChatAPI {
       }
 
       if(rowMid !== undefined && twebPeerId !== undefined) {
+        // Resolve replyTo eventId → mid so the sender-side row carries the
+        // same identifier the bubble renderer wants (messageReplyHeader.
+        // reply_to_msg_id is a tweb mid, not a Nostr event id).
+        let replyToMid: number | undefined;
+        if(opts?.replyTo?.eventId) {
+          try {
+            const original = await store.getByEventId(opts.replyTo.eventId);
+            if(original) replyToMid = original.mid;
+          } catch(e: any) {
+            this.log.warn('[ChatAPI] reply_to mid resolve failed:', e?.message);
+          }
+        }
         const row: StoredMessage = {
           eventId: rowEventId,
           conversationId,
@@ -630,7 +642,8 @@ export class ChatAPI {
           mid: rowMid,
           twebPeerId,
           isOutgoing: true,
-          appMessageId: messageId
+          appMessageId: messageId,
+          ...(replyToMid !== undefined ? {replyToMid} : {})
         };
         await store.saveMessage(row);
       } else {

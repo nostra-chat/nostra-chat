@@ -80,6 +80,31 @@ export function isEditMessage(tags: string[][] | undefined): {originalAppMessage
   return null;
 }
 
+/**
+ * Check if the rumor tags carry a NIP-10 reply marker.
+ * Returns the eventId of the message being replied to, or null otherwise.
+ *
+ * Tag shape: `['e', '<rumorEventId>', '<relayUrl-or-empty>', 'reply']`.
+ * Per nostr-crypto.ts:127-139 we always set position 4 to 'reply' for our
+ * own outgoing replies; we accept missing position 4 for forward-compat
+ * with NIP-10 'positional' tag readings.
+ */
+export function isReplyMessage(tags: string[][] | undefined): {replyToEventId: string} | null {
+  if(!tags || !Array.isArray(tags)) return null;
+  for(const tag of tags) {
+    if(!Array.isArray(tag) || tag.length < 2) continue;
+    if(tag[0] !== 'e') continue;
+    const marker = tag[3];
+    // Only accept explicit 'reply' marker — 'mention' / 'root' carry different
+    // semantics and should not surface as a quote header.
+    if(marker !== 'reply') continue;
+    const id = tag[1];
+    if(typeof id !== 'string' || id.length !== 64) continue;
+    return {replyToEventId: id};
+  }
+  return null;
+}
+
 /** Check if the message is a delete notification */
 export function isDeleteNotification(content: string): {eventIds: string[]} | null {
   try {
@@ -397,6 +422,19 @@ export async function handleRelayMessage(
     if(resolvedMid === undefined || resolvedPeerId === undefined) {
       ctx.log.warn('[ChatAPI] incoming save: skipping partial row (bridge resolve failed)', {eventId: msg.id});
     } else {
+      // Resolve NIP-10 reply marker to the local mid of the original message,
+      // if present in the rumor tags. Receiver-side resolution (sender did the
+      // same on its own row in chat-api.ts).
+      let replyToMid: number | undefined;
+      const replyMarker = isReplyMessage(msg.tags);
+      if(replyMarker) {
+        try {
+          const original = await store.getByEventId(replyMarker.replyToEventId);
+          if(original) replyToMid = original.mid;
+        } catch(e: any) {
+          ctx.log.warn('[ChatAPI] reply_to mid resolve failed:', e?.message);
+        }
+      }
       const row: StoredMessage = {
         eventId: msg.id,
         appMessageId: chatMessage.id,
@@ -409,6 +447,7 @@ export async function handleRelayMessage(
         mid: resolvedMid,
         twebPeerId: resolvedPeerId,
         isOutgoing: false,
+        ...(replyToMid !== undefined ? {replyToMid} : {}),
         fileMetadata: fileMetadata ? {
           url: fileMetadata.url,
           sha256: fileMetadata.sha256,

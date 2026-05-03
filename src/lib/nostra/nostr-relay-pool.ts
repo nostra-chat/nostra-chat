@@ -250,7 +250,11 @@ export class NostrRelayPool {
 
   // ─── Messaging ─────────────────────────────────────────────────
 
-  async publish(recipientPubkey: string, plaintext: string): Promise<PublishResult> {
+  async publish(
+    recipientPubkey: string,
+    plaintext: string,
+    replyTo?: {eventId: string; relayUrl?: string}
+  ): Promise<PublishResult> {
     const successes: string[] = [];
     const failures: {url: string; error: string}[] = [];
 
@@ -263,7 +267,10 @@ export class NostrRelayPool {
     let rumorId: string | undefined;
     try {
       if(!this.privateKeyBytes) {
-        // Fallback: use storeMessage on individual relays (they wrap internally)
+        // Fallback: use storeMessage on individual relays (they wrap internally).
+        // Note: this path predates the replyTo plumbing — relays' own wrap path
+        // does not carry the reply e-tag. Modern code always has privateKeyBytes
+        // set so we never hit this in production; keep it for legacy tests only.
         const promises = writeEntries.map(async(entry) => {
           try {
             const eventId = await entry.instance.storeMessage(recipientPubkey, plaintext);
@@ -279,7 +286,7 @@ export class NostrRelayPool {
         return {successes, failures};
       }
 
-      const wrapped = wrapNip17Message(this.privateKeyBytes, recipientPubkey, plaintext);
+      const wrapped = wrapNip17Message(this.privateKeyBytes, recipientPubkey, plaintext, replyTo);
       wraps = wrapped.wraps as unknown as NostrEvent[];
       rumorId = wrapped.rumorId;
     } catch(err) {

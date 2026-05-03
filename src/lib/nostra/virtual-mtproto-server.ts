@@ -425,7 +425,8 @@ export class NostraMTProtoServer {
             fromPeerId: isOutgoing ? undefined : peerId,
             date: latest.timestamp,
             text: latest.content,
-            isOutgoing
+            isOutgoing,
+            ...(latest.replyToMid !== undefined ? {replyToMid: latest.replyToMid} : {})
           });
 
           const readCursor = await store.getReadCursor(convId);
@@ -513,7 +514,8 @@ export class NostraMTProtoServer {
                 fromPeerId,
                 date: latest.timestamp,
                 text: latest.content,
-                isOutgoing
+                isOutgoing,
+                ...(latest.replyToMid !== undefined ? {replyToMid: latest.replyToMid} : {})
               });
               messages.push(msg);
             }
@@ -621,7 +623,8 @@ export class NostraMTProtoServer {
           date: stored.timestamp,
           text: stored.content,
           isOutgoing,
-          media
+          media,
+          ...(stored.replyToMid !== undefined ? {replyToMid: stored.replyToMid} : {})
         });
         messages.push(msg);
       } catch(err) {
@@ -761,7 +764,8 @@ export class NostraMTProtoServer {
           date: stored.timestamp,
           text: stored.content,
           isOutgoing,
-          media
+          media,
+          ...(stored.replyToMid !== undefined ? {replyToMid: stored.replyToMid} : {})
         });
         messages.push(msg);
       } catch(err) {
@@ -831,7 +835,8 @@ export class NostraMTProtoServer {
               fromPeerId,
               date: stored.timestamp,
               text: stored.content,
-              isOutgoing
+              isOutgoing,
+              ...(stored.replyToMid !== undefined ? {replyToMid: stored.replyToMid} : {})
             });
             messages.push(msg);
 
@@ -1008,7 +1013,27 @@ export class NostraMTProtoServer {
       const twebPeerId = Math.abs(peerId);
       const now = Math.floor(Date.now() / 1000);
 
-      const messageId: string = await this.chatAPI.sendText(text, {twebPeerId, timestampSec: now});
+      // tweb sends `reply_to: {_: 'inputReplyToMessage', reply_to_msg_id: <mid>}`.
+      // Resolve the mid back to the rumor eventId we stored on the original
+      // message and forward to ChatAPI so the new rumor carries a NIP-10
+      // `['e', <id>, '', 'reply']` tag (the cryptography layer at
+      // nostr-crypto.ts:127-139 already supports this).
+      let replyTo: {eventId: string} | undefined;
+      let replyToMid: number | undefined;
+      const replyToMsgId: number | undefined = params?.reply_to?.reply_to_msg_id;
+      if(replyToMsgId !== undefined && replyToMsgId !== null) {
+        try {
+          const original = await getMessageStore().getByMid(replyToMsgId);
+          if(original?.eventId) {
+            replyTo = {eventId: original.eventId};
+            replyToMid = original.mid;
+          }
+        } catch(e: any) {
+          console.warn(LOG_PREFIX, 'sendMessage: reply_to lookup failed:', e?.message);
+        }
+      }
+
+      const messageId: string = await this.chatAPI.sendText(text, {twebPeerId, timestampSec: now, replyTo});
       // mapEventId hashes `messageId + timestamp` into a tweb mid the same
       // way ChatAPI does on its row save (see chat-api.ts:615), so the value
       // we use for `injectOutgoingBubble` matches the row's `mid`.
@@ -1023,7 +1048,8 @@ export class NostraMTProtoServer {
         mid,
         date: now,
         text,
-        senderPubkey: this.ownPubkey
+        senderPubkey: this.ownPubkey,
+        ...(replyToMid !== undefined ? {replyToMid} : {})
       });
 
       // Return the mid and date so the Worker's P2P shortcut can
@@ -1258,6 +1284,7 @@ export class NostraMTProtoServer {
     date: number;
     text: string;
     senderPubkey: string;
+    replyToMid?: number;
     media?: {
       type: 'image' | 'video' | 'file' | 'voice';
       objectURL: string;
@@ -1271,7 +1298,7 @@ export class NostraMTProtoServer {
     };
   }): Promise<void> {
     try {
-      const {peerId, mid, date, text, media} = params;
+      const {peerId, mid, date, text, media, replyToMid} = params;
 
       const msg = this.mapper.createTwebMessage({
         mid,
@@ -1279,7 +1306,8 @@ export class NostraMTProtoServer {
         fromPeerId: undefined,
         date,
         text,
-        isOutgoing: true
+        isOutgoing: true,
+        ...(replyToMid !== undefined ? {replyToMid} : {})
       });
       (msg as any).pFlags ??= {};
       (msg as any).pFlags.out = true;

@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import {describe, it, expect, beforeEach, afterAll, vi} from 'vitest';
-import {isEditMessage, handleRelayMessage, ReceiveContext, IncomingEdit} from '@lib/nostra/chat-api-receive';
+import {isEditMessage, isReplyMessage, handleRelayMessage, ReceiveContext, IncomingEdit} from '@lib/nostra/chat-api-receive';
 import {getMessageStore} from '@lib/nostra/message-store';
 import type {DecryptedMessage} from '@lib/nostra/nostr-relay';
 
@@ -112,6 +112,52 @@ describe('isEditMessage', () => {
     expect(isEditMessage([
       ['nostra-edit']
     ])).toBeNull();
+  });
+});
+
+describe('isReplyMessage', () => {
+  const HEX64 = 'a'.repeat(64);
+
+  it('returns null for undefined or empty tags', () => {
+    expect(isReplyMessage(undefined)).toBeNull();
+    expect(isReplyMessage([])).toBeNull();
+  });
+
+  it('returns null when no e-tag has the reply marker', () => {
+    expect(isReplyMessage([
+      ['p', 'pubkey-x'],
+      ['e', HEX64, '', 'mention']
+    ])).toBeNull();
+  });
+
+  it('detects a NIP-10 reply marker and returns the eventId', () => {
+    expect(isReplyMessage([
+      ['p', 'pubkey-x'],
+      ['e', HEX64, '', 'reply']
+    ])).toEqual({replyToEventId: HEX64});
+  });
+
+  it('rejects an e-tag with non-64-hex eventId', () => {
+    expect(isReplyMessage([
+      ['e', 'short', '', 'reply']
+    ])).toBeNull();
+  });
+
+  it('rejects an e-tag without the reply marker (root, missing)', () => {
+    expect(isReplyMessage([
+      ['e', HEX64, '', 'root']
+    ])).toBeNull();
+    expect(isReplyMessage([
+      ['e', HEX64]
+    ])).toBeNull();
+  });
+
+  it('returns null when first non-matching e-tag precedes a valid reply tag (no, picks first reply)', () => {
+    // The function scans linearly; the first 'reply'-marked e-tag wins.
+    expect(isReplyMessage([
+      ['e', HEX64, '', 'mention'],
+      ['e', 'b'.repeat(64), '', 'reply']
+    ])).toEqual({replyToEventId: 'b'.repeat(64)});
   });
 
   it('rejects a nostra-edit tag with non-string value', () => {

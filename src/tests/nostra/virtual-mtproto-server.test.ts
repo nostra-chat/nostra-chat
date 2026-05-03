@@ -464,6 +464,54 @@ describe('NostraMTProtoServer', () => {
       expect(result._).toBe('updates');
       expect(result.updates).toEqual([]);
     });
+
+    describe('reply_to plumbing', () => {
+      it('extracts reply_to.reply_to_msg_id, resolves eventId via getByMid, and forwards as replyTo', async () => {
+        mockStore.getByMid.mockResolvedValue({
+          ...mockMessage,
+          mid: 555,
+          eventId: 'rumor-original-evt-hex'
+        });
+
+        await server.handleMethod('messages.sendMessage', {
+          peer: {user_id: PEER_ID},
+          message: 'this is a reply',
+          reply_to: {_: 'inputReplyToMessage', reply_to_msg_id: 555}
+        });
+
+        expect(mockStore.getByMid).toHaveBeenCalledWith(555);
+        expect(mockChatAPI.sendText).toHaveBeenCalledWith(
+          'this is a reply',
+          expect.objectContaining({
+            replyTo: {eventId: 'rumor-original-evt-hex'}
+          })
+        );
+      });
+
+      it('does NOT pass replyTo when reply_to is absent on the request', async () => {
+        await server.handleMethod('messages.sendMessage', {
+          peer: {user_id: PEER_ID},
+          message: 'plain message'
+        });
+
+        const opts = mockChatAPI.sendText.mock.calls[0][1];
+        expect(opts.replyTo).toBeUndefined();
+      });
+
+      it('still sends the message when reply_to mid lookup fails', async () => {
+        mockStore.getByMid.mockResolvedValue(null);
+
+        await server.handleMethod('messages.sendMessage', {
+          peer: {user_id: PEER_ID},
+          message: 'reply with broken target',
+          reply_to: {_: 'inputReplyToMessage', reply_to_msg_id: 999}
+        });
+
+        expect(mockChatAPI.sendText).toHaveBeenCalled();
+        const opts = mockChatAPI.sendText.mock.calls[0][1];
+        expect(opts.replyTo).toBeUndefined();
+      });
+    });
   });
 
   describe('messages.sendMedia', () => {

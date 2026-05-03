@@ -32,6 +32,14 @@ export interface CreateMessageOpts {
   text: string;
   isOutgoing: boolean;
   media?: any;
+  /**
+   * tweb mid of the message this one is a reply to. When set, surfaces as
+   * `messageReplyHeader.reply_to_msg_id` so the bubble renderer adds the
+   * `.reply` quote header. Resolved from the rumor's NIP-10 `['e', id, '',
+   * 'reply']` tag by chat-api-receive (incoming) or from the original row's
+   * mid by chat-api.sendMessage (outgoing).
+   */
+  replyToMid?: number;
 }
 
 export interface CreateDialogOpts {
@@ -145,6 +153,12 @@ export class NostraPeerMapper {
       totalEntities = wrapped.totalEntities;
     }
 
+    const reply_to = opts.replyToMid !== undefined ? {
+      _: 'messageReplyHeader',
+      pFlags: {},
+      reply_to_msg_id: opts.replyToMid
+    } : undefined;
+
     const message: Message.message = {
       _: 'message',
       id: opts.mid,
@@ -154,7 +168,8 @@ export class NostraPeerMapper {
       message: opts.text,
       pFlags,
       ...(entities && entities.length ? {entities} : {}),
-      ...(opts.media ? {media: opts.media} : {})
+      ...(opts.media ? {media: opts.media} : {}),
+      ...(reply_to ? {reply_to: reply_to as any} : {})
     } as Message.message;
     if(totalEntities && totalEntities.length) {
       (message as any).totalEntities = totalEntities;

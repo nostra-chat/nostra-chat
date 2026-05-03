@@ -67,6 +67,14 @@ export interface StoredMessage {
   /** Unix timestamp (seconds) of the most recent edit. Absent on never-edited messages. */
   editedAt?: number;
   /**
+   * tweb mid of the message this row is a reply to, when the rumor carried a
+   * NIP-10 `['e', <id>, '', 'reply']` tag. Sender stamps locally before save;
+   * receiver resolves the original rumor's stored row to its mid on incoming.
+   * Absent on non-reply messages. Surfaces as `messageReplyHeader.reply_to_msg_id`
+   * when the row is converted to a tweb Message via nostra-peer-mapper.
+   */
+  replyToMid?: number;
+  /**
    * Service message type (e.g. group creation). When set, VMT renders this row
    * as a tweb `messageService` with the corresponding action instead of a
    * regular text bubble. Synthesized locally — never transmitted over the wire.
