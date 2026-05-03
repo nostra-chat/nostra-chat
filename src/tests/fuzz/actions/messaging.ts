@@ -21,9 +21,17 @@ export const sendText: ActionSpec = {
     const sender = ctx.users[from];
     const recipient = ctx.users[to];
 
-    // Open the chat to the recipient.
+    // Open the chat to the recipient — but only if not already focused on it.
+    // Calling setPeer({peerId}) when already on that peer still falls through
+    // to chat.setPeer → bubbles.setPeer → tempId++ which invalidates any
+    // in-flight history hydration from the prior send; that race is the root
+    // of the FIND-79c70e73 bilateral-bubble-symmetry family (sender's own
+    // history collapsed to last-message-only). Idempotent guard fixes most
+    // reproductions without losing chat-switch coverage.
     await sender.page.evaluate((peerId: number) => {
-      (window as any).appImManager?.setPeer?.({peerId});
+      const aim = (window as any).appImManager;
+      if(aim?.chat?.peerId === peerId) return;
+      aim?.setPeer?.({peerId});
     }, sender.remotePeerId);
     await sender.page.waitForTimeout(300);
 
@@ -82,7 +90,9 @@ export const replyToRandomBubble: ActionSpec = {
     const from: 'userA' | 'userB' = action.args.from;
     const sender = ctx.users[from];
     await sender.page.evaluate((peerId: number) => {
-      (window as any).appImManager?.setPeer?.({peerId});
+      const aim = (window as any).appImManager;
+      if(aim?.chat?.peerId === peerId) return;
+      aim?.setPeer?.({peerId});
     }, sender.remotePeerId);
     await sender.page.waitForTimeout(300);
 
@@ -121,7 +131,9 @@ export const editRandomOwnBubble: ActionSpec = {
     const from: 'userA' | 'userB' = action.args.user;
     const sender = ctx.users[from];
     await sender.page.evaluate((peerId: number) => {
-      (window as any).appImManager?.setPeer?.({peerId});
+      const aim = (window as any).appImManager;
+      if(aim?.chat?.peerId === peerId) return;
+      aim?.setPeer?.({peerId});
     }, sender.remotePeerId);
     await sender.page.waitForTimeout(300);
 
@@ -171,7 +183,9 @@ export const deleteRandomOwnBubble: ActionSpec = {
     const from: 'userA' | 'userB' = action.args.user;
     const sender = ctx.users[from];
     await sender.page.evaluate((peerId: number) => {
-      (window as any).appImManager?.setPeer?.({peerId});
+      const aim = (window as any).appImManager;
+      if(aim?.chat?.peerId === peerId) return;
+      aim?.setPeer?.({peerId});
     }, sender.remotePeerId);
     await sender.page.waitForTimeout(300);
 
@@ -207,7 +221,9 @@ export const reactToRandomBubble: ActionSpec = {
     const from: 'userA' | 'userB' = action.args.user;
     const sender = ctx.users[from];
     await sender.page.evaluate((peerId: number) => {
-      (window as any).appImManager?.setPeer?.({peerId});
+      const aim = (window as any).appImManager;
+      if(aim?.chat?.peerId === peerId) return;
+      aim?.setPeer?.({peerId});
     }, sender.remotePeerId);
     await sender.page.waitForTimeout(300);
 
@@ -243,7 +259,9 @@ export const removeReaction: ActionSpec = {
     const from: 'userA' | 'userB' = action.args.user;
     const sender = ctx.users[from];
     await sender.page.evaluate((peerId: number) => {
-      (window as any).appImManager?.setPeer?.({peerId});
+      const aim = (window as any).appImManager;
+      if(aim?.chat?.peerId === peerId) return;
+      aim?.setPeer?.({peerId});
     }, sender.remotePeerId);
     await sender.page.waitForTimeout(200);
 
@@ -282,7 +300,9 @@ export const reactMultipleEmoji: ActionSpec = {
     const from: 'userA' | 'userB' = action.args.user;
     const sender = ctx.users[from];
     await sender.page.evaluate((peerId: number) => {
-      (window as any).appImManager?.setPeer?.({peerId});
+      const aim = (window as any).appImManager;
+      if(aim?.chat?.peerId === peerId) return;
+      aim?.setPeer?.({peerId});
     }, sender.remotePeerId);
     await sender.page.waitForTimeout(200);
 
