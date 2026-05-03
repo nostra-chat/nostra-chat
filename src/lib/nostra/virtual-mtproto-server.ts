@@ -1790,6 +1790,47 @@ export class NostraMTProtoServer {
     return wrap();
   }
 
+  /**
+   * Catch-all for MTProto methods that don't have an explicit case in
+   * handleMethod. The shape choice is best-effort:
+   *
+   *   1. ACTION_PATTERNS match → return `true` (Telegram action methods
+   *      typically return `Bool`). The CALLER thinks the action succeeded.
+   *
+   *   2. NOSTRA_STATIC has an entry → return the canned response.
+   *
+   *   3. Otherwise → return `{pFlags: {}}` so naive `.pFlags` access on
+   *      the result doesn't throw at the call site.
+   *
+   * IMPORTANT: branch (1) is a SILENT-NOOP trap. Methods that fall through
+   * here look successful to tweb's caller but ship nothing on the wire.
+   * Any UI surface whose action goes through here will look inert to the
+   * peer — same shape as the bugs already fixed:
+   *
+   *   - messages.deleteMessages (revoke=true) — fixed in 529f1c5b by
+   *     adding an explicit handler that publishes a delete-notification.
+   *   - messages.updatePinnedMessage — pin UI hidden in 66350b05 because
+   *     no pin protocol exists yet.
+   *   - reply_to plumbing — wired in 398db7be.
+   *
+   * Known categories that STILL fall through and are at risk of silent
+   * failure on user action (audit in WAVE 7, ranked by user-visibility):
+   *
+   *   - account.setPrivacy / account.getPrivacy: privacy switches in
+   *     Settings → Privacy don't persist nor propagate. Quick win:
+   *     hide the Privacy section, or persist locally with localStorage.
+   *   - account.updateNotifySettings: per-peer notification config
+   *     changes, same silent-noop shape.
+   *   - messages.toggleNoForwards: group "restrict forwarding" toggle.
+   *   - messages.setTyping: typing indicators don't reach the peer
+   *     (probably benign — no UX expectation broken).
+   *
+   * Future contributors: when adding a UI surface that calls a method
+   * through this fallback, EITHER implement an explicit handler that
+   * propagates over the relay layer OR feature-flag-hide the UI.
+   * Otherwise the fixer agent will find it and the explorer will surface
+   * a HIGH-severity finding.
+   */
   private fallback(method: string, _params: any): any {
     // Action methods → return true
     for(const pattern of ACTION_PATTERNS) {
