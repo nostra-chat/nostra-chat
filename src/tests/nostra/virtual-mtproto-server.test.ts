@@ -41,6 +41,7 @@ const mockMessage = {
 const mockStore = vi.hoisted(() => ({
   getAllConversationIds: vi.fn(),
   getMessages: vi.fn(),
+  getByMid: vi.fn(),
   getConversationId: vi.fn((a: string, b: string) => [a, b].sort().join(':')),
   saveMessage: vi.fn(),
   deleteByMid: vi.fn(),
@@ -503,6 +504,77 @@ describe('NostraMTProtoServer', () => {
 
       expect(result._).toBe('messages.affectedMessages');
       expect(result.pts_count).toBe(0);
+    });
+
+    describe('revoke=true (delete-for-everyone)', () => {
+      const publishMessageDeletions = vi.fn().mockResolvedValue(undefined);
+
+      beforeEach(() => {
+        publishMessageDeletions.mockClear();
+        server.setChatAPI({
+          getActivePeer: vi.fn().mockReturnValue(PEER_PUBKEY),
+          connect: vi.fn().mockResolvedValue(undefined),
+          sendText: vi.fn().mockResolvedValue('eventId'),
+          publishMessageDeletions
+        });
+        mockStore.deleteByMid.mockResolvedValue(undefined);
+        mockStore.getByMid.mockResolvedValue({
+          ...mockMessage,
+          eventId: 'rumor-evt-A'
+        });
+        mockGetPubkey.mockResolvedValue(PEER_PUBKEY);
+      });
+
+      it('publishes per-message deletions to peer when revoke=true', async () => {
+        await server.handleMethod('messages.deleteMessages', {
+          id: [MID],
+          revoke: true
+        });
+
+        // Wait a microtask cycle for the fire-and-forget publish chain.
+        await new Promise((r) => setTimeout(r, 0));
+
+        expect(publishMessageDeletions).toHaveBeenCalledTimes(1);
+        const [eventIds, peerPubkey] = publishMessageDeletions.mock.calls[0];
+        expect(eventIds).toEqual(['rumor-evt-A']);
+        expect(peerPubkey).toBe(PEER_PUBKEY);
+      });
+
+      it('does NOT publish when revoke is false (Local-only delete)', async () => {
+        await server.handleMethod('messages.deleteMessages', {
+          id: [MID],
+          revoke: false
+        });
+
+        await new Promise((r) => setTimeout(r, 0));
+        expect(publishMessageDeletions).not.toHaveBeenCalled();
+      });
+
+      it('still removes from local store even when publish path is unavailable', async () => {
+        server.setChatAPI(null);
+        await server.handleMethod('messages.deleteMessages', {
+          id: [MID],
+          revoke: true
+        });
+
+        expect(mockStore.deleteByMid).toHaveBeenCalledWith(MID);
+        expect(publishMessageDeletions).not.toHaveBeenCalled();
+      });
+
+      it('skips eventIds for mids with missing rows', async () => {
+        mockStore.getByMid
+        .mockResolvedValueOnce({...mockMessage, eventId: 'rumor-evt-1'})
+        .mockResolvedValueOnce(null);
+
+        await server.handleMethod('messages.deleteMessages', {
+          id: [MID, MID + 1],
+          revoke: true
+        });
+
+        await new Promise((r) => setTimeout(r, 0));
+        const [eventIds] = publishMessageDeletions.mock.calls[0];
+        expect(eventIds).toEqual(['rumor-evt-1']);
+      });
     });
   });
 

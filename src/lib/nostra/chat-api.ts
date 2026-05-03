@@ -966,61 +966,66 @@ export class ChatAPI {
       return !isConversation;
     });
 
-    // Level 2: Gift-wrapped peer notification with delete-notification tag
-    if(eventIds.length > 0 && this.relayPool.getPrivateKey()) {
-      try {
-        const privateKey = this.relayPool.getPrivateKey()!;
-
-        // Build tags: delete-notification + e tags for each message
-        const tags: string[][] = [['delete-notification']];
-        for(const eid of eventIds) {
-          tags.push(['e', eid]);
-        }
-
-        // Create a gift-wrapped notification using wrapNip17Message
-        // The content is empty — the tags carry the delete info
-        const deleteContent = JSON.stringify({
-          type: 'delete-notification',
-          eventIds
-        });
-        const {wraps} = wrapNip17Message(privateKey, peerPubkey, deleteContent);
-
-        for(const wrap of wraps) {
-          await this.relayPool.publishRawEvent(wrap as any);
-        }
-
-        this.log('[ChatAPI] Level 2: delete notification sent to peer,', eventIds.length, 'event IDs');
-      } catch(err) {
-        this.log.warn('[ChatAPI] Level 2 peer notification failed (non-fatal):', err);
-      }
-    }
-
-    // Level 3: NIP-09 kind 5 deletion request to relays (best-effort)
-    if(eventIds.length > 0 && this.relayPool.getPrivateKey()) {
-      try {
-        const {finalizeEvent} = await import('nostr-tools/pure');
-        const privateKey = this.relayPool.getPrivateKey()!;
-
-        // Create kind 5 deletion event referencing the outer gift-wrap event IDs
-        const deletionEvent = finalizeEvent({
-          kind: 5,
-          created_at: Math.floor(Date.now() / 1000),
-          tags: eventIds.map(eid => ['e', eid]),
-          content: 'Conversation deleted'
-        }, privateKey);
-
-        await this.relayPool.publishRawEvent(deletionEvent as any);
-
-        this.log('[ChatAPI] Level 3: NIP-09 deletion request published,', eventIds.length, 'event IDs');
-      } catch(err) {
-        this.log.warn('[ChatAPI] Level 3 NIP-09 deletion failed (non-fatal):', err);
-      }
-    }
+    // Levels 2 + 3 — peer gift-wrap notification + NIP-09 kind 5 to relays.
+    await this.publishMessageDeletions(eventIds, peerPubkey, 'Conversation deleted');
 
     // Dispatch event for display bridge to remove synthetic dialog
     rootScope.dispatchEvent('nostra_conversation_deleted', {peerPubkey, conversationId});
 
     this.log('[ChatAPI] deleteConversation complete for:', peerPubkey.slice(0, 8) + '...');
+  }
+
+  /**
+   * Publish a per-message deletion to the wire — both the gift-wrapped
+   * peer notification (Level 2) and the public NIP-09 kind-5 (Level 3).
+   *
+   * Used by deleteConversation (whole-conversation cleanup) and by the
+   * Virtual MTProto Server's deleteMessages handler for per-message
+   * "Also delete for {peer}" requests. Local IDB removal is the caller's
+   * responsibility (Level 1).
+   *
+   * Both levels are best-effort and log on failure rather than throwing,
+   * matching the legacy deleteConversation contract.
+   */
+  async publishMessageDeletions(
+    eventIds: string[],
+    peerPubkey: string,
+    reasonContent: string = ''
+  ): Promise<void> {
+    if(eventIds.length === 0) return;
+    if(!this.relayPool.getPrivateKey()) return;
+
+    // Level 2: Gift-wrapped peer notification with delete-notification tag.
+    try {
+      const privateKey = this.relayPool.getPrivateKey()!;
+      const deleteContent = JSON.stringify({
+        type: 'delete-notification',
+        eventIds
+      });
+      const {wraps} = wrapNip17Message(privateKey, peerPubkey, deleteContent);
+      for(const wrap of wraps) {
+        await this.relayPool.publishRawEvent(wrap as any);
+      }
+      this.log('[ChatAPI] Level 2: delete notification sent to peer,', eventIds.length, 'event IDs');
+    } catch(err) {
+      this.log.warn('[ChatAPI] Level 2 peer notification failed (non-fatal):', err);
+    }
+
+    // Level 3: NIP-09 kind 5 deletion request to relays (best-effort).
+    try {
+      const {finalizeEvent} = await import('nostr-tools/pure');
+      const privateKey = this.relayPool.getPrivateKey()!;
+      const deletionEvent = finalizeEvent({
+        kind: 5,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: eventIds.map(eid => ['e', eid]),
+        content: reasonContent
+      }, privateKey);
+      await this.relayPool.publishRawEvent(deletionEvent as any);
+      this.log('[ChatAPI] Level 3: NIP-09 deletion request published,', eventIds.length, 'event IDs');
+    } catch(err) {
+      this.log.warn('[ChatAPI] Level 3 NIP-09 deletion failed (non-fatal):', err);
+    }
   }
 
   // ==================== Private Methods ====================

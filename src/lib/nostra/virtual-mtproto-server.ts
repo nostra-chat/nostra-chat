@@ -1552,7 +1552,32 @@ export class NostraMTProtoServer {
 
   private async deleteMessages(params: any): Promise<any> {
     const mids: number[] = params?.id || [];
-    // Delete from message-store
+    const revoke: boolean = !!params?.revoke;
+
+    // For "Also delete for {peer}" we collect the rumor eventId + recipient
+    // pubkey for each mid BEFORE the local deletion clears the row. The
+    // collection is per-peer so peers different from the active conversation
+    // (rare; only happens if the caller batches across chats) each get their
+    // own gift-wrapped delete-notification.
+    const perPeer = new Map<string, string[]>();
+    if(revoke && mids.length && this.chatAPI) {
+      try {
+        const store = getMessageStore();
+        for(const mid of mids) {
+          const row = await store.getByMid(mid).catch((): null => null);
+          if(!row?.eventId) continue;
+          const peerPubkey = await getPubkey(Math.abs(row.twebPeerId)).catch((): null => null);
+          if(!peerPubkey) continue;
+          const arr = perPeer.get(peerPubkey) ?? [];
+          arr.push(row.eventId);
+          perPeer.set(peerPubkey, arr);
+        }
+      } catch(err) {
+        console.warn(LOG_PREFIX, 'deleteMessages: revoke collection failed:', err);
+      }
+    }
+
+    // Local deletion (Level 1)
     if(mids.length) {
       try {
         const store = getMessageStore();
@@ -1564,6 +1589,19 @@ export class NostraMTProtoServer {
         console.warn(LOG_PREFIX, 'deleteMessages error:', err);
       }
     }
+
+    // Wire publish (Levels 2 + 3) — fire-and-forget: never block the MTProto
+    // response on relay round-trip. Failures are logged inside ChatAPI.
+    if(revoke && perPeer.size > 0 && this.chatAPI) {
+      const api = this.chatAPI as any;
+      if(typeof api.publishMessageDeletions === 'function') {
+        for(const [peerPubkey, eventIds] of perPeer) {
+          api.publishMessageDeletions(eventIds, peerPubkey, 'Message deleted').catch((err: any) =>
+            console.warn(LOG_PREFIX, 'deleteMessages: revoke publish failed:', err?.message ?? err));
+        }
+      }
+    }
+
     return {
       _: 'messages.affectedMessages',
       pts: 1,
