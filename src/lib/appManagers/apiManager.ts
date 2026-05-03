@@ -679,7 +679,10 @@ export class ApiManager extends ApiManagerMethods {
     'account.getContentSettings': {_: 'account.contentSettings', pFlags: {}},
     'account.getNotifySettings': {_: 'peerNotifySettings', pFlags: {}, flags: 0},
     'account.getPassword': {_: 'account.password', pFlags: {has_password: false}, new_algo: {_: 'passwordKdfAlgoUnknown'}, new_secure_algo: {_: 'securePasswordKdfAlgoUnknown'}, secure_random: new Uint8Array(0)},
-    'account.getPrivacy': {_: 'account.privacyRules', rules: [{_: 'privacyValueAllowAll'}], chats: [], users: []},
+    // 'account.getPrivacy' moved to NOSTRA_BRIDGE_METHODS — VMT now reads
+    // it from localStorage so the user's setPrivacy choice round-trips
+    // across reload (was: hardcoded allowAll regardless of what setPrivacy
+    // last stored). See virtual-mtproto-server.ts getPrivacy/setPrivacy.
     'help.getConfig': {_: 'config', date: Math.floor(Date.now() / 1000), expires: Math.floor(Date.now() / 1000) + 3600, test_mode: false, this_dc: 1, dc_options: [], dc_txt_domain_name: '', chat_size_max: 200, megagroup_size_max: 200000, forwarded_count_max: 100, online_update_period_ms: 210000, offline_blur_timeout_ms: 5000, offline_idle_timeout_ms: 30000, online_cloud_timeout_ms: 300000, notify_cloud_delay_ms: 30000, notify_default_delay_ms: 1500, push_chat_period_ms: 60000, push_chat_limit: 2, edit_time_limit: 172800, revoke_time_limit: 172800, revoke_pm_time_limit: 2147483647, rating_e_decay: 2419200, stickers_recent_limit: 15, caption_length_max: 1024, message_length_max: 4096, webfile_dc_id: 1, pFlags: {}},
     'help.getPeerColors': {_: 'help.peerColors', hash: 0, colors: []},
     'help.getPeerProfileColors': {_: 'help.peerColors', hash: 0, colors: []},
@@ -880,7 +883,11 @@ export class ApiManager extends ApiManagerMethods {
     'contacts.getContacts',
     'users.getUsers',
     'users.getFullUser',
-    'nostraSendFile'
+    'nostraSendFile',
+    // Privacy rules: VMT persists via localStorage so the round-trip works
+    // across reload. Worker → bridge → VMT for both read/write.
+    'account.getPrivacy',
+    'account.setPrivacy'
   ]);
 
   private static _invariantsChecked = false;

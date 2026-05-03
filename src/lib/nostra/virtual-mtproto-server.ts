@@ -363,9 +363,86 @@ export class NostraMTProtoServer {
       case 'channels.inviteToChannel':
         return this.inviteToChannel(params);
 
+      case 'account.getPrivacy':
+        return this.getPrivacy(params);
+
+      case 'account.setPrivacy':
+        return this.setPrivacy(params);
+
       default:
         return this.fallback(method, params);
     }
+  }
+
+  // ─── Privacy persistence ──────────────────────────────────────────
+  //
+  // Tweb's appPrivacyManager calls account.setPrivacy/getPrivacy whenever
+  // the user toggles a switch in Settings → Privacy. With no explicit
+  // handler the previous behaviour was: setPrivacy fell through to the
+  // fallback() and returned `true` (silently dropping the user's choice),
+  // and getPrivacy in WORKER context returned a hardcoded
+  // `[{_:'privacyValueAllowAll'}]` static. The local `processLocalUpdate`
+  // optimistic dispatch made the toggle look effective until the next
+  // reload, when getPrivacy returned allowAll again and the change was
+  // gone. Persist via localStorage so the round-trip is honest.
+  //
+  // Same shape as the bugs already fixed in WAVE 2.x (delete, reply, pin)
+  // — UI shipped, RPC silently no-op'd, audit in WAVE 7 flagged this as
+  // the #1 ranked silent-noop candidate. Implementing it preventively
+  // before the explorer surfaces it as FIND-* HIGH.
+  private privacyKey(inputKey: any): string {
+    const k = inputKey?._ ?? '';
+    return `nostra-privacy:${k}`;
+  }
+
+  private async getPrivacy(params: any): Promise<any> {
+    const fallbackResponse = {
+      _: 'account.privacyRules',
+      rules: [{_: 'privacyValueAllowAll'}],
+      chats: [] as any[],
+      users: [] as any[]
+    };
+    try {
+      if(typeof localStorage === 'undefined') return fallbackResponse;
+      const raw = localStorage.getItem(this.privacyKey(params?.key));
+      if(!raw) return fallbackResponse;
+      const stored = JSON.parse(raw);
+      if(!Array.isArray(stored?.rules)) return fallbackResponse;
+      return {
+        _: 'account.privacyRules',
+        rules: stored.rules,
+        chats: [] as any[],
+        users: [] as any[]
+      };
+    } catch{
+      return fallbackResponse;
+    }
+  }
+
+  private async setPrivacy(params: any): Promise<any> {
+    // Convert tweb's `inputPrivacyValue*` rules into the response-shape
+    // `privacyValue*` so the round-trip via getPrivacy returns rules that
+    // match what tweb stores in its in-memory privacy map.
+    const rules = Array.isArray(params?.rules) ? params.rules.map((r: any) => ({
+      ...r,
+      _: typeof r?._ === 'string' ? r._.replace(/^inputPrivacy/, 'privacy') : r?._
+    })) : [];
+    try {
+      if(typeof localStorage !== 'undefined') {
+        localStorage.setItem(this.privacyKey(params?.key), JSON.stringify({rules}));
+      }
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'setPrivacy persist failed:', err);
+    }
+    // Tweb's caller does:
+    //   .then((privacyRules) => { saveApiUsers(privacyRules.users); ... })
+    // so we must return a properly-shaped account.privacyRules envelope.
+    return {
+      _: 'account.privacyRules',
+      rules,
+      chats: [] as any[],
+      users: [] as any[]
+    };
   }
 
   // ─── Private implementations ──────────────────────────────────────

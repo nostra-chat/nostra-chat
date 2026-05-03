@@ -734,6 +734,68 @@ describe('NostraMTProtoServer', () => {
     });
   });
 
+  // ─── Privacy ──────────────────────────────────────────────────────
+  // WAVE 8 preventive fix: account.setPrivacy/getPrivacy now persist to
+  // localStorage so the toggle round-trips across reload. Was a silent-
+  // noop trap (the audit's #1 ranked candidate to surface as FIND-* HIGH
+  // in the next explorer run).
+
+  describe('account.setPrivacy + account.getPrivacy round-trip', () => {
+    beforeEach(() => {
+      localStorage.clear();
+    });
+
+    it('getPrivacy returns allowAll fallback when no entry stored', async () => {
+      const result = await server.handleMethod('account.getPrivacy', {
+        key: {_: 'inputPrivacyKeyStatusTimestamp'}
+      });
+
+      expect(result._).toBe('account.privacyRules');
+      expect(result.rules).toEqual([{_: 'privacyValueAllowAll'}]);
+    });
+
+    it('setPrivacy persists rules and returns the response shape tweb expects', async () => {
+      const result = await server.handleMethod('account.setPrivacy', {
+        key: {_: 'inputPrivacyKeyStatusTimestamp'},
+        rules: [{_: 'inputPrivacyValueDisallowAll'}]
+      });
+
+      // Tweb's caller does .then(privacyRules => saveApiUsers(privacyRules.users))
+      // so the response MUST have users + chats arrays.
+      expect(result._).toBe('account.privacyRules');
+      expect(Array.isArray(result.users)).toBe(true);
+      expect(Array.isArray(result.chats)).toBe(true);
+      // setPrivacy converts inputPrivacyValue* → privacyValue* in the response
+      expect(result.rules[0]._).toBe('privacyValueDisallowAll');
+    });
+
+    it('round-trips: getPrivacy returns rules previously stored by setPrivacy', async () => {
+      await server.handleMethod('account.setPrivacy', {
+        key: {_: 'inputPrivacyKeyStatusTimestamp'},
+        rules: [{_: 'inputPrivacyValueDisallowAll'}]
+      });
+
+      const get = await server.handleMethod('account.getPrivacy', {
+        key: {_: 'inputPrivacyKeyStatusTimestamp'}
+      });
+
+      expect(get.rules[0]._).toBe('privacyValueDisallowAll');
+    });
+
+    it('keys are scoped — setting one privacy key does not affect another', async () => {
+      await server.handleMethod('account.setPrivacy', {
+        key: {_: 'inputPrivacyKeyStatusTimestamp'},
+        rules: [{_: 'inputPrivacyValueDisallowAll'}]
+      });
+
+      const otherKey = await server.handleMethod('account.getPrivacy', {
+        key: {_: 'inputPrivacyKeyPhoneNumber'}
+      });
+
+      expect(otherKey.rules).toEqual([{_: 'privacyValueAllowAll'}]);
+    });
+  });
+
   // ─── Fallback ─────────────────────────────────────────────────────
 
   describe('fallback', () => {
@@ -744,7 +806,10 @@ describe('NostraMTProtoServer', () => {
     });
 
     it('action methods return true — contains .set', async () => {
-      const result = await server.handleMethod('account.setPrivacy', {});
+      // account.setPrivacy now has its own handler (WAVE 8 preventive fix
+      // for the silent-noop trap). Use a different .set method to exercise
+      // the fallback action-pattern path.
+      const result = await server.handleMethod('account.setAccountTTL', {});
 
       expect(result).toBe(true);
     });
