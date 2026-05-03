@@ -909,21 +909,20 @@ export default class ChatContextMenu {
       icon: 'pin',
       text: 'Message.Context.Pin',
       onClick: this.onPinClick,
-      verify: async() => !this.isLegacy &&
-        !this.chat.isMonoforum &&
-        !this.message.pFlags.is_outgoing &&
-        this.message._ !== 'messageService' &&
-        !this.message.pFlags.pinned &&
-        await this.managers.appPeersManager.canPinMessage(this.message.peerId) &&
-        this.chat.type !== ChatType.Scheduled &&
-        !useIsFrozen()
+      // [Nostra.chat] Pin is hidden everywhere because messages.updatePinnedMessage
+      // is intercepted by the Virtual MTProto Server but no Nostr protocol layer
+      // ships the pin to the peer or persists pinned-mid state across clients.
+      // Showing the entry produced an inert action that confused the user (also
+      // the *initiating* user got no feedback — see FIND-6a2e9f8e). Re-enable
+      // the verify chain once a kind-14 type:'pin-notification' rumor + per-peer
+      // pinned-mid store + banner reactivity are implemented.
+      verify: async() => false
     }, {
       icon: 'unpin',
       text: 'Message.Context.Unpin',
       onClick: this.onUnpinClick,
-      verify: () => (this.message as Message.message).pFlags.pinned &&
-        this.managers.appPeersManager.canPinMessage(this.message.peerId) &&
-        !useIsFrozen()
+      // [Nostra.chat] See Pin item above — hidden until pin protocol exists.
+      verify: () => false
     }, {
       icon: 'download',
       text: 'MediaViewer.Context.Download',
