@@ -17,18 +17,41 @@ export interface DeliveryUIManager {
 /**
  * Apply delivery state to a bubble element.
  * Returns true if the bubble was found and updated.
+ *
+ * State → icon mapping (matches Telegram UX):
+ *   sent       → single check (clock removed; relay accepted)
+ *   delivered  → double checks (peer's client confirmed receipt)
+ *   read       → double checks + is-p2p-read class for blue tint
+ *
+ * Without the 'sent' transition the bubble was stuck on the clock spinner
+ * whenever a delivery receipt was delayed or lost (slow network, peer
+ * offline) — even though the relay had accepted the publish. FIND-9fa52e43.
  */
-export async function applyBubbleState(mid: string, state: 'delivered' | 'read'): Promise<boolean> {
+export async function applyBubbleState(mid: string, state: 'sent' | 'delivered' | 'read'): Promise<boolean> {
   const bubble = document.querySelector<HTMLElement>(`.bubble[data-mid="${CSS.escape(mid)}"]`);
   if(!bubble) return false;
-  bubble.classList.remove('is-sending', 'is-error', 'is-sent');
-  bubble.classList.add('is-read');
-  if(state === 'read') bubble.classList.add('is-p2p-read');
+
+  // Don't downgrade — once a bubble has been marked read/delivered, a late
+  // 'sent' echo from a slow second-relay must not flip the icon backwards.
+  if(state === 'sent' && (bubble.classList.contains('is-read') || bubble.classList.contains('is-p2p-read'))) {
+    return true;
+  }
+
+  bubble.classList.remove('is-sending', 'is-error');
+  if(state === 'sent') {
+    bubble.classList.remove('is-read');
+    bubble.classList.add('is-sent');
+  } else {
+    bubble.classList.remove('is-sent');
+    bubble.classList.add('is-read');
+    if(state === 'read') bubble.classList.add('is-p2p-read');
+  }
 
   const Icon = (await import('@components/icon')).default;
+  const iconName = state === 'sent' ? 'check' : 'checks';
   bubble.querySelectorAll<HTMLElement>('.time, .time-inner').forEach((element) => {
     const existing = element.querySelector('.time-sending-status');
-    const newIcon = Icon('checks' as any, 'time-sending-status');
+    const newIcon = Icon(iconName as any, 'time-sending-status');
     if(existing) existing.replaceWith(newIcon);
     else element.prepend(newIcon);
   });
@@ -114,6 +137,19 @@ export function createDeliveryUI(): DeliveryUIManager {
         await new Promise((r) => setTimeout(r, delay));
         if(captureLatest()) break;
       }
+    }
+
+    // Flip the bubble's clock spinner to a single check now that the relay
+    // has accepted the publish. Without this the bubble waits on the
+    // delivery receipt to clear the spinner — and stays stuck on the clock
+    // forever if the receipt is delayed (slow network, peer offline) or
+    // lost. FIND-9fa52e43: bubble showed time-sending-status 40+ seconds
+    // after recipient confirmed receipt because no delivery receipt
+    // round-tripped back. The 'sent' state now provides an honest
+    // intermediate UI signal between sending and delivered.
+    const mid = eventIdToBubbleMid.get(eventId);
+    if(mid) {
+      await applyBubbleState(mid, 'sent');
     }
 
     // Refresh chat list preview
