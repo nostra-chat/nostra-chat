@@ -100,6 +100,21 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
       // --- Initialize Virtual MTProto Server ---
       const server = new NostraMTProtoServer();
       server.setOwnPubkey(identity.publicKey);
+      // FIND-0ed3a22c: seed the pts high-water-mark from persisted state
+      // BEFORE registering the proxy, so the first VMT response that emits
+      // an update event allocates a pts strictly greater than the value
+      // apiUpdatesManager will restore from disk. Without this, returning
+      // users hit the dedup gate on every deleteMessages until VMT's
+      // counter climbs past the persisted ceiling — silently regressing
+      // the original bug.
+      try {
+        const persisted = await rootScope.managers.appStateManager.getState();
+        if(persisted?.updates?.pts) {
+          server.seedPts(persisted.updates.pts);
+        }
+      } catch(err) {
+        console.warn('[NostraOnboardingIntegration] seedPts read failed (non-fatal):', err);
+      }
       const proxy = MOUNT_CLASS_TO.apiManagerProxy;
       if(proxy) {
         proxy.setNostraMTProtoServer(server);

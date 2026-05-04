@@ -568,6 +568,40 @@ describe('NostraMTProtoServer', () => {
       expect(d.pts).toBe(c.pts);
     });
 
+    it('seedPts lifts nextPts above persisted high-water-mark (FIND-0ed3a22c persistence regression)', async () => {
+      // Simulate a returning user: apiUpdatesManager has restored
+      // curState.pts = 100 from disk. A fresh VMT instance starts at
+      // nextPts = 1; without the seed it would allocate pts <= 100 and
+      // every update gets dropped as duplicate.
+      const fresh = new NostraMTProtoServer();
+      fresh.seedPts(100);
+      const r = await fresh.handleMethod('messages.deleteMessages', {id: [9, 8, 7]});
+      expect(r.pts).toBeGreaterThan(100);
+      expect(r.pts_count).toBe(3);
+    });
+
+    it('seedPts is monotonic-only (lower values do not regress the counter)', async () => {
+      const fresh = new NostraMTProtoServer();
+      fresh.seedPts(50);
+      const r1 = await fresh.handleMethod('messages.deleteMessages', {id: [1]});
+      const ptsAfter = r1.pts; // 51
+      // A late seed with a smaller value (e.g. stale state read) must NOT
+      // pull nextPts back below the live counter.
+      fresh.seedPts(10);
+      const r2 = await fresh.handleMethod('messages.deleteMessages', {id: [2]});
+      expect(r2.pts).toBeGreaterThan(ptsAfter);
+    });
+
+    it('seedPts ignores non-finite or undefined values', async () => {
+      const fresh = new NostraMTProtoServer();
+      fresh.seedPts(undefined as unknown as number);
+      fresh.seedPts(NaN);
+      fresh.seedPts(-1);  // monotonic-only also rejects negatives
+      const r = await fresh.handleMethod('messages.deleteMessages', {id: [1]});
+      expect(r.pts).toBeGreaterThan(0);
+      expect(r.pts).toBeLessThan(10); // proves we didn't accidentally jump
+    });
+
     describe('revoke=true (delete-for-everyone)', () => {
       const publishMessageDeletions = vi.fn().mockResolvedValue(undefined);
 

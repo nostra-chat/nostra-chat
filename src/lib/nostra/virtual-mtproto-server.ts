@@ -256,6 +256,15 @@ export class NostraMTProtoServer {
   // and got dropped after the first chat per session. Static returns with
   // pts_count: 0 (deleteHistory at :1734, readHistory at :1789) bypass the
   // dedup gate by design and need not consume from this counter.
+  //
+  // Persistence-safety: apiUpdatesManager.saveUpdatesState pushes curState.pts
+  // to appStateManager state on every assignment (see apiUpdatesManager.ts:65-84
+  // Proxy + :77 saveUpdatesState). On reload curState.pts is restored from
+  // disk, but a freshly-constructed VMT starts at nextPts=1 — so the second
+  // session would re-trigger the original FIND-0ed3a22c bug (nextPts allocates
+  // values below the persisted high-water-mark, dedup drops them). The
+  // boot-time wiring in pages/nostra-onboarding-integration.ts seeds nextPts
+  // from the persisted value via seedPts() before the proxy is registered.
   private nextPts: number = 1;
 
   constructor(deps: NostraMTProtoServerDeps = {}) {
@@ -265,11 +274,33 @@ export class NostraMTProtoServer {
     this.deps = deps;
   }
 
+  // Seed the pts high-water-mark from persisted state so a returning user's
+  // first allocate exceeds the apiUpdatesManager curState.pts loaded from
+  // disk. Idempotent and monotonic-only: a smaller value than the current
+  // counter is ignored. Safe to call before or after the first allocation.
+  public seedPts(persistedPts: number): void {
+    if(typeof persistedPts !== 'number' || !Number.isFinite(persistedPts)) return;
+    if(persistedPts > this.nextPts) {
+      this.nextPts = persistedPts;
+    }
+  }
+
   // Allocate a fresh pts for a response that delivers `count` events. Mirrors
   // upstream Telegram's monotonic pts: the server bumps the counter by `count`
   // and returns the new top-of-window value. apiUpdatesManager then accepts
   // the update through the `pts > curState.pts` branch instead of dropping it
   // as a duplicate.
+  //
+  // INVARIANT: callers MUST place `allocatePts(...)` as the last sync
+  // statement before `return`. JavaScript's single-threaded `++` plus same-
+  // tick microtask ordering then guarantees that the order in which two
+  // concurrent handleMethod invocations resolve their promises matches the
+  // order in which they allocated, so the consumer-side `.then` chain
+  // delivers updates to apiUpdatesManager.processLocalUpdate in monotonic
+  // pts order. Adding ANY async work after allocatePts (extra `await`,
+  // microtask hop) can flip resolve-order vs. allocate-order and the late
+  // arrival is dropped as `duplicate update`. If you genuinely need post-
+  // allocate async work, allocate INSIDE that work after all awaits.
   private allocatePts(count: number): {pts: number; pts_count: number} {
     this.nextPts += count;
     return {pts: this.nextPts, pts_count: count};
