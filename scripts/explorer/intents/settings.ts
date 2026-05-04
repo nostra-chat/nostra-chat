@@ -17,7 +17,7 @@ const pageOf = (u: 'userA'|'userB'): 'A'|'B' => u === 'userA' ? 'A' : 'B';
 
 async function openSettings(page: Page): Promise<void> {
   // Clear any leftover menu/overlay from a previous failed intent.
-  await page.keyboard.press('Escape').catch(() => undefined);
+  await page.keyboard.press('Escape').catch((): void => undefined);
   // Prefer folders-sidebar menu button (visible when body.has-folders-sidebar);
   // fall back to chatlist-header on layouts without it.
   await page.locator('.folders-sidebar .sidebar-tools-button, .sidebar-header__btn-container.is-visible .sidebar-tools-button, .sidebar-header .btn-menu-toggle').first().click({timeout: 3000});
@@ -49,7 +49,7 @@ export const toggle_theme: IntentDef<z.infer<typeof ToggleThemeParams>> = {
       return {ok: true, atomic_trace: trace, observations: []};
     } catch(err: any) {
       // Defensive cleanup — leftover menu blocks every subsequent click.
-      await u.page.keyboard.press('Escape').catch(() => undefined);
+      await u.page.keyboard.press('Escape').catch((): void => undefined);
       return {ok: false, atomic_trace: trace, observations: [], error: err?.message ?? String(err)};
     }
   }
@@ -75,7 +75,7 @@ export const set_language: IntentDef<z.infer<typeof SetLanguageParams>> = {
       return {ok: true, atomic_trace: trace, observations: []};
     } catch(err: any) {
       // Defensive cleanup — leftover menu blocks every subsequent click.
-      await u.page.keyboard.press('Escape').catch(() => undefined);
+      await u.page.keyboard.press('Escape').catch((): void => undefined);
       return {ok: false, atomic_trace: trace, observations: [], error: err?.message ?? String(err)};
     }
   }

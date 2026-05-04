@@ -25,7 +25,7 @@ export const open_settings: IntentDef<z.infer<typeof OpenSettingsParams>> = {
     const trace: AtomicAction[] = [];
     try {
       // Clear any leftover menu/overlay from a previous failed intent.
-      await u.page.keyboard.press('Escape').catch(() => undefined);
+      await u.page.keyboard.press('Escape').catch((): void => undefined);
       // Prefer the folders-sidebar menu button (visible when body.has-folders-sidebar);
       // fall back to the chatlist-header button on layouts where it isn't collapsed.
       const menuBtn = u.page.locator('.folders-sidebar .sidebar-tools-button, .sidebar-header__btn-container.is-visible .sidebar-tools-button, .sidebar-header .btn-menu-toggle').first();
@@ -42,7 +42,7 @@ export const open_settings: IntentDef<z.infer<typeof OpenSettingsParams>> = {
       return {ok: true, atomic_trace: trace, observations: []};
     } catch(err: any) {
       // Defensive cleanup — leftover menu blocks every subsequent click.
-      await u.page.keyboard.press('Escape').catch(() => undefined);
+      await u.page.keyboard.press('Escape').catch((): void => undefined);
       return {ok: false, atomic_trace: trace, observations: [], error: err?.message ?? String(err)};
     }
   }

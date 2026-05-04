@@ -34,7 +34,7 @@ async function rightClickRandomBubble(page: Page, ownOnly: boolean): Promise<voi
   // opening a new context menu. The .btn-menu-overlay covers the whole
   // viewport (z-index:4, pointer-events:auto) and blocks every subsequent
   // click — including the right-click we're about to attempt.
-  await page.keyboard.press('Escape').catch(() => undefined);
+  await page.keyboard.press('Escape').catch((): void => undefined);
   const selector = ownOnly ?
     '.bubbles-inner .bubble[data-mid].is-out, .bubbles-inner .bubble[data-mid].is-own' :
     '.bubbles-inner .bubble[data-mid]';
@@ -73,7 +73,7 @@ export const forward_message: IntentDef<z.infer<typeof ForwardMessageParams>> = 
       return {ok: true, atomic_trace: trace, observations: []};
     } catch(err: any) {
       // Defensive cleanup — leftover .btn-menu-overlay covers the viewport.
-      await u.page.keyboard.press('Escape').catch(() => undefined);
+      await u.page.keyboard.press('Escape').catch((): void => undefined);
       return {ok: false, atomic_trace: trace, observations: [], error: err?.message ?? String(err)};
     }
   }
@@ -100,7 +100,7 @@ export const pin_message: IntentDef<z.infer<typeof PinMessageParams>> = {
       return {ok: true, atomic_trace: trace, observations: []};
     } catch(err: any) {
       // Defensive cleanup — leftover .btn-menu-overlay covers the viewport.
-      await u.page.keyboard.press('Escape').catch(() => undefined);
+      await u.page.keyboard.press('Escape').catch((): void => undefined);
       return {ok: false, atomic_trace: trace, observations: [], error: err?.message ?? String(err)};
     }
   }
@@ -130,7 +130,7 @@ export const delete_for_everyone: IntentDef<z.infer<typeof DeleteForEveryonePara
       return {ok: true, atomic_trace: trace, observations: []};
     } catch(err: any) {
       // Defensive cleanup — leftover .btn-menu-overlay covers the viewport.
-      await u.page.keyboard.press('Escape').catch(() => undefined);
+      await u.page.keyboard.press('Escape').catch((): void => undefined);
       return {ok: false, atomic_trace: trace, observations: [], error: err?.message ?? String(err)};
     }
   }

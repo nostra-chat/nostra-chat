@@ -378,7 +378,13 @@ export default class ChatContextMenu {
         this.isTextFromMultipleMessagesSelected = false;
       }
 
-      this.sponsoredMessage = isSponsored ? (bubble as any).message.sponsoredMessage : undefined;
+      // Sponsored bubbles attach `(bubble as any).message` asynchronously (bubbles.ts
+      // `processResult` is async), and Nostra.chat additionally overloads negative `mid`
+      // — the same value `isSponsored` keys on — as the temp-id convention for locally-
+      // pending P2P messages. Optional-chain the read so right-clicking either a fast-
+      // arriving sponsored row OR a P2P bubble whose mid is still negative falls back
+      // to `undefined` instead of throwing.
+      this.sponsoredMessage = isSponsored ? (bubble as any).message?.sponsoredMessage : undefined;
 
       const mids = avatar ? [] : await this.chat.getMidsByMid(this.messagePeerId, mid);
       // * если открыть контекстное меню для альбома не по бабблу, и последний элемент не выбран, чтобы показать остальные пункты
