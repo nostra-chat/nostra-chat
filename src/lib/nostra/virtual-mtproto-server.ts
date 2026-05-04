@@ -245,12 +245,34 @@ export class NostraMTProtoServer {
   private ownPubkey: string | null;
   private chatAPI: any | null;
   private deps: NostraMTProtoServerDeps;
+  // FIND-0ed3a22c: monotonic pts counter for update-bearing responses with
+  // pts_count > 0. apiUpdatesManager.processUpdateMessage gates updates with
+  // `if(pts > curState.pts) accept; else if(pts_count) drop as duplicate`,
+  // and `updates.getState` initialises curState.pts to 1. Before this counter
+  // existed, every deleteMessages return shape was `{pts: 1, pts_count: N}` —
+  // collided with curState.pts on the very first call, hit the duplicate
+  // branch, and the bubble was never removed from the sender's UI. createChat
+  // emitted its updateNewMessage through the same path with the same value
+  // and got dropped after the first chat per session. Static returns with
+  // pts_count: 0 (deleteHistory at :1734, readHistory at :1789) bypass the
+  // dedup gate by design and need not consume from this counter.
+  private nextPts: number = 1;
 
   constructor(deps: NostraMTProtoServerDeps = {}) {
     this.mapper = new NostraPeerMapper();
     this.ownPubkey = null;
     this.chatAPI = null;
     this.deps = deps;
+  }
+
+  // Allocate a fresh pts for a response that delivers `count` events. Mirrors
+  // upstream Telegram's monotonic pts: the server bumps the counter by `count`
+  // and returns the new top-of-window value. apiUpdatesManager then accepts
+  // the update through the `pts > curState.pts` branch instead of dropping it
+  // as a duplicate.
+  private allocatePts(count: number): {pts: number; pts_count: number} {
+    this.nextPts += count;
+    return {pts: this.nextPts, pts_count: count};
   }
 
   private async getMessageByPeerMid(peerId: number, mid: number): Promise<{relayEventId: string; senderPubkey: string} | null> {
@@ -1709,8 +1731,7 @@ export class NostraMTProtoServer {
 
     return {
       _: 'messages.affectedMessages',
-      pts: 1,
-      pts_count: mids.length
+      ...this.allocatePts(mids.length)
     };
   }
 
@@ -1816,7 +1837,7 @@ export class NostraMTProtoServer {
       const chat = this.mapper.createTwebChat({chatId, title, membersCount: memberPubkeys.length, date: now});
 
       emptyUpdates.chats.push(chat);
-      emptyUpdates.updates.push({_: 'updateNewMessage', message: {_: 'messageService', pFlags: {out: true}, id: 1, peer_id: {_: 'peerChat', chat_id: chatId}, from_id: {_: 'peerUser', user_id: 0}, date: now, action: {_: 'messageActionChatCreate', title, users: userIds}}, pts: 1, pts_count: 1});
+      emptyUpdates.updates.push({_: 'updateNewMessage', message: {_: 'messageService', pFlags: {out: true}, id: 1, peer_id: {_: 'peerChat', chat_id: chatId}, from_id: {_: 'peerUser', user_id: 0}, date: now, action: {_: 'messageActionChatCreate', title, users: userIds}}, ...this.allocatePts(1)});
       console.log(LOG_PREFIX, 'createChat:', title, 'members:', memberPubkeys.length);
     } catch(err) {
       console.warn(LOG_PREFIX, 'createChat failed:', err);

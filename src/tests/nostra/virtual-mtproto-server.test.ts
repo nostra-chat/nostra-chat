@@ -543,7 +543,10 @@ describe('NostraMTProtoServer', () => {
       });
 
       expect(result._).toBe('messages.affectedMessages');
-      expect(result.pts).toBe(1);
+      // FIND-0ed3a22c: pts is now monotonic (allocatePts increments by
+      // pts_count); hard-coding to 1 collided with apiUpdatesManager's
+      // initial curState.pts=1 and dropped the update as duplicate.
+      expect(result.pts).toBeGreaterThan(0);
       expect(result.pts_count).toBe(3);
     });
 
@@ -552,6 +555,17 @@ describe('NostraMTProtoServer', () => {
 
       expect(result._).toBe('messages.affectedMessages');
       expect(result.pts_count).toBe(0);
+    });
+
+    it('returns monotonically increasing pts across calls (FIND-0ed3a22c)', async () => {
+      const a = await server.handleMethod('messages.deleteMessages', {id: [1, 2]});
+      const b = await server.handleMethod('messages.deleteMessages', {id: [3]});
+      const c = await server.handleMethod('messages.deleteMessages', {id: [4, 5, 6]});
+      expect(b.pts).toBeGreaterThan(a.pts);
+      expect(c.pts).toBeGreaterThan(b.pts);
+      // pts_count: 0 calls share the previous pts (no event delivered).
+      const d = await server.handleMethod('messages.deleteMessages', {});
+      expect(d.pts).toBe(c.pts);
     });
 
     describe('revoke=true (delete-for-everyone)', () => {
