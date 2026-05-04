@@ -40,6 +40,10 @@ export class AppWebPagesManager extends AppManager {
   }
 
   public saveWebPage(apiWebPage: WebPage, messageKey?: WebPageMessageKey, mediaContext?: ReferenceContext) {
+    if(!apiWebPage) {
+      return;
+    }
+
     if(apiWebPage._ === 'webPageNotModified' || apiWebPage._ === 'webPageEmpty') {
       return;
     }
