@@ -50,6 +50,17 @@ async function main() {
       }
       const parsed = def.paramsSchema.safeParse(step.params);
       if(!parsed.success) {
+        // LLM-driven traces sometimes reuse a registered intent name as the
+        // wrapper for an observation/probe step (e.g. `edit_profile_field`
+        // with `{goal_check: ..., text_contains: ...}` instead of the real
+        // `{user, field, value}` schema). Detect those by their hallmark
+        // observation keys and skip — they don't drive state.
+        const paramKeys = Object.keys(step.params ?? {});
+        const isPseudoStep = paramKeys.some((k) => /^(goal_check|text_contains|probe|verify_|observe|inspect|expect_)/i.test(k));
+        if(isPseudoStep) {
+          console.warn(`[replay] skipping pseudo-step ${step.intent} (observation keys: ${paramKeys.join(',')})`);
+          continue;
+        }
         console.error(`[replay] invalid params for ${step.intent}: ${parsed.error.message}`);
         process.exit(3);
       }

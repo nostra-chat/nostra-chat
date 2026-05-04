@@ -37,8 +37,11 @@ export async function verifyExpectation(exp: Expectation, pages: Pages): Promise
           const count = await loc.count().catch(() => 0);
           if(count > 0) {
             if(exp.text_contains) {
-              const text = await loc.textContent().catch(() => '') ?? '';
-              if(text.includes(exp.text_contains)) return {ok: true};
+              // Scan ALL matches — list selectors (e.g. `.bubble.is-in`) often
+              // produce N elements; reading only the first misses targets that
+              // haven't scrolled to the top yet.
+              const texts = await loc.allTextContents().catch((): string[] => []);
+              if(texts.some((t) => t.includes(exp.text_contains!))) return {ok: true};
             } else {
               return {ok: true};
             }

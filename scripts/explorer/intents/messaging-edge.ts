@@ -30,11 +30,25 @@ const DeepScrollParams = z.object({
 const pageOf = (u: 'userA'|'userB'): 'A'|'B' => u === 'userA' ? 'A' : 'B';
 
 async function rightClickRandomBubble(page: Page, ownOnly: boolean): Promise<void> {
+  // Clear any leftover menu/overlay from a previous failed intent before
+  // opening a new context menu. The .btn-menu-overlay covers the whole
+  // viewport (z-index:4, pointer-events:auto) and blocks every subsequent
+  // click — including the right-click we're about to attempt.
+  await page.keyboard.press('Escape').catch(() => undefined);
   const selector = ownOnly ?
     '.bubbles-inner .bubble[data-mid].is-out, .bubbles-inner .bubble[data-mid].is-own' :
     '.bubbles-inner .bubble[data-mid]';
   const bubble = page.locator(selector).filter({hasNot: page.locator('.is-sending, .is-outgoing')}).last();
   await bubble.click({button: 'right', timeout: 3000});
+}
+
+// Match a context-menu item by inner `.btn-menu-item-text` span. The parent
+// `.btn-menu-item` textContent includes a leading PUA glyph from the tgico
+// icon (e.g. ), so anchored regexes against the parent never match.
+function contextMenuItem(page: Page, label: RegExp) {
+  return page.locator('#bubble-contextmenu.active .btn-menu-item').filter({
+    has: page.locator('.btn-menu-item-text', {hasText: label})
+  }).first();
 }
 
 export const forward_message: IntentDef<z.infer<typeof ForwardMessageParams>> = {
@@ -48,9 +62,7 @@ export const forward_message: IntentDef<z.infer<typeof ForwardMessageParams>> = 
     try {
       await rightClickRandomBubble(u.page, false);
       trace.push({type: 'click', page: pageOf(params.from), selector: 'bubble (right-click)'});
-      // Scope to active context-menu to avoid matching hidden i18n template spans
-      // (e.g. "Forwarded from" markers inside bubble bodies).
-      const forwardBtn = u.page.locator('#bubble-contextmenu.active .btn-menu-item', {hasText: /^Forward$/i}).first();
+      const forwardBtn = contextMenuItem(u.page, /^Forward$/i);
       await forwardBtn.click({timeout: 3000});
       trace.push({type: 'click', page: pageOf(params.from), selector: 'menu Forward'});
       const peerOpt = u.page.getByText(params.toPeer, {exact: false}).first();
@@ -60,6 +72,8 @@ export const forward_message: IntentDef<z.infer<typeof ForwardMessageParams>> = 
       await sendBtn.click({timeout: 3000});
       return {ok: true, atomic_trace: trace, observations: []};
     } catch(err: any) {
+      // Defensive cleanup — leftover .btn-menu-overlay covers the viewport.
+      await u.page.keyboard.press('Escape').catch(() => undefined);
       return {ok: false, atomic_trace: trace, observations: [], error: err?.message ?? String(err)};
     }
   }
@@ -76,9 +90,7 @@ export const pin_message: IntentDef<z.infer<typeof PinMessageParams>> = {
     try {
       await rightClickRandomBubble(u.page, false);
       trace.push({type: 'click', page: pageOf(params.user), selector: 'bubble (right-click)'});
-      // Scope to active context-menu — /^pin/i matches hidden "Pinned Message"
-      // i18n template span inside .chat-info pinned-banner shell otherwise.
-      const pinBtn = u.page.locator('#bubble-contextmenu.active .btn-menu-item', {hasText: /^Pin$/i}).first();
+      const pinBtn = contextMenuItem(u.page, /^Pin$/i);
       await pinBtn.click({timeout: 3000});
       trace.push({type: 'click', page: pageOf(params.user), selector: 'menu Pin'});
       const confirmBtn = u.page.getByRole('button', {name: /^pin|confirm|ok/i}).first();
@@ -87,6 +99,8 @@ export const pin_message: IntentDef<z.infer<typeof PinMessageParams>> = {
       }
       return {ok: true, atomic_trace: trace, observations: []};
     } catch(err: any) {
+      // Defensive cleanup — leftover .btn-menu-overlay covers the viewport.
+      await u.page.keyboard.press('Escape').catch(() => undefined);
       return {ok: false, atomic_trace: trace, observations: [], error: err?.message ?? String(err)};
     }
   }
@@ -103,9 +117,7 @@ export const delete_for_everyone: IntentDef<z.infer<typeof DeleteForEveryonePara
     try {
       await rightClickRandomBubble(u.page, true);
       trace.push({type: 'click', page: pageOf(params.user), selector: 'own bubble (right-click)'});
-      // Scope to active context-menu — /^delete/i matches "Deleted account" peer
-      // titles in chatlist (data-peer-id="0") otherwise.
-      const delBtn = u.page.locator('#bubble-contextmenu.active .btn-menu-item', {hasText: /^Delete$/i}).first();
+      const delBtn = contextMenuItem(u.page, /^Delete$/i);
       await delBtn.click({timeout: 3000});
       // Real popup label is "Also delete for {peer-name}" — neither "everyone" nor "all".
       const forEveryone = u.page.getByLabel(/^Also delete for /i).first();
@@ -117,6 +129,8 @@ export const delete_for_everyone: IntentDef<z.infer<typeof DeleteForEveryonePara
       await confirmBtn.click({timeout: 3000});
       return {ok: true, atomic_trace: trace, observations: []};
     } catch(err: any) {
+      // Defensive cleanup — leftover .btn-menu-overlay covers the viewport.
+      await u.page.keyboard.press('Escape').catch(() => undefined);
       return {ok: false, atomic_trace: trace, observations: [], error: err?.message ?? String(err)};
     }
   }

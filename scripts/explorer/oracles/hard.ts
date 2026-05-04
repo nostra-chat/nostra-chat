@@ -1,4 +1,6 @@
 import {CONSOLE_ALLOWLIST} from '../../../src/tests/fuzz/allowlist';
+import {EXPLORER_STABLE_CONSOLE_ALLOWLIST} from '../explorer-allowlist';
+import {EXPLORER_CONSOLE_ALLOWLIST} from '../../../docs/explorer-reports/allowlist';
 import type {PageId} from '../types';
 
 export type HardOracleKind = 'console_error' | 'unhandled_rejection' | 'network_5xx' | 'white_screen';
@@ -32,7 +34,9 @@ export function checkHard(input: HardOracleInput): HardFinding[] {
 }
 
 function isAllowlisted(line: string): boolean {
-  return CONSOLE_ALLOWLIST.some((re) => re.test(line));
+  return CONSOLE_ALLOWLIST.some((re) => re.test(line)) ||
+    EXPLORER_STABLE_CONSOLE_ALLOWLIST.some((re) => re.test(line)) ||
+    EXPLORER_CONSOLE_ALLOWLIST.some((re) => re.test(line));
 }
 
 function shortHash(s: string): string {

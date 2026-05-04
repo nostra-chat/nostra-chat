@@ -22,6 +22,13 @@ const pageOf = (u: 'userA'|'userB'): 'A'|'B' => u === 'userA' ? 'A' : 'B';
 
 const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
+// Replay traces sometimes carry a redacted placeholder for large base64 fields
+// (e.g. "<tiny-text>", "<truncated>"). Detect non-base64 content and substitute
+// a real tiny PNG so replay is repeatable.
+function safeBase64(input: string): string {
+  return input.length >= 8 && /^[A-Za-z0-9+/=]+$/.test(input) ? input : TINY_PNG_BASE64;
+}
+
 export const paste_image_to_input: IntentDef<z.infer<typeof PasteImageParams>> = {
   name: 'paste_image_to_input',
   area: 'media',
@@ -68,7 +75,7 @@ export const drag_drop_file_to_chat: IntentDef<z.infer<typeof DragDropFileParams
         dt.items.add(file);
         const ev = new DragEvent('drop', {dataTransfer: dt, bubbles: true, cancelable: true});
         el.dispatchEvent(ev);
-      }, {b64: params.contentBase64, name: params.fileName});
+      }, {b64: safeBase64(params.contentBase64), name: params.fileName});
       trace.push({type: 'evaluate', page: pageOf(params.user), script: `drag-drop ${params.fileName}`});
       await u.page.waitForTimeout(500);
       return {ok: true, atomic_trace: trace, observations: []};

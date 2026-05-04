@@ -55,7 +55,7 @@ export async function writeReport(input: ReportInput): Promise<string> {
 
   // signature.txt + cross-run dedup (only for findings)
   if(input.kind === 'finding' && input.finding) {
-    const intentName = input.trace.length > 0 ? input.trace[input.trace.length - 1].intent : 'atomic';
+    const intentName = pickTriggerIntent(input.trace);
     const area = inferArea(intentName);
     const signature = computeSignature({
       area,
@@ -88,6 +88,23 @@ export async function writeReport(input: ReportInput): Promise<string> {
   }
 
   return dir;
+}
+
+// Walk back through the trace to find the most recent intent that drives state
+// (not an observation/probe). LLM-driven traces often append `capture`,
+// `run_invariant`, `verify_*` steps after the trigger; using the last entry
+// blindly mis-attributes the area (e.g. `open_settings` Oracle-A probe gets
+// classified as `navigation` even though the bug fired during a `send_*`).
+function pickTriggerIntent(trace: TraceStep[]): string {
+  for(let i = trace.length - 1; i >= 0; i--) {
+    const intent = trace[i].intent;
+    if(!isObservationIntent(intent)) return intent;
+  }
+  return trace.length > 0 ? trace[trace.length - 1].intent : 'atomic';
+}
+
+function isObservationIntent(intent: string): boolean {
+  return /^(capture|run_invariant|verify_|act_|diagnostic|probe|observe|inspect|expect_)/i.test(intent);
 }
 
 function inferArea(intentName: string): string {

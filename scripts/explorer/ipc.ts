@@ -17,7 +17,8 @@ export const ExpectationPayloadSchema = z.discriminatedUnion('type', [
   z.object({type: z.literal('text_changes'), page: PageIdSchema, selector_hint: z.string(), from: z.string().optional(), to_contains: z.string(), timeout_ms: z.number().int().nonnegative()}),
   z.object({type: z.literal('navigation_to'), page: PageIdSchema, url_pattern: z.string(), timeout_ms: z.number().int().nonnegative()}),
   z.object({type: z.literal('count_equals'), page: PageIdSchema, selector_hint: z.string(), count: z.number().int().nonnegative(), timeout_ms: z.number().int().nonnegative()}),
-  z.object({type: z.literal('value_changes'), page: PageIdSchema, selector_hint: z.string(), expected: z.string(), timeout_ms: z.number().int().nonnegative()})
+  z.object({type: z.literal('value_changes'), page: PageIdSchema, selector_hint: z.string(), expected: z.string(), timeout_ms: z.number().int().nonnegative()}),
+  z.object({type: z.literal('bilateral_message_propagation'), from: PageIdSchema, text_contains: z.string(), timeout_ms: z.number().int().nonnegative()})
 ]);
 
 export const InvariantSpecSchema = z.object({

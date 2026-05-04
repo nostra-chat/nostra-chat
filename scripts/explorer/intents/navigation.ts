@@ -24,18 +24,25 @@ export const open_settings: IntentDef<z.infer<typeof OpenSettingsParams>> = {
     const u = ctx.users[params.page];
     const trace: AtomicAction[] = [];
     try {
+      // Clear any leftover menu/overlay from a previous failed intent.
+      await u.page.keyboard.press('Escape').catch(() => undefined);
       // Prefer the folders-sidebar menu button (visible when body.has-folders-sidebar);
       // fall back to the chatlist-header button on layouts where it isn't collapsed.
       const menuBtn = u.page.locator('.folders-sidebar .sidebar-tools-button, .sidebar-header__btn-container.is-visible .sidebar-tools-button, .sidebar-header .btn-menu-toggle').first();
       trace.push({type: 'click', page: pageOf(params.page), selector: 'visible menu-toggle button'});
       await menuBtn.click({timeout: 3000});
-      // Scope to the active hamburger menu — bare "Settings" text matches hidden
-      // i18n template spans elsewhere in the DOM.
-      const settingsItem = u.page.locator('.btn-menu.active .btn-menu-item', {hasText: /^Settings$/i}).first();
+      // Match by inner `.btn-menu-item-text` span: parent `.btn-menu-item`
+      // textContent includes a leading PUA glyph (e.g. ) from the
+      // tgico icon, so anchored regexes against the parent never match.
+      const settingsItem = u.page.locator('.btn-menu.active .btn-menu-item').filter({
+        has: u.page.locator('.btn-menu-item-text', {hasText: /^Settings$/i})
+      }).first();
       trace.push({type: 'click', page: pageOf(params.page), selector: 'menu Settings item'});
       await settingsItem.click({timeout: 3000});
       return {ok: true, atomic_trace: trace, observations: []};
     } catch(err: any) {
+      // Defensive cleanup — leftover menu blocks every subsequent click.
+      await u.page.keyboard.press('Escape').catch(() => undefined);
       return {ok: false, atomic_trace: trace, observations: [], error: err?.message ?? String(err)};
     }
   }
