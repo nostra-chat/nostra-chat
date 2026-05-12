@@ -555,6 +555,13 @@ export class AppMessagesManager extends AppManager {
   private groupedTempId = 0;
   private mediaTempId = 0;
   private mediaTempMap: {[tempId: number]: number} = {};
+  // Issue #111: rapid-fire album sends (Promise.all'd sendFile calls inside
+  // sendGrouped) used to collide on `tempMid = -Date.now()` when multiple
+  // calls hit the same millisecond. The duplicates overwrote each other in
+  // apiManagerProxy.mirrors.messages, leaving only one bubble on the sender
+  // for an N-image paste. The counter guarantees uniqueness regardless of
+  // clock resolution.
+  private nostraSendFileCounter = 0;
 
   private typings: {[key: string]: {action: SendMessageAction, timeout?: number}} = {};
 
@@ -1614,7 +1621,10 @@ export class AppMessagesManager extends AppManager {
         mime.startsWith('image/') ? 'image' :
         mime.startsWith('video/') ? 'video' :
         'file';
-      const tempMid = -Date.now();
+      // Issue #111: counter-suffixed tempMid avoids same-ms collisions when
+      // sendGrouped Promise.all's multiple sendFile calls for an album.
+      const seq = ++this.nostraSendFileCounter;
+      const tempMid = -(Date.now() * 1000 + (seq % 1000));
       try {
         const updates: any = await this.apiManager.invokeApi('nostraSendFile' as any, {
           peerId,
@@ -1622,6 +1632,7 @@ export class AppMessagesManager extends AppManager {
           type: nostraType,
           caption: options.caption || '',
           tempMid,
+          groupedId: options.groupId,
           width: options.width,
           height: options.height,
           duration: options.duration,

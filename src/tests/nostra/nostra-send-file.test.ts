@@ -114,6 +114,31 @@ describe('nostra-send-file', () => {
     expect(getPendingFileSend(-1024)).toBeDefined();
   });
 
+  it('issue #111: parallel album sends produce unique mids even when timestampSec is identical', async() => {
+    // Pin Date.now so all three calls would have shared timestampSec under
+    // the pre-fix arithmetic (mid = timestampSec).
+    const PINNED_MS = 1_715_000_000_000;
+    vi.spyOn(Date, 'now').mockReturnValue(PINNED_MS);
+
+    mockedUpload.mockImplementation(async() => ({url: 'https://mock/x', sha256: 'abc'}));
+
+    const ctxs = [makeCtx(), makeCtx(), makeCtx()];
+    const results = await Promise.all(ctxs.map((c, i) => sendFileViaNostra(c.ctx, {
+      peerId: 1_000_000_000_000_000 + i,
+      blob: new Blob([new Uint8Array([i])], {type: 'image/jpeg'}),
+      type: 'image',
+      caption: '',
+      tempMid: -(1000 + i)
+    })));
+
+    expect(results.every(r => r.ok)).toBe(true);
+    const mids = results.map(r => r.mid);
+    expect(new Set(mids).size).toBe(mids.length);
+    // All mids share the same second prefix per mapEventIdToMid scheme
+    const sharedSec = Math.floor(PINNED_MS / 1000);
+    expect(mids.every(m => Math.floor(m / 1_000_000) === sharedSec)).toBe(true);
+  });
+
   it('aborts upload when signal fires', async() => {
     const abort = new AbortController();
     mockedUpload.mockImplementation((_blob: any, _key: any, opts: any) => {

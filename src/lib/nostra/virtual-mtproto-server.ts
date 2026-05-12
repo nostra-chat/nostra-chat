@@ -1415,6 +1415,7 @@ export class NostraMTProtoServer {
     text: string;
     senderPubkey: string;
     replyToMid?: number;
+    groupedId?: string;
     media?: {
       type: 'image' | 'video' | 'file' | 'voice';
       objectURL: string;
@@ -1428,7 +1429,7 @@ export class NostraMTProtoServer {
     };
   }): Promise<void> {
     try {
-      const {peerId, mid, date, text, media, replyToMid} = params;
+      const {peerId, mid, date, text, media, replyToMid, groupedId} = params;
 
       const msg = this.mapper.createTwebMessage({
         mid,
@@ -1443,6 +1444,13 @@ export class NostraMTProtoServer {
       (msg as any).pFlags.out = true;
       delete (msg as any).pFlags.is_outgoing;
       delete (msg as any).pending;
+      // Issue #111: stamp grouped_id so album bubbles render attached instead
+      // of as N orphan bubbles. The id is the sender-local optimistic id from
+      // appMessagesManager.sendGrouped — its only invariant is being identical
+      // across the N items of one album send. Bubble renderer keys off this.
+      if(groupedId) {
+        (msg as any).grouped_id = groupedId;
+      }
 
       if(media) {
         const attributes: any[] = [];
@@ -1615,6 +1623,10 @@ export class NostraMTProtoServer {
     const height: number | undefined = params?.height;
     const duration: number | undefined = params?.duration;
     const waveform: string | undefined = params?.waveform;
+    // Issue #111: groupedId is the sender-local optimistic album id from
+    // appMessagesManager.sendGrouped. Forwarded to injectOutgoingBubble so
+    // bubbles in the same album render attached.
+    const groupedId: string | undefined = typeof params?.groupedId === 'string' ? params.groupedId : undefined;
 
     const {sendFileViaNostra} = await import('./nostra-send-file');
     const rs: any = (await import('@lib/rootScope')).default;
@@ -1639,6 +1651,7 @@ export class NostraMTProtoServer {
             date: Math.floor(Date.now() / 1000),
             text: p.caption || '',
             senderPubkey: this.ownPubkey!,
+            groupedId,
             media: {
               type: p.type,
               objectURL,
