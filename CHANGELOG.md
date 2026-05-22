@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.25.0](https://github.com/nostra-chat/nostra-chat/compare/v0.24.1...v0.25.0) (2026-05-22)
+
+
+### Features
+
+* **explorer:** add bilateral_message_propagation expectation type ([126a540](https://github.com/nostra-chat/nostra-chat/commit/126a54049ba93dacfed7049e411dc11f3ffe16bc))
+* **explorer:** F1 skeleton — agentic explorer for nostra.chat ([f63c098](https://github.com/nostra-chat/nostra-chat/commit/f63c0982fab81f4af9d693576022d6f5391ff18e))
+* **explorer:** F2 — foundation, catalog expansion, autonomous loop ([e527512](https://github.com/nostra-chat/nostra-chat/commit/e527512785dea970a694fc511cf3ec981b32de28))
+* **explorer:** F2c.1 — driver IPC for verify_expectation + run_invariant ([c94bcda](https://github.com/nostra-chat/nostra-chat/commit/c94bcdac1f0b484e333dd13002fb759564a2963a))
+* **explorer:** F3a foundation — status helpers + regex tripwire + classification schema ([4da2d6f](https://github.com/nostra-chat/nostra-chat/commit/4da2d6f2f6a6cfe16af7159c51c7ca0d4fccfcf4))
+* **explorer:** F3b fixer agent + slash command wiring ([d887f6f](https://github.com/nostra-chat/nostra-chat/commit/d887f6f17f4f1682a391d4db162666aca7521efc))
+* **explorer:** F3c cleanup script + package.json explorer scripts ([8cc9e32](https://github.com/nostra-chat/nostra-chat/commit/8cc9e326bd84a108caef4be8efc4a1e4086c00f2))
+* **privacy:** persist account.setPrivacy/getPrivacy through localStorage ([d0e65cf](https://github.com/nostra-chat/nostra-chat/commit/d0e65cf325040c74a7027f6f211cf78d51c0d445))
+
+
+### Bug Fixes
+
+* **api:** guard processResult against undefined _ discriminator ([add57d1](https://github.com/nostra-chat/nostra-chat/commit/add57d13347865a58d37db1fad7d039b7ea1fb06))
+* **chat:** hide Pin/Unpin context-menu items in Nostra builds ([66350b0](https://github.com/nostra-chat/nostra-chat/commit/66350b0563055449d9d1323847de818aec47afcb))
+* **env:** guard navigator access in userAgent.ts ([1b1e5e7](https://github.com/nostra-chat/nostra-chat/commit/1b1e5e76ae0d93da425b8675496e9cbe35dd3551))
+* **explorer:** F3d — mark-status CLI replaces tsx-eval calls in fixer prompt ([1438228](https://github.com/nostra-chat/nostra-chat/commit/14382287a6df99ab5a3a459bfd4733436ad98391))
+* **explorer:** guard appWebPagesManager.saveWebPage against undefined webpage ([08f0c0a](https://github.com/nostra-chat/nostra-chat/commit/08f0c0a7165c693df14c631059b2f1953629ec93))
+* **explorer:** replay skips unknown observation-only intents instead of aborting ([48aa784](https://github.com/nostra-chat/nostra-chat/commit/48aa7844c0acc0dce16025903e0cec46dede0018))
+* **explorer:** selector-resolver handles raw CSS hints + leading-dot ([1ff8767](https://github.com/nostra-chat/nostra-chat/commit/1ff876770da8bb94c98107b22620d7534acce8b9))
+* **explorer:** tighten intent selectors to avoid hidden DOM template matches ([1af6b22](https://github.com/nostra-chat/nostra-chat/commit/1af6b22b37a1b290c2ba6b98aa890c6dd03c5ef8))
+* **fuzz:** dismiss FirstInstallInfo popup + force-click onboarding buttons ([2101bbd](https://github.com/nostra-chat/nostra-chat/commit/2101bbd8df7b8c8e6a55c7ba33e1a47cdcbf5a36))
+* **fuzz:** make setPeer-per-action idempotent in messaging harness ([8155137](https://github.com/nostra-chat/nostra-chat/commit/81551378a9e0677a7650f3cb584d54872c162291))
+* **i18n:** fall back to other_value for static plural keys without args ([e7dce00](https://github.com/nostra-chat/nostra-chat/commit/e7dce00629cc4694f65e2c00ef89743ca9ab8314))
+* **media:** preserve album grouped_id on multi-image P2P send ([#112](https://github.com/nostra-chat/nostra-chat/issues/112)) ([5ae1819](https://github.com/nostra-chat/nostra-chat/commit/5ae1819222a9131c910f5242c3c1984e36bb1a13))
+* **p2p:** give VirtualMTProto a monotonic pts so deleteMessages clears the bubble ([dc00df2](https://github.com/nostra-chat/nostra-chat/commit/dc00df25a109fa6037efe3d129ecac9a304abc60))
+* **p2p:** null-safe sponsoredMessage read for negative-mid bubbles ([9fcde0f](https://github.com/nostra-chat/nostra-chat/commit/9fcde0f09655b7e1d4f46b732ccf0d948bf00c87))
+* **p2p:** seed VMT pts from persisted state to survive reload ([b1b3c44](https://github.com/nostra-chat/nostra-chat/commit/b1b3c44707fd1217eb8caa477ee409ec7995d8ae))
+* **p2p:** show 'sent' bubble state so spinner clears even without delivery receipt ([ab7cd81](https://github.com/nostra-chat/nostra-chat/commit/ab7cd819cfbdc52ad90ea68fa7bab8efb791476c))
+* **p2p:** wire delete-for-everyone through Virtual MTProto Server ([529f1c5](https://github.com/nostra-chat/nostra-chat/commit/529f1c5bfc0be729435b7df6df839bd1b69bf9ab))
+* **p2p:** wire reply quote through Virtual MTProto Server ([398db7b](https://github.com/nostra-chat/nostra-chat/commit/398db7be52f766c7c4c3ea81edd50e46c7241ac8))
+* **popups:** restore caret to chat input on popup-new-media close ([43ccd2d](https://github.com/nostra-chat/nostra-chat/commit/43ccd2dddac15ba217208bf3f3e6a8d109607f52))
+* **profile:** cap bio at 255 chars (drop unused getLimit lookup) ([a1246d3](https://github.com/nostra-chat/nostra-chat/commit/a1246d39b3f41fa7f8abefc7b490909917102311))
+* **profile:** refresh chatlist + topbar when peer profile cache updates ([7401e49](https://github.com/nostra-chat/nostra-chat/commit/7401e49310db9967aa153a41b8eee24a4950b923))
+* **search:** show empty placeholder when chats-tab search has zero results ([922190c](https://github.com/nostra-chat/nostra-chat/commit/922190c0e7b7846bbf2f7cc542338737d675394c))
+* **settings:** clear stale profile-name on save with empty display_name ([69ab85f](https://github.com/nostra-chat/nostra-chat/commit/69ab85f1712018b09fd35788669c7117a1e60366))
+* **sidebar:** defer hamburger Settings tab open past menu popstate ([e54c3ad](https://github.com/nostra-chat/nostra-chat/commit/e54c3ada9ee76373a27ec54f735e3be4c818229e))
+
 ## [0.24.1](https://github.com/nostra-chat/nostra-chat/compare/v0.24.0...v0.24.1) (2026-04-28)
 
 
