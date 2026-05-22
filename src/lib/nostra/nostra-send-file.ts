@@ -14,6 +14,12 @@
 import {encryptFile} from './file-crypto';
 import {uploadToBlossomWithProgress} from './blossom-upload-progress';
 
+// Issue #111: monotonic sub-second slot counter for collision-resistant mids
+// when album sends fire N file uploads in the same second. Module-level so
+// it survives across the two VMT instances (main + Worker) that drive the
+// same logical send pipeline.
+let __sendFileMidCounter = 0;
+
 export type NostraFileType = 'image' | 'video' | 'file' | 'voice';
 
 export interface PendingFileSend {
@@ -234,17 +240,22 @@ export async function sendFileViaNostra(
     // the subsequent authoritative save so (eventId, timestamp) is
     // identical across all writers.
     //
-    // Historical note: this variable was previously named `realMid`, but
-    // it is not a mid — it is the seconds-precision creation timestamp.
-    // The mid derives from `mapEventIdToMid(eventId, timestampSec)` inside
-    // ChatAPI.sendMessage. For the file-send path the caller passes the
-    // same value as both `mid` and `timestampSec` only because the file
-    // pipeline (historically) used the timestamp itself as the mid; the
-    // authoritative VMT send path derives a proper hashed mid instead.
-    // Left as-is to avoid destabilising the file pipeline — callers that
-    // already depend on `result.mid === timestampSec` continue to work.
+    // Issue #111: the previous form (`mid = timestampSec`) collided across
+    // rapid-fire album sends — sendGrouped Promise.all's N file details so
+    // all N items resolve `Date.now()` inside the same second, derived the
+    // same mid, and the sender-side row save coalesced down to one entry
+    // (visible as "1 bubble on sender, N on receiver" for a paste batch).
+    // Sub-second uniqueness via the same `timestampSec * 1_000_000 + slot`
+    // (slot < 1e6) shape that the canonical `mapEventIdToMid` already uses
+    // for receiver mids — so file-path sender mids now live in the same
+    // numeric range as the receiver's hashed mids and never collide intra-
+    // second. The slot is a monotonic per-call counter; values are not
+    // expected to match `mapEventIdToMid(eventId, timestampSec)` since the
+    // file pipeline has always tracked sender mid locally rather than from
+    // the rumor event id.
     const timestampSec = Math.floor(Date.now() / 1000);
-    const mid = timestampSec;
+    const slot = (__sendFileMidCounter = (__sendFileMidCounter + 1) % 1_000_000);
+    const mid = timestampSec * 1_000_000 + slot;
     const eventId = await ctx.chatAPI.sendFileMessage(
       type, url, sha256Hex, keyHex, ivHex,
       blob.type || 'application/octet-stream',
