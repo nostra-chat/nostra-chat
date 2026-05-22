@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.1](https://github.com/nostra-chat/nostra-chat/compare/v0.25.0...v0.25.1) (2026-05-22)
+
+
+### Bug Fixes
+
+* **explorer:** load gitignored console allowlist optionally so tsc passes on clean checkouts ([#113](https://github.com/nostra-chat/nostra-chat/issues/113)) ([19106f8](https://github.com/nostra-chat/nostra-chat/commit/19106f84feb3335ba183f6fe30f3374a32401764))
+
 ## [0.25.0](https://github.com/nostra-chat/nostra-chat/compare/v0.24.1...v0.25.0) (2026-05-22)
 
 
