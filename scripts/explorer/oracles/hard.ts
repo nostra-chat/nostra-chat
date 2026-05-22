@@ -1,7 +1,25 @@
 import {CONSOLE_ALLOWLIST} from '../../../src/tests/fuzz/allowlist';
 import {EXPLORER_STABLE_CONSOLE_ALLOWLIST} from '../explorer-allowlist';
-import {EXPLORER_CONSOLE_ALLOWLIST} from '../../../docs/explorer-reports/allowlist';
 import type {PageId} from '../types';
+
+// `docs/explorer-reports/allowlist.ts` is a gitignored per-developer scratch slot
+// (a throwaway extension of EXPLORER_STABLE_CONSOLE_ALLOWLIST), so it is ABSENT on
+// clean checkouts / CI. A *static* import of it breaks `tsc --noEmit` on a fresh tree
+// — that was the v0.25.0 deploy-build failure (TS2307 + TS7006). Load it best-effort
+// via a non-literal specifier so tsc skips module resolution; when the file is missing
+// the list stays empty, identical to a clean checkout.
+let EXPLORER_CONSOLE_ALLOWLIST: readonly RegExp[] = [];
+const optionalAllowlistSlot: string = '../../../docs/explorer-reports/allowlist';
+void (async() => {
+  try {
+    const mod = await import(optionalAllowlistSlot) as {EXPLORER_CONSOLE_ALLOWLIST?: readonly RegExp[]};
+    if(Array.isArray(mod.EXPLORER_CONSOLE_ALLOWLIST)) {
+      EXPLORER_CONSOLE_ALLOWLIST = mod.EXPLORER_CONSOLE_ALLOWLIST;
+    }
+  } catch{
+    // No per-developer extension present — expected on clean checkouts / CI.
+  }
+})();
 
 export type HardOracleKind = 'console_error' | 'unhandled_rejection' | 'network_5xx' | 'white_screen';
 
