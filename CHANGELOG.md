@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.2](https://github.com/nostra-chat/nostra-chat/compare/v0.25.1...v0.25.2) (2026-05-23)
+
+
+### Bug Fixes
+
+* **groups:** production-readiness — edit/reply/reactions/rollback/attribution ([#115](https://github.com/nostra-chat/nostra-chat/issues/115)) ([89d602a](https://github.com/nostra-chat/nostra-chat/commit/89d602a17fc03614469d2f8997400459392abfa4))
+
 ## [0.25.1](https://github.com/nostra-chat/nostra-chat/compare/v0.25.0...v0.25.1) (2026-05-22)
 
 
