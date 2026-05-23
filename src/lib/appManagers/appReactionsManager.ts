@@ -484,7 +484,15 @@ export class AppReactionsManager extends AppManager {
     count
   }: SendReactionOptions): Promise<MessageReactions> {
     const p2pPeerId = message?.peerId;
-    if(p2pPeerId && Number(p2pPeerId) >= 1e15) {
+    const numericP2pPeer = Number(p2pPeerId);
+    const isNostraDM = numericP2pPeer >= 1e15;
+    // Group peerIds live in `-GROUP_PEER_BASE` range (|peerId| >= 2e15, see
+    // group-types.ts). Without this branch the P2P shortcut below was
+    // skipped for groups and the reaction never reached `nostraReactions
+    // Publish` — the optimistic `local: true` update was the only thing the
+    // user ever saw. Closes FIND-191385d3.
+    const isNostraGroup = numericP2pPeer <= -2e15;
+    if(p2pPeerId && (isNostraDM || isNostraGroup)) {
       // Nostra P2P: VMT bridge publishes kind-7 and persists locally; UI reads the reactions store.
       await this.apiManager.invokeApi('messages.sendReaction', {
         message,

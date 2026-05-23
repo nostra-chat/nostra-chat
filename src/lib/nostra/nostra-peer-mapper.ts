@@ -169,7 +169,15 @@ export class NostraPeerMapper {
       pFlags,
       ...(entities && entities.length ? {entities} : {}),
       ...(opts.media ? {media: opts.media} : {}),
-      ...(reply_to ? {reply_to: reply_to as any} : {})
+      ...(reply_to ? {reply_to: reply_to as any} : {}),
+      // bubbles.ts reads `message.reply_to_mid` (not reply_to.reply_to_msg_id)
+      // to resolve the parent and render the .reply preview header. tweb's
+      // saveMessages computes this via `generateMessageId(replyTo.reply_to_msg
+      // _id, channelId)`, but our synthetic P2P messages bypass that path —
+      // we already have the parent's local mid, so stamp it directly. Without
+      // this the bubble has no .reply element even though message.reply_to
+      // is populated (FIND-191385d3 secondary).
+      ...(opts.replyToMid !== undefined ? {reply_to_mid: opts.replyToMid} : {})
     } as Message.message;
     if(totalEntities && totalEntities.length) {
       (message as any).totalEntities = totalEntities;
@@ -181,6 +189,22 @@ export class NostraPeerMapper {
     (message as any).peerId = isGroup ?
       opts.peerId.toPeerId(true) :
       opts.peerId.toPeerId(false);
+
+    // tweb's saveMessages would normally compute `message.fromId` from
+    // `from_id` (line 5149 in appMessagesManager), but our P2P render path
+    // bypasses that. bubbles.ts reads `message.fromId` directly for the
+    // colored-name peerIdForColor and for the createTitle(peerId,...) call —
+    // without it the bubble renders `data-peer-id="0"` / "Deleted Account"
+    // even though `from_id` is populated (FIND-3ce67f93 sender-side
+    // attribution bug on group bubbles).
+    if(opts.fromPeerId) {
+      (message as any).fromId = opts.fromPeerId;
+    } else if(opts.isOutgoing) {
+      // Outgoing 1-on-1 fall-back: tweb's saveMessages would set fromId to
+      // myId here. We don't have myId in the mapper context, but for 1-on-1
+      // P2P chats the bubble doesn't show a name anyway (.hide-name fires
+      // when peerId === fromId). Leave undefined.
+    }
 
     return message;
   }

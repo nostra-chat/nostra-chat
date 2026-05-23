@@ -1235,10 +1235,28 @@ export class NostraMTProtoServer {
       return emptyUpdates;
     }
 
+    // Resolve reply_to symmetrically to the DM sendMessage path: tweb sends
+    // `reply_to: {_: 'inputReplyToMessage', reply_to_msg_id: <mid>}`. We
+    // resolve the mid back to the parent row's eventId (= rumor id) and
+    // forward as `replyToRumorId` so receivers can stamp `replyToMid`
+    // locally on incoming. Without this the new group rumor lands without
+    // a reply header even though the sender chose "Reply" in the UI
+    // (FIND-fcfcdec0 #3).
+    let replyToRumorId: string | undefined;
+    const replyToMsgId: number | undefined = params?.reply_to?.reply_to_msg_id;
+    if(replyToMsgId !== undefined && replyToMsgId !== null) {
+      try {
+        const original = await getMessageStore().getByMid(replyToMsgId);
+        if(original?.eventId) replyToRumorId = original.eventId;
+      } catch(err: any) {
+        console.warn(LOG_PREFIX, 'sendGroupMessage: reply_to lookup failed:', err?.message);
+      }
+    }
+
     try {
       const {getGroupAPI} = await import('./group-api');
       const api = getGroupAPI();
-      const {messageId, rumorId, timestampMs} = await api.sendMessage(groupId, text);
+      const {messageId, rumorId, timestampMs} = await api.sendMessage(groupId, text, {replyToRumorId});
       const timestampSec = Math.floor(timestampMs / 1000);
       const mid = await this.mapper.mapEventId(rumorId, timestampSec);
 
@@ -1260,6 +1278,75 @@ export class NostraMTProtoServer {
     }
   }
 
+  /**
+   * Group-aware counterpart to `editMessage`. Looks the original row up by
+   * mid, sanity-checks ownership + conversation, then delegates to
+   * `GroupAPI.editMessage`, which does the local apply + broadcast via the
+   * `group_edit_message` control payload. Mirrors the empty-updates +
+   * `nostraEdit: true` response shape so `appMessagesManager`'s post-edit
+   * shortcut treats the edit as successful and leaves the existing bubble
+   * mounted (the old fall-through removed the optimistic update bubble
+   * without replacing it — FIND-fcfcdec0 #1).
+   */
+  private async editGroupMessage(peerId: number, params: any): Promise<any> {
+    const emptyUpdates = {
+      _: 'updates',
+      updates: [] as any[],
+      users: [] as any[],
+      chats: [] as any[],
+      date: Math.floor(Date.now() / 1000),
+      seq: 0
+    };
+
+    const mid: number = params?.id;
+    const newText: string = params?.message ?? '';
+    if(typeof mid !== 'number') return emptyUpdates;
+
+    try {
+      const store = getMessageStore();
+      const original = await store.getByMid(mid);
+      if(!original) {
+        console.warn(LOG_PREFIX, 'editGroupMessage: original mid not in store', mid);
+        return emptyUpdates;
+      }
+      if(original.senderPubkey !== this.ownPubkey) {
+        console.warn(LOG_PREFIX, 'editGroupMessage: refusing to edit non-own message');
+        return emptyUpdates;
+      }
+      if(!original.conversationId?.startsWith('group:')) {
+        console.warn(LOG_PREFIX, 'editGroupMessage: row is not a group message', {conversationId: original.conversationId});
+        return emptyUpdates;
+      }
+      const groupId = original.conversationId.slice('group:'.length);
+      const targetRumorId = original.eventId;
+      if(!targetRumorId) {
+        console.warn(LOG_PREFIX, 'editGroupMessage: original missing eventId');
+        return emptyUpdates;
+      }
+
+      const {getGroupAPI} = await import('./group-api');
+      await getGroupAPI().editMessage(groupId, targetRumorId, newText);
+
+      return {
+        _: 'updates',
+        updates: [],
+        users: [],
+        chats: [],
+        date: Math.floor(Date.now() / 1000),
+        seq: 0,
+        nostraMid: mid,
+        nostraEventId: targetRumorId,
+        nostraEdit: true
+      };
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'editGroupMessage failed', err);
+      // Reference peerId to silence unused-param warning — kept in signature
+      // for symmetry with sendGroupMessage and future per-peer routing.
+      void peerId;
+      return emptyUpdates;
+    }
+  }
+
   private async editMessage(params: any): Promise<any> {
     const emptyUpdates = {
       _: 'updates',
@@ -1274,6 +1361,15 @@ export class NostraMTProtoServer {
 
     const peerId = extractPeerId(params?.peer);
     if(peerId === null) return emptyUpdates;
+
+    // Group branch: negative peerId in GROUP_PEER_BASE range → delegate to
+    // GroupAPI.editMessage. Without this the call would fall through to
+    // the 1-on-1 path which calls `getPubkey(Math.abs(peerId))` against
+    // the group peerId — that returns null and the whole edit silently
+    // drops (FIND-fcfcdec0 #1).
+    if(isGroupPeer(peerId)) {
+      return this.editGroupMessage(peerId, params);
+    }
 
     const peerPubkey = await getPubkey(Math.abs(peerId));
     if(!peerPubkey) return emptyUpdates;
@@ -1431,10 +1527,25 @@ export class NostraMTProtoServer {
     try {
       const {peerId, mid, date, text, media, replyToMid, groupedId} = params;
 
+      // For group bubbles (negative peerId) the bubble's name pill is
+      // visible and reads `message.fromId`. Without stamping it the
+      // bubble renders "Deleted Account" / `data-peer-id="0"` until the
+      // relay echo arrives ~0.5–2 s later and the receive path overwrites
+      // the row (FIND-01e78a01 #3). For DM `is-out` bubbles the pill is
+      // CSS-hidden so leaving fromPeerId undefined is harmless.
+      let fromPeerId: number | undefined;
+      if(isGroupPeer(peerId) && this.ownPubkey) {
+        try {
+          fromPeerId = await this.mapper.mapPubkey(this.ownPubkey);
+        } catch(err) {
+          console.debug(LOG_PREFIX, 'injectOutgoingBubble: mapPubkey(self) failed:', (err as any)?.message);
+        }
+      }
+
       const msg = this.mapper.createTwebMessage({
         mid,
         peerId,
-        fromPeerId: undefined,
+        fromPeerId,
         date,
         text,
         isOutgoing: true,
@@ -1462,7 +1573,13 @@ export class NostraMTProtoServer {
             waveform: media.waveform
           });
         }
-        if(media.type === 'image' && media.width && media.height) {
+        if(media.type === 'image') {
+          // Render any image as photo, even without explicit dimensions —
+          // see FIND-e60cef56 γ. tweb sizes the image bubble by the
+          // photoSize w/h, so a sensible square placeholder (320×320) is
+          // a better default than collapsing to messageMediaDocument.
+          const w = media.width || 320;
+          const h = media.height || 320;
           (msg as any).media = {
             _: 'messageMediaPhoto',
             pFlags: {},
@@ -1472,8 +1589,8 @@ export class NostraMTProtoServer {
               sizes: [{
                 _: 'photoSize',
                 type: 'x',
-                w: media.width,
-                h: media.height,
+                w,
+                h,
                 size: media.size,
                 url: media.objectURL
               }],
@@ -1603,6 +1720,13 @@ export class NostraMTProtoServer {
       return emptyUpdates;
     }
 
+    // Group branch: route through GroupAPI.sendFile instead of the 1:1
+    // chatAPI publish. The 1:1 path requires a peerPubkey reverse-lookup
+    // that doesn't exist for groups (FIND-3ce67f93 obs (c) carryforward).
+    if(isGroupPeer(peerId)) {
+      return this.nostraSendFileToGroup(peerId, params);
+    }
+
     const peerPubkey = await getPubkey(Math.abs(peerId));
     if(!peerPubkey) return emptyUpdates;
 
@@ -1718,6 +1842,205 @@ export class NostraMTProtoServer {
       seq: 0,
       nostraMid: result.mid,
       nostraEventId: result.eventId
+    };
+  }
+
+  /**
+   * Group-aware counterpart of `nostraSendFile`. Encrypts + uploads the
+   * blob to Blossom, optimistically renders the sender's bubble with the
+   * local objectURL, persists the row keyed by `conversationId='group:<id>'`,
+   * then broadcasts a `group_<fileType>` rumor to every member via
+   * `GroupAPI.sendFile`. Receivers run `handleGroupIncoming`, which reads
+   * `fileMetadata` from the parsed rumor and renders via `buildNostraMedia`.
+   */
+  private async nostraSendFileToGroup(peerId: number, params: any): Promise<any> {
+    const emptyUpdates = {
+      _: 'updates',
+      updates: [] as any[],
+      users: [] as any[],
+      chats: [] as any[],
+      date: Math.floor(Date.now() / 1000),
+      seq: 0
+    };
+
+    if(!this.chatAPI || !this.ownPubkey) return emptyUpdates;
+
+    const blob: Blob = params?.blob;
+    const type: 'image' | 'video' | 'file' | 'voice' = params?.type || 'file';
+    const caption: string = params?.caption || '';
+    const tempMid: number = Number(params?.tempMid);
+    const width: number | undefined = params?.width;
+    const height: number | undefined = params?.height;
+    const duration: number | undefined = params?.duration;
+    const waveform: string | undefined = params?.waveform;
+    const groupedId: string | undefined = typeof params?.groupedId === 'string' ? params.groupedId : undefined;
+
+    let groupId: string;
+    try {
+      const {getGroupStore} = await import('./group-store');
+      const rec = await getGroupStore().getByPeerId(peerId);
+      if(!rec) {
+        console.warn(LOG_PREFIX, 'nostraSendFileToGroup: no group for peerId', peerId);
+        return emptyUpdates;
+      }
+      groupId = rec.groupId;
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'nostraSendFileToGroup: group lookup failed', err);
+      return emptyUpdates;
+    }
+
+    // Get the private key for the Blossom auth header
+    const privkeyBytes: Uint8Array | null = (this.chatAPI as any)?.relayPool?.getPrivateKey?.() ?? null;
+    if(!privkeyBytes || !(privkeyBytes instanceof Uint8Array) || privkeyBytes.length !== 32) {
+      console.warn(LOG_PREFIX, 'nostraSendFileToGroup: no 32-byte private key');
+      return emptyUpdates;
+    }
+    const {bytesToHex} = await import('./file-crypto');
+    const privkeyHex = bytesToHex(privkeyBytes);
+
+    // Optimistic sender-side bubble — render the local blob immediately so
+    // the user sees the image while the upload + broadcast complete. Pass
+    // the NEGATIVE group peerId through (Math.abs would flip it positive
+    // and the bubble would land in mirrors.messages[`${positive}_history`]
+    // while the receive path stores at `${negative}_history`, causing a
+    // multi-second delay before the message_sent reconciler finds it —
+    // FIND-e8327b23 §B).
+    try {
+      const objectURL = URL.createObjectURL(blob);
+      await this.injectOutgoingBubble({
+        peerId,
+        mid: tempMid,
+        date: Math.floor(Date.now() / 1000),
+        text: caption,
+        senderPubkey: this.ownPubkey!,
+        groupedId,
+        media: {
+          type,
+          objectURL,
+          mimeType: blob.type,
+          size: blob.size,
+          width,
+          height,
+          duration,
+          waveform,
+          uploading: true
+        }
+      });
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'nostraSendFileToGroup: optimistic bubble failed', err);
+    }
+
+    // Encrypt + upload to Blossom. Reuses the 1:1 upload helper since the
+    // blob-encryption + Blossom auth flow is peer-agnostic.
+    let url: string;
+    let sha256Hex: string;
+    let keyHex: string;
+    let ivHex: string;
+    try {
+      const {encryptFile} = await import('./file-crypto');
+      const enc = await encryptFile(blob);
+      keyHex = enc.keyHex;
+      ivHex = enc.ivHex;
+      sha256Hex = enc.sha256Hex;
+      const {uploadToBlossomWithProgress} = await import('./blossom-upload-progress');
+      const rs: any = (await import('@lib/rootScope')).default;
+      // Dispatch progress + completion with the NEGATIVE group peerId — the
+      // listener in bubbles.ts gates on `peerId !== this.peerId` and the
+      // active chat container holds the negative group peerId. Positive
+      // would silently drop every progress tick for group uploads.
+      const upload = await uploadToBlossomWithProgress(enc.ciphertext, privkeyHex, {
+        onProgress: (p: number) => {
+          if(typeof rs.dispatchEventSingle === 'function') {
+            rs.dispatchEventSingle('nostra_file_upload_progress', {peerId, mid: tempMid, percent: p});
+          }
+        }
+      });
+      url = upload.url;
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'nostraSendFileToGroup: encrypt/upload failed', err);
+      const rs: any = (await import('@lib/rootScope')).default;
+      if(typeof rs.dispatchEventSingle === 'function') {
+        rs.dispatchEventSingle('nostra_file_upload_failed', {peerId, mid: tempMid, error: 'encrypt/upload failed'});
+      }
+      return emptyUpdates;
+    }
+
+    const fileMetadata = {
+      url,
+      sha256: sha256Hex,
+      keyHex,
+      ivHex,
+      mimeType: blob.type,
+      size: blob.size,
+      ...(width !== undefined ? {width} : {}),
+      ...(height !== undefined ? {height} : {}),
+      ...(duration !== undefined ? {duration} : {}),
+      ...(waveform !== undefined ? {waveform} : {})
+    };
+
+    // Broadcast via GroupAPI. Returns the canonical rumor id we then key
+    // the persisted row by — matches the rx-side `eventId === rumorId`
+    // contract so the receiver's resolver can find this row when, e.g.,
+    // a later reaction targets it.
+    let messageId: string;
+    let rumorId: string;
+    let timestampMs: number;
+    try {
+      const {getGroupAPI} = await import('./group-api');
+      const sendRes = await getGroupAPI().sendFile(groupId, type, fileMetadata, caption);
+      messageId = sendRes.messageId;
+      rumorId = sendRes.rumorId;
+      timestampMs = sendRes.timestampMs;
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'nostraSendFileToGroup: GroupAPI.sendFile failed', err);
+      return emptyUpdates;
+    }
+
+    const timestampSec = Math.floor(timestampMs / 1000);
+    let realMid: number;
+    try {
+      realMid = await this.mapper.mapEventId(rumorId, timestampSec);
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'nostraSendFileToGroup: mapEventId failed', err);
+      return emptyUpdates;
+    }
+
+    // Persist the authoritative row keyed by rumorId so reactions / replies /
+    // edits targeting this message resolve consistently on both sides.
+    try {
+      const store = getMessageStore();
+      await store.saveMessage({
+        eventId: rumorId,
+        appMessageId: messageId,
+        conversationId: `group:${groupId}`,
+        senderPubkey: this.ownPubkey,
+        content: caption,
+        type: 'file',
+        timestamp: timestampSec,
+        deliveryState: 'sent',
+        mid: realMid,
+        twebPeerId: peerId,
+        isOutgoing: true,
+        fileMetadata
+      });
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'nostraSendFileToGroup: saveMessage failed', err);
+    }
+
+    const rs: any = (await import('@lib/rootScope')).default;
+    if(typeof rs.dispatchEventSingle === 'function') {
+      rs.dispatchEventSingle('nostra_file_upload_completed', {peerId, mid: tempMid, finalMid: realMid});
+    }
+
+    return {
+      _: 'updates',
+      updates: [],
+      users: [],
+      chats: [],
+      date: timestampSec,
+      seq: 0,
+      nostraMid: realMid,
+      nostraEventId: rumorId
     };
   }
 

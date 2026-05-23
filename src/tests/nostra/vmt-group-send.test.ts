@@ -142,7 +142,7 @@ describe('VirtualMTProtoServer.sendMessage — group branch', () => {
     const result = await (server as any).sendMessage(params);
 
     expect(mockGetByPeerId).toHaveBeenCalledWith(GROUP_PEER_ID);
-    expect(mockGroupSendMessage).toHaveBeenCalledWith(GROUP_ID, 'Ciao gruppo!');
+    expect(mockGroupSendMessage).toHaveBeenCalledWith(GROUP_ID, 'Ciao gruppo!', {replyToRumorId: undefined});
     expect(result._).toBe('updates');
     expect(result.nostraMid).toBe(MID);
     expect(result.nostraEventId).toBe(RUMOR_ID);

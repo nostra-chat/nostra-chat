@@ -1486,6 +1486,21 @@ export class AppMessagesManager extends AppManager {
           message.pFlags.out = true;
           message.pFlags.unread = true;
           if((updates as any).date) message.date = (updates as any).date;
+
+          // For Nostra groups, generateFromId synthesized a bad
+          // `from_id={_: peerUser, user_id: <negativeChatId>}` because
+          // getSelf() returned undefined. handleGroupOutgoing already
+          // wrote the correct row at `storage[nostraMid]` with the
+          // sender's user-level peerId — read it back and merge the
+          // corrected from_id / fromId BEFORE we overwrite (FIND-ee66f7ae).
+          if(isGroupPeer(Number(peerId))) {
+            const existing = storage.get(nostraMid) as Message.message | undefined;
+            if(existing?.from_id && (existing as any).fromId) {
+              message.from_id = existing.from_id;
+              (message as any).fromId = (existing as any).fromId;
+            }
+          }
+
           this.setMessageToStorage(storage, message);
           this.rootScope.dispatchEvent('message_sent', {
             storageKey: storage.key,
@@ -1613,8 +1628,14 @@ export class AppMessagesManager extends AppManager {
     // The Virtual MTProto Server handles Blossom upload + AES-GCM encryption
     // + kind 15 rumor publish. Bubble injection and message-store persist
     // happen inside the VMT handler, so we only need to dispatch message_sent
-    // after the bridge returns.
-    if(Number(peerId) >= 1e15 && (file instanceof File || file instanceof Blob)) {
+    // after the bridge returns. Negative `peerId` in the GROUP_PEER_BASE
+    // range (groups) also routes through the bridge — VMT.nostraSendFile's
+    // group branch handles fan-out to all members via wrapGroupMessage
+    // (FIND-3786a35f obs B).
+    const peerIdNumForFile = Number(peerId);
+    const isNostraDMForFile = peerIdNumForFile >= 1e15;
+    const isNostraGroupForFile = isGroupPeer(peerIdNumForFile);
+    if((isNostraDMForFile || isNostraGroupForFile) && (file instanceof File || file instanceof Blob)) {
       const mime = (file.type || '').toLowerCase();
       const nostraType: 'image' | 'video' | 'file' | 'voice' =
         options.isVoiceMessage ? 'voice' :
@@ -2768,12 +2789,22 @@ export class AppMessagesManager extends AppManager {
         peer: this.appPeersManager.getInputPeerById(options.peerId)
       };
     } else if(options.replyToMsgId) {
+      // For Nostra peers (1-on-1 P2P or groups) the local mid is the rumor-
+      // derived timestamp mid (> 2^32), and there is no MTProto server in
+      // the loop, so `getServerMessageId(localMid) = localMid % 2^32`
+      // permanently mangles the value — VMT's `getMessageStore().getByMid`
+      // lookup then never finds the parent and replies land without their
+      // NIP-10 `['e', ...]` tag. Pass the mid through unchanged for nostra
+      // peers so VMT.sendMessage / sendGroupMessage can resolve the parent
+      // (FIND-16af771a). For regular MTProto peers, keep the legacy mangle.
+      const numericPeer = Number(options.peerId);
+      const isNostraPeer = numericPeer >= 1e15 || isGroupPeer(numericPeer);
       return {
         _: 'inputReplyToMessage',
         monoforum_peer_id: this.appPeersManager.canManageDirectMessages(options.peerId) && options.replyToMonoforumPeerId ?
           this.appPeersManager.getInputPeerById(options.replyToMonoforumPeerId) :
           undefined,
-        reply_to_msg_id: getServerMessageId(options.replyToMsgId),
+        reply_to_msg_id: isNostraPeer ? options.replyToMsgId : getServerMessageId(options.replyToMsgId),
         reply_to_peer_id: options.replyToPeerId && this.appPeersManager.getInputPeerById(options.replyToPeerId),
         top_msg_id: options.threadId ? getServerMessageId(options.threadId) : undefined,
         ...(options.replyToQuote && {

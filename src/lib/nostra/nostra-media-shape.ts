@@ -24,9 +24,19 @@ export interface NostraFileMetadata {
 
 export function buildNostraMedia(mid: number, fm: NostraFileMetadata): any {
   const isVoice = !!fm.duration && (fm.mimeType || '').includes('audio');
-  const isImage = (fm.mimeType || '').startsWith('image/') && fm.width && fm.height;
+  // Treat anything tagged `image/*` as a photo even when explicit width/height
+  // are absent (e.g. when the sender's UI didn't extract dimensions, or the
+  // rumor came from a path that drops them). Falling through to
+  // `messageMediaDocument` rendered the bubble as a generic file attachment
+  // — visually broken on both DM and group receive paths (FIND-e60cef56 γ).
+  const isImage = (fm.mimeType || '').startsWith('image/');
 
   if(isImage) {
+    // Default to 320×320 when dimensions are missing — tweb's image bubble
+    // sizes itself by the photoSize w/h, so a sensible square placeholder
+    // is better than emitting `undefined` (which collapses to a tiny render).
+    const w = fm.width || 320;
+    const h = fm.height || 320;
     return {
       _: 'messageMediaPhoto',
       pFlags: {},
@@ -36,8 +46,8 @@ export function buildNostraMedia(mid: number, fm: NostraFileMetadata): any {
         sizes: [{
           _: 'photoSize',
           type: 'x',
-          w: fm.width,
-          h: fm.height,
+          w,
+          h,
           size: fm.size,
           url: fm.url
         }],

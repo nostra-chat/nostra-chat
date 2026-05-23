@@ -39,6 +39,7 @@ import {getMessageStore} from './message-store';
 import {groupIdToPeerId} from './group-types';
 import {getGroupStore} from './group-store';
 import {ensureSenderUserInjected} from './ensure-sender-user-injected';
+import {buildNostraMedia} from './nostra-media-shape';
 import {MOUNT_CLASS_TO} from '@config/debug';
 import rootScope from '@lib/rootScope';
 
@@ -53,6 +54,9 @@ export interface GroupOutgoingInfo {
   content: string;
   timestamp: number;
   type: string;
+  /** rumor id of the message this send is a reply to. Used to stamp
+   *  `replyToMid` on the saved row so bubbles render the reply header. */
+  replyToRumorId?: string;
 }
 
 interface ParsedGroupRumor {
@@ -60,6 +64,23 @@ interface ParsedGroupRumor {
   type: string;
   messageId: string;
   timestamp: number;
+  /** Optional reply target — rumor id of the parent message. Populated
+   *  when the sender included `replyToRumorId` in the payload. */
+  replyToRumorId?: string;
+  /** Encrypted-Blossom file payload when `type` is image/video/file/voice.
+   *  Mirrors the 1-on-1 file rumor shape. */
+  fileMetadata?: {
+    url: string;
+    sha256: string;
+    keyHex: string;
+    ivHex: string;
+    mimeType: string;
+    size: number;
+    width?: number;
+    height?: number;
+    duration?: number;
+    waveform?: string;
+  };
 }
 
 // Shared mapper — IndexedDB-backed (nostra-virtual-peers), so a single
@@ -78,8 +99,31 @@ function parseGroupRumorContent(raw: string): ParsedGroupRumor | null {
     const type = typeof parsed.type === 'string' ? parsed.type : 'text';
     const messageId = typeof parsed.id === 'string' ? parsed.id : '';
     const timestamp = typeof parsed.timestamp === 'number' ? parsed.timestamp : 0;
+    const replyToRumorId = typeof parsed.replyToRumorId === 'string' && parsed.replyToRumorId.length === 64 ?
+      parsed.replyToRumorId :
+      undefined;
+    let fileMetadata: ParsedGroupRumor['fileMetadata'] | undefined;
+    if(parsed.fileMetadata && typeof parsed.fileMetadata === 'object') {
+      const fm = parsed.fileMetadata;
+      if(typeof fm.url === 'string' && typeof fm.sha256 === 'string' &&
+         typeof fm.keyHex === 'string' && typeof fm.ivHex === 'string' &&
+         typeof fm.mimeType === 'string' && typeof fm.size === 'number') {
+        fileMetadata = {
+          url: fm.url,
+          sha256: fm.sha256,
+          keyHex: fm.keyHex,
+          ivHex: fm.ivHex,
+          mimeType: fm.mimeType,
+          size: fm.size,
+          ...(typeof fm.width === 'number' ? {width: fm.width} : {}),
+          ...(typeof fm.height === 'number' ? {height: fm.height} : {}),
+          ...(typeof fm.duration === 'number' ? {duration: fm.duration} : {}),
+          ...(typeof fm.waveform === 'string' ? {waveform: fm.waveform} : {})
+        };
+      }
+    }
     if(!messageId) return null;
-    return {content, type, messageId, timestamp};
+    return {content, type, messageId, timestamp, replyToRumorId, fileMetadata};
   } catch{
     return null;
   }
@@ -127,9 +171,16 @@ function dispatchGroupHistoryAppend(groupPeerId: number, msg: any): void {
 function dispatchGroupDialogUpdate(groupPeerId: number, dialog: any): void {
   const toPeerId = (Number.prototype as any).toPeerId;
   const asPeerId = toPeerId ? (groupPeerId as any).toPeerId(true) : groupPeerId;
+  // The typed envelope for `dialogs_multiupdate` is
+  //   Map<PeerId, {dialog?: Dialog, topics?, saved?}>
+  // — earlier we wrapped the dialog bare (`new Map([[peerId, dialog]])`),
+  // which made the chat-list listener read `payload.dialog === undefined`
+  // and silently skip the entry (FIND-3f07bfd3 γ — mirror was set but no
+  // DOM row ever appeared). Wrap in `{dialog}` so the adapter picks it up.
+  const envelope = {dialog};
   const dispatchOnce = () => {
     try {
-      rootScope.dispatchEvent('dialogs_multiupdate' as any, new Map([[asPeerId, dialog]]));
+      rootScope.dispatchEvent('dialogs_multiupdate' as any, new Map([[asPeerId, envelope]]) as any);
     } catch(e: any) {
       console.debug(LOG_PREFIX, 'dialogs_multiupdate dispatch non-critical:', e?.message);
     }
@@ -205,6 +256,20 @@ export async function ensureGroupChatInjected(
       console.debug(LOG_PREFIX, 'ensureGroupChatInjected: reconcilePeer non-critical:', e?.message);
     }
   }
+
+  // Force a topbar refresh whenever this runs — tweb's chat-info template
+  // subscribes to `peer_title_edit` for late updates. Without this, the
+  // topbar stays frozen on the previous peer's title after a setPeer
+  // transition (FIND-3f07bfd3 β). Idempotent — dispatching when no title
+  // changed is a no-op for downstream renderers.
+  try {
+    const asPeerId = (groupPeerId as any).toPeerId ?
+      (groupPeerId as any).toPeerId(true) :
+      groupPeerId;
+    rootScope.dispatchEvent('peer_title_edit' as any, {peerId: asPeerId} as any);
+  } catch(e: any) {
+    console.debug(LOG_PREFIX, 'ensureGroupChatInjected: peer_title_edit dispatch non-critical:', e?.message);
+  }
 }
 
 /**
@@ -246,6 +311,19 @@ export async function injectGroupCreateDialog(
     readInboxMaxId: serviceMid,
     readOutboxMaxId: serviceMid
   });
+
+  // Write the dialog into the main-thread mirror BEFORE dispatching the
+  // multiupdate so the chat-list adapter resolving by `mirrors.dialogs[
+  // peerId]` finds a record on the same tick. Without this, receiving
+  // members had the group in `mirrors.chats` + `mirrors.peers` but NOT in
+  // `mirrors.dialogs`, so the chat-list row only appeared after the first
+  // real history_append from the sender (FIND-e60cef56 carry-forward).
+  const proxy = MOUNT_CLASS_TO.apiManagerProxy as any;
+  if(proxy?.mirrors) {
+    if(!proxy.mirrors.dialogs) proxy.mirrors.dialogs = {};
+    proxy.mirrors.dialogs[groupPeerId] = dialog;
+  }
+
   dispatchGroupDialogUpdate(groupPeerId, dialog);
 }
 
@@ -270,6 +348,13 @@ export async function cleanupGroupChatInjection(groupPeerId: number): Promise<vo
   const proxy = MOUNT_CLASS_TO.apiManagerProxy as any;
   if(proxy?.mirrors?.peers) delete proxy.mirrors.peers[groupPeerId];
   if(proxy?.mirrors?.chats) delete proxy.mirrors.chats[chatId];
+  // FIND-01e78a01 #2: previously only `peers` + `chats` were cleared. The
+  // dialog entry survived in `mirrors.dialogs`, so a subsequent
+  // `setInnerPeer({peerId: leftGroupPeerId})` happily resolved to the stale
+  // dialog and rendered the chat container back into view — combined with
+  // FIND-01e78a01 #1 (send-side membership gate) that was the exploit
+  // path. Clear the dialog mirror symmetrically.
+  if(proxy?.mirrors?.dialogs) delete proxy.mirrors.dialogs[groupPeerId];
 }
 
 /**
@@ -291,7 +376,7 @@ export async function handleGroupIncoming(
     console.warn(LOG_PREFIX, 'rx: rumor content unparseable; dropping', {groupId, rumorId: rumor?.id});
     return;
   }
-  const {content, type, messageId, timestamp: appTsMs} = parsed;
+  const {content, type, messageId, timestamp: appTsMs, replyToRumorId, fileMetadata} = parsed;
   const rumorId: string = rumor.id;
   const timestampSec = typeof rumor.created_at === 'number' ?
     rumor.created_at :
@@ -334,6 +419,22 @@ export async function handleGroupIncoming(
     console.warn(LOG_PREFIX, 'rx: ensureSenderUserInjected failed; continuing', {err});
   }
 
+  // Resolve reply target — `replyToRumorId` in the payload points at the
+  // parent's rumor id (= the parent's `eventId` in our message-store). We
+  // map it to the parent's `mid` so bubbles render the reply preview header
+  // exactly the way DM replies do (NIP-10 `['e', ...]` path). Falls
+  // through to undefined if the parent isn't in our store yet — out-of-order
+  // delivery just shows a plain bubble in that case.
+  let replyToMid: number | undefined;
+  if(replyToRumorId) {
+    try {
+      const parent = await store.getByEventId(replyToRumorId);
+      if(parent?.mid) replyToMid = parent.mid;
+    } catch(err) {
+      console.debug(LOG_PREFIX, 'rx: replyTo lookup failed; bubble will render without reply header:', (err as any)?.message);
+    }
+  }
+
   try {
     await store.saveMessage({
       eventId: rumorId,
@@ -346,11 +447,20 @@ export async function handleGroupIncoming(
       deliveryState: isOutgoing ? 'sent' : 'delivered',
       mid,
       twebPeerId: groupPeerId,
-      isOutgoing
+      isOutgoing,
+      ...(replyToMid !== undefined ? {replyToMid} : {}),
+      ...(fileMetadata ? {fileMetadata} : {})
     });
   } catch(err) {
     console.warn(LOG_PREFIX, 'rx: saveMessage failed; continuing', {err});
   }
+
+  // Build a tweb MessageMedia from the rumor's fileMetadata so the bubble
+  // renders the image/video/file attachment. Shape matches the 1-on-1
+  // path (buildNostraMedia → messageMediaPhoto / messageMediaDocument with
+  // a `nostraFileMetadata` sidecar that the download manager reads to
+  // fetch+decrypt the encrypted Blossom blob on demand).
+  const media = fileMetadata ? buildNostraMedia(mid, fileMetadata) : undefined;
 
   const msg = mapper.createTwebMessage({
     mid,
@@ -358,7 +468,9 @@ export async function handleGroupIncoming(
     fromPeerId: senderPeerId,
     date: timestampSec,
     text: content,
-    isOutgoing
+    isOutgoing,
+    ...(replyToMid !== undefined ? {replyToMid} : {}),
+    ...(media ? {media} : {})
   });
 
   await injectGroupMessageIntoMirrors(groupPeerId, msg);
@@ -397,6 +509,86 @@ export async function handleGroupIncoming(
 }
 
 /**
+ * Apply an incoming (or self-echoed) edit to a group message. Symmetric
+ * to ChatAPI.editMessage's local update for DMs.
+ *
+ * Lookup is by `eventId = targetEventId` (the rumor id of the original
+ * message). The sender must match the original message's sender — anyone
+ * else editing is rejected to prevent impersonation.
+ *
+ * On success: updates the message-store row, the main-thread mirror,
+ * and dispatches tweb's `message_edit` event so bubbles re-render.
+ */
+export async function applyGroupEdit(
+  groupId: string,
+  targetEventId: string,
+  newText: string,
+  editedAtSec: number,
+  senderPubkey: string
+): Promise<void> {
+  const store = getMessageStore();
+
+  let existing: any = null;
+  try {
+    existing = await store.getByEventId(targetEventId);
+  } catch{
+    existing = null;
+  }
+  if(!existing) {
+    console.warn(LOG_PREFIX, 'edit: target eventId not found in store', {targetEventId});
+    return;
+  }
+
+  if(existing.conversationId !== `group:${groupId}`) {
+    console.warn(LOG_PREFIX, 'edit: target belongs to different conversation', {expected: `group:${groupId}`, got: existing.conversationId});
+    return;
+  }
+
+  if(existing.senderPubkey !== senderPubkey) {
+    console.warn(LOG_PREFIX, 'edit: refusing edit from non-author', {targetEventId, sender: senderPubkey.slice(0, 8), author: existing.senderPubkey.slice(0, 8)});
+    return;
+  }
+
+  try {
+    await store.saveMessage({
+      ...existing,
+      content: newText,
+      editedAt: editedAtSec
+    });
+  } catch(err) {
+    console.warn(LOG_PREFIX, 'edit: saveMessage failed', err);
+  }
+
+  let groupPeerId: number;
+  try {
+    groupPeerId = await groupIdToPeerId(groupId);
+  } catch{
+    return;
+  }
+
+  const proxy = MOUNT_CLASS_TO.apiManagerProxy as any;
+  const storageKey = `${groupPeerId}_history`;
+  const existingMirror = proxy?.mirrors?.messages?.[storageKey]?.[existing.mid];
+  if(existingMirror) {
+    existingMirror.message = newText;
+    existingMirror.edit_date = editedAtSec;
+  }
+
+  try {
+    rootScope.dispatchEvent('message_edit' as any, {
+      storageKey,
+      peerId: groupPeerId,
+      mid: existing.mid,
+      message: existingMirror || {mid: existing.mid, peerId: groupPeerId, message: newText, edit_date: editedAtSec}
+    });
+  } catch(e: any) {
+    console.debug(LOG_PREFIX, 'edit: message_edit dispatch non-critical:', e?.message);
+  }
+
+  console.log(LOG_PREFIX, 'edit applied', {groupPeerId, mid: existing.mid, targetEventId: targetEventId.slice(0, 8)});
+}
+
+/**
  * Render + persist the sender-side optimistic bubble for an outgoing
  * group message. Called by `GroupAPI.sendMessage` immediately after
  * wrapping, before the relay publish completes.
@@ -409,7 +601,7 @@ export async function handleGroupOutgoing(
   const mapper = getMapper();
   const store = getMessageStore();
 
-  const {groupId, messageId, rumorId, content, timestamp, type} = info;
+  const {groupId, messageId, rumorId, content, timestamp, type, replyToRumorId} = info;
   const timestampSec = Math.floor((timestamp || Date.now()) / 1000);
 
   let groupPeerId: number;
@@ -432,6 +624,18 @@ export async function handleGroupOutgoing(
     return;
   }
 
+  // Resolve reply target — same logic as the rx path so the sender's
+  // optimistic bubble already has the right reply header at first paint.
+  let replyToMid: number | undefined;
+  if(replyToRumorId) {
+    try {
+      const parent = await store.getByEventId(replyToRumorId);
+      if(parent?.mid) replyToMid = parent.mid;
+    } catch(err) {
+      console.debug(LOG_PREFIX, 'tx: replyTo lookup failed; bubble will render without reply header:', (err as any)?.message);
+    }
+  }
+
   try {
     await store.saveMessage({
       eventId: rumorId,
@@ -444,7 +648,8 @@ export async function handleGroupOutgoing(
       deliveryState: 'sent',
       mid,
       twebPeerId: groupPeerId,
-      isOutgoing: true
+      isOutgoing: true,
+      ...(replyToMid !== undefined ? {replyToMid} : {})
     });
   } catch(err) {
     console.warn(LOG_PREFIX, 'tx: saveMessage failed; continuing', {err});
@@ -471,7 +676,8 @@ export async function handleGroupOutgoing(
     fromPeerId: ownPeerId,
     date: timestampSec,
     text: content,
-    isOutgoing: true
+    isOutgoing: true,
+    ...(replyToMid !== undefined ? {replyToMid} : {})
   });
 
   await injectGroupMessageIntoMirrors(groupPeerId, msg);
