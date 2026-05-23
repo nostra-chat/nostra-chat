@@ -169,7 +169,15 @@ export class NostraPeerMapper {
       pFlags,
       ...(entities && entities.length ? {entities} : {}),
       ...(opts.media ? {media: opts.media} : {}),
-      ...(reply_to ? {reply_to: reply_to as any} : {})
+      ...(reply_to ? {reply_to: reply_to as any} : {}),
+      // bubbles.ts reads `message.reply_to_mid` (not reply_to.reply_to_msg_id)
+      // to resolve the parent and render the .reply preview header. tweb's
+      // saveMessages computes this via `generateMessageId(replyTo.reply_to_msg
+      // _id, channelId)`, but our synthetic P2P messages bypass that path —
+      // we already have the parent's local mid, so stamp it directly. Without
+      // this the bubble has no .reply element even though message.reply_to
+      // is populated (FIND-191385d3 secondary).
+      ...(opts.replyToMid !== undefined ? {reply_to_mid: opts.replyToMid} : {})
     } as Message.message;
     if(totalEntities && totalEntities.length) {
       (message as any).totalEntities = totalEntities;
