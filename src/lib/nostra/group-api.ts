@@ -17,7 +17,7 @@ import {wrapGroupMessage} from './nostr-crypto';
 import {broadcastGroupControl} from './group-control-messages';
 import {writeGroupCreateServiceMessage} from './group-service-messages';
 import {GroupDeliveryTracker} from './group-delivery-tracker';
-import {handleGroupIncoming, handleGroupOutgoing, applyGroupEdit, cleanupGroupChatInjection, injectGroupCreateDialog, type GroupDispatchFn} from './nostra-groups-sync';
+import {handleGroupIncoming, handleGroupOutgoing, applyGroupEdit, cleanupGroupChatInjection, ensureGroupChatInjected, injectGroupCreateDialog, type GroupDispatchFn} from './nostra-groups-sync';
 import {getMessageStore} from './message-store';
 import type {GroupStore} from './group-store';
 import type {GroupRecord, GroupControlPayload} from './group-types';
@@ -490,6 +490,77 @@ export class GroupAPI {
     await this.publishFn(controlWraps);
 
     this.log('[GroupAPI] member removed from group:', groupId, memberPubkey.slice(0, 8));
+  }
+
+  /**
+   * Update group info (name, description, avatar). Only admin can rename.
+   *
+   * 1. Update local store record
+   * 2. Broadcast group_info_update control to all members + self
+   * 3. Refresh main-thread mirror so the chat-list + topbar pick up the
+   *    new title immediately
+   */
+  async updateGroupInfo(
+    groupId: string,
+    info: {name?: string; description?: string; avatar?: string}
+  ): Promise<void> {
+    const group = await this.store.get(groupId);
+    if(!group) throw new Error(`Group not found: ${groupId}`);
+    if(group.adminPubkey !== this.ownPubkey) throw new Error('Only admin can update group info');
+
+    if(info.name !== undefined && (typeof info.name !== 'string' || info.name.length === 0)) {
+      throw new Error('updateGroupInfo: name must be a non-empty string');
+    }
+
+    const payload: GroupControlPayload = {
+      type: 'group_info_update',
+      groupId,
+      groupName: info.name,
+      groupDescription: info.description,
+      groupAvatar: info.avatar
+    };
+
+    // Build wraps before mutating local store so any crypto-shape rejection
+    // on member pubkeys throws cleanly without leaving a drifted record.
+    const allMembers = group.members;
+    let controlWraps;
+    try {
+      controlWraps = broadcastGroupControl(this.ownSk, allMembers.filter(m => m !== this.ownPubkey), payload);
+    } catch(err) {
+      this.log.warn('[GroupAPI] updateGroupInfo: broadcastGroupControl threw before local mutation:', err);
+      throw err;
+    }
+
+    // Apply locally first so admin's UI updates immediately even before
+    // the publish completes.
+    await this.store.updateInfo(groupId, info);
+
+    // Refresh main-thread mirror so subscribers (chat-list, topbar) see the
+    // new title on the next render pass — same path ensureGroupChatInjected
+    // uses, kept idempotent.
+    try {
+      const peerId = group.peerId;
+      await ensureGroupChatInjected(groupId, peerId);
+    } catch(err) {
+      this.log.warn('[GroupAPI] updateGroupInfo: mirror refresh non-critical:', err);
+    }
+
+    try {
+      await this.publishFn(controlWraps);
+    } catch(err) {
+      this.log.warn('[GroupAPI] updateGroupInfo: publish failed (local change retained):', err);
+      throw err;
+    }
+
+    this.log('[GroupAPI] info updated:', groupId, info);
+  }
+
+  /**
+   * Convenience: rename a group. Routes through updateGroupInfo. Symmetric
+   * to appChatsManager.editTitle's intent.
+   */
+  async renameGroup(groupId: string, newName: string): Promise<void> {
+    return this.updateGroupInfo(groupId, {name: newName});
   }
 
   /**

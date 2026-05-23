@@ -290,6 +290,19 @@ export async function injectGroupCreateDialog(
     readInboxMaxId: serviceMid,
     readOutboxMaxId: serviceMid
   });
+
+  // Write the dialog into the main-thread mirror BEFORE dispatching the
+  // multiupdate so the chat-list adapter resolving by `mirrors.dialogs[
+  // peerId]` finds a record on the same tick. Without this, receiving
+  // members had the group in `mirrors.chats` + `mirrors.peers` but NOT in
+  // `mirrors.dialogs`, so the chat-list row only appeared after the first
+  // real history_append from the sender (FIND-e60cef56 carry-forward).
+  const proxy = MOUNT_CLASS_TO.apiManagerProxy as any;
+  if(proxy?.mirrors) {
+    if(!proxy.mirrors.dialogs) proxy.mirrors.dialogs = {};
+    proxy.mirrors.dialogs[groupPeerId] = dialog;
+  }
+
   dispatchGroupDialogUpdate(groupPeerId, dialog);
 }
 
