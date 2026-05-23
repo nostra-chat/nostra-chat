@@ -39,6 +39,7 @@ import {getMessageStore} from './message-store';
 import {groupIdToPeerId} from './group-types';
 import {getGroupStore} from './group-store';
 import {ensureSenderUserInjected} from './ensure-sender-user-injected';
+import {buildNostraMedia} from './nostra-media-shape';
 import {MOUNT_CLASS_TO} from '@config/debug';
 import rootScope from '@lib/rootScope';
 
@@ -66,6 +67,20 @@ interface ParsedGroupRumor {
   /** Optional reply target — rumor id of the parent message. Populated
    *  when the sender included `replyToRumorId` in the payload. */
   replyToRumorId?: string;
+  /** Encrypted-Blossom file payload when `type` is image/video/file/voice.
+   *  Mirrors the 1-on-1 file rumor shape. */
+  fileMetadata?: {
+    url: string;
+    sha256: string;
+    keyHex: string;
+    ivHex: string;
+    mimeType: string;
+    size: number;
+    width?: number;
+    height?: number;
+    duration?: number;
+    waveform?: string;
+  };
 }
 
 // Shared mapper — IndexedDB-backed (nostra-virtual-peers), so a single
@@ -87,8 +102,28 @@ function parseGroupRumorContent(raw: string): ParsedGroupRumor | null {
     const replyToRumorId = typeof parsed.replyToRumorId === 'string' && parsed.replyToRumorId.length === 64 ?
       parsed.replyToRumorId :
       undefined;
+    let fileMetadata: ParsedGroupRumor['fileMetadata'] | undefined;
+    if(parsed.fileMetadata && typeof parsed.fileMetadata === 'object') {
+      const fm = parsed.fileMetadata;
+      if(typeof fm.url === 'string' && typeof fm.sha256 === 'string' &&
+         typeof fm.keyHex === 'string' && typeof fm.ivHex === 'string' &&
+         typeof fm.mimeType === 'string' && typeof fm.size === 'number') {
+        fileMetadata = {
+          url: fm.url,
+          sha256: fm.sha256,
+          keyHex: fm.keyHex,
+          ivHex: fm.ivHex,
+          mimeType: fm.mimeType,
+          size: fm.size,
+          ...(typeof fm.width === 'number' ? {width: fm.width} : {}),
+          ...(typeof fm.height === 'number' ? {height: fm.height} : {}),
+          ...(typeof fm.duration === 'number' ? {duration: fm.duration} : {}),
+          ...(typeof fm.waveform === 'string' ? {waveform: fm.waveform} : {})
+        };
+      }
+    }
     if(!messageId) return null;
-    return {content, type, messageId, timestamp, replyToRumorId};
+    return {content, type, messageId, timestamp, replyToRumorId, fileMetadata};
   } catch{
     return null;
   }
@@ -300,7 +335,7 @@ export async function handleGroupIncoming(
     console.warn(LOG_PREFIX, 'rx: rumor content unparseable; dropping', {groupId, rumorId: rumor?.id});
     return;
   }
-  const {content, type, messageId, timestamp: appTsMs, replyToRumorId} = parsed;
+  const {content, type, messageId, timestamp: appTsMs, replyToRumorId, fileMetadata} = parsed;
   const rumorId: string = rumor.id;
   const timestampSec = typeof rumor.created_at === 'number' ?
     rumor.created_at :
@@ -372,11 +407,19 @@ export async function handleGroupIncoming(
       mid,
       twebPeerId: groupPeerId,
       isOutgoing,
-      ...(replyToMid !== undefined ? {replyToMid} : {})
+      ...(replyToMid !== undefined ? {replyToMid} : {}),
+      ...(fileMetadata ? {fileMetadata} : {})
     });
   } catch(err) {
     console.warn(LOG_PREFIX, 'rx: saveMessage failed; continuing', {err});
   }
+
+  // Build a tweb MessageMedia from the rumor's fileMetadata so the bubble
+  // renders the image/video/file attachment. Shape matches the 1-on-1
+  // path (buildNostraMedia → messageMediaPhoto / messageMediaDocument with
+  // a `nostraFileMetadata` sidecar that the download manager reads to
+  // fetch+decrypt the encrypted Blossom blob on demand).
+  const media = fileMetadata ? buildNostraMedia(mid, fileMetadata) : undefined;
 
   const msg = mapper.createTwebMessage({
     mid,
@@ -385,7 +428,8 @@ export async function handleGroupIncoming(
     date: timestampSec,
     text: content,
     isOutgoing,
-    ...(replyToMid !== undefined ? {replyToMid} : {})
+    ...(replyToMid !== undefined ? {replyToMid} : {}),
+    ...(media ? {media} : {})
   });
 
   await injectGroupMessageIntoMirrors(groupPeerId, msg);

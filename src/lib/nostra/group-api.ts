@@ -273,6 +273,64 @@ export class GroupAPI {
   }
 
   /**
+   * Send a file/media message to a group. Symmetric to sendMessage but
+   * carries an encrypted-Blossom payload reference instead of plaintext.
+   *
+   * The fileMetadata object is exactly what the receiver needs to fetch
+   * and decrypt — url, sha256, keyHex, ivHex, mimeType, size, and optional
+   * dimensions / duration / waveform. The receiver dispatches a 'file'
+   * type rumor in `nostra-groups-sync.handleGroupIncoming` and renders
+   * via the bubble's media slot.
+   */
+  async sendFile(
+    groupId: string,
+    fileType: 'image' | 'video' | 'file' | 'voice',
+    fileMetadata: {
+      url: string;
+      sha256: string;
+      keyHex: string;
+      ivHex: string;
+      mimeType: string;
+      size: number;
+      width?: number;
+      height?: number;
+      duration?: number;
+      waveform?: string;
+    },
+    caption: string = ''
+  ): Promise<GroupSendResult> {
+    const group = await this.store.get(groupId);
+    if(!group) throw new Error(`Group not found: ${groupId}`);
+
+    const timestampMs = Date.now();
+    const messageId = `grp-${timestampMs}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const messagePayload = JSON.stringify({
+      content: caption,
+      type: fileType,
+      id: messageId,
+      timestamp: timestampMs,
+      fileMetadata
+    });
+
+    const otherMembers = group.members.filter(m => m !== this.ownPubkey);
+    const {wraps, rumorId} = wrapGroupMessage(this.ownSk, otherMembers, messagePayload, groupId);
+
+    this.sentMessageIds.add(messageId);
+    this.groupDelivery.initMessage(messageId, groupId, otherMembers);
+
+    // Optimistic sender-side render is the caller's responsibility — VMT
+    // .nostraSendFile already injected the bubble with `media: {…uploading: true}`
+    // and saved the IDB row before this method runs. We only handle the
+    // broadcast leg here. Receivers go through `handleGroupIncoming` which
+    // reads `fileMetadata` from the parsed rumor and renders the media bubble.
+    await this.publishFn(wraps);
+
+    this.log('[GroupAPI] file sent to group:', groupId, 'id:', messageId, 'rumorId:', rumorId.slice(0, 8), 'fileType:', fileType);
+    return {messageId, rumorId, timestampMs};
+  }
+
+  /**
    * Edit a previously-sent group message.
    *
    * @param groupId         - group the message lives in

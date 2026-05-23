@@ -1699,6 +1699,13 @@ export class NostraMTProtoServer {
       return emptyUpdates;
     }
 
+    // Group branch: route through GroupAPI.sendFile instead of the 1:1
+    // chatAPI publish. The 1:1 path requires a peerPubkey reverse-lookup
+    // that doesn't exist for groups (FIND-3ce67f93 obs (c) carryforward).
+    if(isGroupPeer(peerId)) {
+      return this.nostraSendFileToGroup(peerId, params);
+    }
+
     const peerPubkey = await getPubkey(Math.abs(peerId));
     if(!peerPubkey) return emptyUpdates;
 
@@ -1814,6 +1821,196 @@ export class NostraMTProtoServer {
       seq: 0,
       nostraMid: result.mid,
       nostraEventId: result.eventId
+    };
+  }
+
+  /**
+   * Group-aware counterpart of `nostraSendFile`. Encrypts + uploads the
+   * blob to Blossom, optimistically renders the sender's bubble with the
+   * local objectURL, persists the row keyed by `conversationId='group:<id>'`,
+   * then broadcasts a `group_<fileType>` rumor to every member via
+   * `GroupAPI.sendFile`. Receivers run `handleGroupIncoming`, which reads
+   * `fileMetadata` from the parsed rumor and renders via `buildNostraMedia`.
+   */
+  private async nostraSendFileToGroup(peerId: number, params: any): Promise<any> {
+    const emptyUpdates = {
+      _: 'updates',
+      updates: [] as any[],
+      users: [] as any[],
+      chats: [] as any[],
+      date: Math.floor(Date.now() / 1000),
+      seq: 0
+    };
+
+    if(!this.chatAPI || !this.ownPubkey) return emptyUpdates;
+
+    const blob: Blob = params?.blob;
+    const type: 'image' | 'video' | 'file' | 'voice' = params?.type || 'file';
+    const caption: string = params?.caption || '';
+    const tempMid: number = Number(params?.tempMid);
+    const width: number | undefined = params?.width;
+    const height: number | undefined = params?.height;
+    const duration: number | undefined = params?.duration;
+    const waveform: string | undefined = params?.waveform;
+    const groupedId: string | undefined = typeof params?.groupedId === 'string' ? params.groupedId : undefined;
+
+    let groupId: string;
+    try {
+      const {getGroupStore} = await import('./group-store');
+      const rec = await getGroupStore().getByPeerId(peerId);
+      if(!rec) {
+        console.warn(LOG_PREFIX, 'nostraSendFileToGroup: no group for peerId', peerId);
+        return emptyUpdates;
+      }
+      groupId = rec.groupId;
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'nostraSendFileToGroup: group lookup failed', err);
+      return emptyUpdates;
+    }
+
+    // Get the private key for the Blossom auth header
+    const privkeyBytes: Uint8Array | null = (this.chatAPI as any)?.relayPool?.getPrivateKey?.() ?? null;
+    if(!privkeyBytes || !(privkeyBytes instanceof Uint8Array) || privkeyBytes.length !== 32) {
+      console.warn(LOG_PREFIX, 'nostraSendFileToGroup: no 32-byte private key');
+      return emptyUpdates;
+    }
+    const {bytesToHex} = await import('./file-crypto');
+    const privkeyHex = bytesToHex(privkeyBytes);
+
+    // Optimistic sender-side bubble — render the local blob immediately so
+    // the user sees the image while the upload + broadcast complete.
+    try {
+      const objectURL = URL.createObjectURL(blob);
+      await this.injectOutgoingBubble({
+        peerId: Math.abs(peerId),
+        mid: tempMid,
+        date: Math.floor(Date.now() / 1000),
+        text: caption,
+        senderPubkey: this.ownPubkey!,
+        groupedId,
+        media: {
+          type,
+          objectURL,
+          mimeType: blob.type,
+          size: blob.size,
+          width,
+          height,
+          duration,
+          waveform,
+          uploading: true
+        }
+      });
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'nostraSendFileToGroup: optimistic bubble failed', err);
+    }
+
+    // Encrypt + upload to Blossom. Reuses the 1:1 upload helper since the
+    // blob-encryption + Blossom auth flow is peer-agnostic.
+    let url: string;
+    let sha256Hex: string;
+    let keyHex: string;
+    let ivHex: string;
+    try {
+      const {encryptFile} = await import('./file-crypto');
+      const enc = await encryptFile(blob);
+      keyHex = enc.keyHex;
+      ivHex = enc.ivHex;
+      sha256Hex = enc.sha256Hex;
+      const {uploadToBlossomWithProgress} = await import('./blossom-upload-progress');
+      const rs: any = (await import('@lib/rootScope')).default;
+      const upload = await uploadToBlossomWithProgress(enc.ciphertext, privkeyHex, {
+        onProgress: (p: number) => {
+          if(typeof rs.dispatchEventSingle === 'function') {
+            rs.dispatchEventSingle('nostra_file_upload_progress', {peerId: Math.abs(peerId), mid: tempMid, progress: p});
+          }
+        }
+      });
+      url = upload.url;
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'nostraSendFileToGroup: encrypt/upload failed', err);
+      const rs: any = (await import('@lib/rootScope')).default;
+      if(typeof rs.dispatchEventSingle === 'function') {
+        rs.dispatchEventSingle('nostra_file_upload_failed', {peerId: Math.abs(peerId), mid: tempMid, error: 'encrypt/upload failed'});
+      }
+      return emptyUpdates;
+    }
+
+    const fileMetadata = {
+      url,
+      sha256: sha256Hex,
+      keyHex,
+      ivHex,
+      mimeType: blob.type,
+      size: blob.size,
+      ...(width !== undefined ? {width} : {}),
+      ...(height !== undefined ? {height} : {}),
+      ...(duration !== undefined ? {duration} : {}),
+      ...(waveform !== undefined ? {waveform} : {})
+    };
+
+    // Broadcast via GroupAPI. Returns the canonical rumor id we then key
+    // the persisted row by — matches the rx-side `eventId === rumorId`
+    // contract so the receiver's resolver can find this row when, e.g.,
+    // a later reaction targets it.
+    let messageId: string;
+    let rumorId: string;
+    let timestampMs: number;
+    try {
+      const {getGroupAPI} = await import('./group-api');
+      const sendRes = await getGroupAPI().sendFile(groupId, type, fileMetadata, caption);
+      messageId = sendRes.messageId;
+      rumorId = sendRes.rumorId;
+      timestampMs = sendRes.timestampMs;
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'nostraSendFileToGroup: GroupAPI.sendFile failed', err);
+      return emptyUpdates;
+    }
+
+    const timestampSec = Math.floor(timestampMs / 1000);
+    let realMid: number;
+    try {
+      realMid = await this.mapper.mapEventId(rumorId, timestampSec);
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'nostraSendFileToGroup: mapEventId failed', err);
+      return emptyUpdates;
+    }
+
+    // Persist the authoritative row keyed by rumorId so reactions / replies /
+    // edits targeting this message resolve consistently on both sides.
+    try {
+      const store = getMessageStore();
+      await store.saveMessage({
+        eventId: rumorId,
+        appMessageId: messageId,
+        conversationId: `group:${groupId}`,
+        senderPubkey: this.ownPubkey,
+        content: caption,
+        type: 'file',
+        timestamp: timestampSec,
+        deliveryState: 'sent',
+        mid: realMid,
+        twebPeerId: Math.abs(peerId),
+        isOutgoing: true,
+        fileMetadata
+      });
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'nostraSendFileToGroup: saveMessage failed', err);
+    }
+
+    const rs: any = (await import('@lib/rootScope')).default;
+    if(typeof rs.dispatchEventSingle === 'function') {
+      rs.dispatchEventSingle('nostra_file_upload_completed', {peerId: Math.abs(peerId), mid: tempMid, finalMid: realMid});
+    }
+
+    return {
+      _: 'updates',
+      updates: [],
+      users: [],
+      chats: [],
+      date: timestampSec,
+      seq: 0,
+      nostraMid: realMid,
+      nostraEventId: rumorId
     };
   }
 
