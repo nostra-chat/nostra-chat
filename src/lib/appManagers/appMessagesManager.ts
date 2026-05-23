@@ -1486,6 +1486,21 @@ export class AppMessagesManager extends AppManager {
           message.pFlags.out = true;
           message.pFlags.unread = true;
           if((updates as any).date) message.date = (updates as any).date;
+
+          // For Nostra groups, generateFromId synthesized a bad
+          // `from_id={_: peerUser, user_id: <negativeChatId>}` because
+          // getSelf() returned undefined. handleGroupOutgoing already
+          // wrote the correct row at `storage[nostraMid]` with the
+          // sender's user-level peerId — read it back and merge the
+          // corrected from_id / fromId BEFORE we overwrite (FIND-ee66f7ae).
+          if(isGroupPeer(Number(peerId))) {
+            const existing = storage.get(nostraMid) as Message.message | undefined;
+            if(existing?.from_id && (existing as any).fromId) {
+              message.from_id = existing.from_id;
+              (message as any).fromId = (existing as any).fromId;
+            }
+          }
+
           this.setMessageToStorage(storage, message);
           this.rootScope.dispatchEvent('message_sent', {
             storageKey: storage.key,
