@@ -2768,12 +2768,22 @@ export class AppMessagesManager extends AppManager {
         peer: this.appPeersManager.getInputPeerById(options.peerId)
       };
     } else if(options.replyToMsgId) {
+      // For Nostra peers (1-on-1 P2P or groups) the local mid is the rumor-
+      // derived timestamp mid (> 2^32), and there is no MTProto server in
+      // the loop, so `getServerMessageId(localMid) = localMid % 2^32`
+      // permanently mangles the value — VMT's `getMessageStore().getByMid`
+      // lookup then never finds the parent and replies land without their
+      // NIP-10 `['e', ...]` tag. Pass the mid through unchanged for nostra
+      // peers so VMT.sendMessage / sendGroupMessage can resolve the parent
+      // (FIND-16af771a). For regular MTProto peers, keep the legacy mangle.
+      const numericPeer = Number(options.peerId);
+      const isNostraPeer = numericPeer >= 1e15 || isGroupPeer(numericPeer);
       return {
         _: 'inputReplyToMessage',
         monoforum_peer_id: this.appPeersManager.canManageDirectMessages(options.peerId) && options.replyToMonoforumPeerId ?
           this.appPeersManager.getInputPeerById(options.replyToMonoforumPeerId) :
           undefined,
-        reply_to_msg_id: getServerMessageId(options.replyToMsgId),
+        reply_to_msg_id: isNostraPeer ? options.replyToMsgId : getServerMessageId(options.replyToMsgId),
         reply_to_peer_id: options.replyToPeerId && this.appPeersManager.getInputPeerById(options.replyToPeerId),
         top_msg_id: options.threadId ? getServerMessageId(options.threadId) : undefined,
         ...(options.replyToQuote && {
