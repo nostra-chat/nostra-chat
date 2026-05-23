@@ -1878,11 +1878,16 @@ export class NostraMTProtoServer {
     const privkeyHex = bytesToHex(privkeyBytes);
 
     // Optimistic sender-side bubble — render the local blob immediately so
-    // the user sees the image while the upload + broadcast complete.
+    // the user sees the image while the upload + broadcast complete. Pass
+    // the NEGATIVE group peerId through (Math.abs would flip it positive
+    // and the bubble would land in mirrors.messages[`${positive}_history`]
+    // while the receive path stores at `${negative}_history`, causing a
+    // multi-second delay before the message_sent reconciler finds it —
+    // FIND-e8327b23 §B).
     try {
       const objectURL = URL.createObjectURL(blob);
       await this.injectOutgoingBubble({
-        peerId: Math.abs(peerId),
+        peerId,
         mid: tempMid,
         date: Math.floor(Date.now() / 1000),
         text: caption,
@@ -1918,10 +1923,14 @@ export class NostraMTProtoServer {
       sha256Hex = enc.sha256Hex;
       const {uploadToBlossomWithProgress} = await import('./blossom-upload-progress');
       const rs: any = (await import('@lib/rootScope')).default;
+      // Dispatch progress + completion with the NEGATIVE group peerId — the
+      // listener in bubbles.ts gates on `peerId !== this.peerId` and the
+      // active chat container holds the negative group peerId. Positive
+      // would silently drop every progress tick for group uploads.
       const upload = await uploadToBlossomWithProgress(enc.ciphertext, privkeyHex, {
         onProgress: (p: number) => {
           if(typeof rs.dispatchEventSingle === 'function') {
-            rs.dispatchEventSingle('nostra_file_upload_progress', {peerId: Math.abs(peerId), mid: tempMid, progress: p});
+            rs.dispatchEventSingle('nostra_file_upload_progress', {peerId, mid: tempMid, percent: p});
           }
         }
       });
@@ -1930,7 +1939,7 @@ export class NostraMTProtoServer {
       console.warn(LOG_PREFIX, 'nostraSendFileToGroup: encrypt/upload failed', err);
       const rs: any = (await import('@lib/rootScope')).default;
       if(typeof rs.dispatchEventSingle === 'function') {
-        rs.dispatchEventSingle('nostra_file_upload_failed', {peerId: Math.abs(peerId), mid: tempMid, error: 'encrypt/upload failed'});
+        rs.dispatchEventSingle('nostra_file_upload_failed', {peerId, mid: tempMid, error: 'encrypt/upload failed'});
       }
       return emptyUpdates;
     }
@@ -1989,7 +1998,7 @@ export class NostraMTProtoServer {
         timestamp: timestampSec,
         deliveryState: 'sent',
         mid: realMid,
-        twebPeerId: Math.abs(peerId),
+        twebPeerId: peerId,
         isOutgoing: true,
         fileMetadata
       });
@@ -1999,7 +2008,7 @@ export class NostraMTProtoServer {
 
     const rs: any = (await import('@lib/rootScope')).default;
     if(typeof rs.dispatchEventSingle === 'function') {
-      rs.dispatchEventSingle('nostra_file_upload_completed', {peerId: Math.abs(peerId), mid: tempMid, finalMid: realMid});
+      rs.dispatchEventSingle('nostra_file_upload_completed', {peerId, mid: tempMid, finalMid: realMid});
     }
 
     return {
