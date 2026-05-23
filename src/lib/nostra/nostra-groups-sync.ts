@@ -348,6 +348,13 @@ export async function cleanupGroupChatInjection(groupPeerId: number): Promise<vo
   const proxy = MOUNT_CLASS_TO.apiManagerProxy as any;
   if(proxy?.mirrors?.peers) delete proxy.mirrors.peers[groupPeerId];
   if(proxy?.mirrors?.chats) delete proxy.mirrors.chats[chatId];
+  // FIND-01e78a01 #2: previously only `peers` + `chats` were cleared. The
+  // dialog entry survived in `mirrors.dialogs`, so a subsequent
+  // `setInnerPeer({peerId: leftGroupPeerId})` happily resolved to the stale
+  // dialog and rendered the chat container back into view — combined with
+  // FIND-01e78a01 #1 (send-side membership gate) that was the exploit
+  // path. Clear the dialog mirror symmetrically.
+  if(proxy?.mirrors?.dialogs) delete proxy.mirrors.dialogs[groupPeerId];
 }
 
 /**

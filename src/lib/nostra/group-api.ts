@@ -213,6 +213,16 @@ export class GroupAPI {
     const group = await this.store.get(groupId);
     if(!group) throw new Error(`Group not found: ${groupId}`);
 
+    // Membership gate (FIND-01e78a01 #1 send-side): a user who left or was
+    // kicked must not be able to keep posting into the group. Previously
+    // GroupAPI.leaveGroup deleted the store record (so this branch threw
+    // "Group not found") but a stale GroupAPI instance from a prior render
+    // could still hold the record in memory and publish wraps. Explicit
+    // membership check before any publish.
+    if(!group.members.includes(this.ownPubkey)) {
+      throw new Error(`sendMessage: not a member of group ${groupId.slice(0, 8)}`);
+    }
+
     // Normalize the optional 3rd arg. Older callers pass a plain `type`
     // string; the new shape is an options object that also carries a
     // reply target. Both are kept supported to avoid churning unit tests.
@@ -302,6 +312,9 @@ export class GroupAPI {
   ): Promise<GroupSendResult> {
     const group = await this.store.get(groupId);
     if(!group) throw new Error(`Group not found: ${groupId}`);
+    if(!group.members.includes(this.ownPubkey)) {
+      throw new Error(`sendFile: not a member of group ${groupId.slice(0, 8)}`);
+    }
 
     const timestampMs = Date.now();
     const messageId = `grp-${timestampMs}-${Math.random().toString(36).slice(2, 8)}`;
@@ -663,6 +676,26 @@ export class GroupAPI {
       return;
     }
 
+    // Membership gate (FIND-01e78a01 #1): reject rumors from senders that
+    // aren't members of the group. A user kicked from the group could
+    // previously keep publishing rumors and remaining members would render
+    // them as legitimate `is-in` bubbles. Async lookup but the gate fires
+    // BEFORE the production render dispatch, so the bubble is dropped on
+    // the failure path.
+    void this.store.get(groupId).then((group) => {
+      if(!group) return; // store racing; drop silently
+      if(!group.members.includes(senderPubkey)) {
+        this.log.warn('[GroupAPI] reject: sender is not a member of', groupId.slice(0, 8), '; sender =', senderPubkey.slice(0, 8));
+        return;
+      }
+      this.handleIncomingGroupMessageAuthorised(groupId, rumor, senderPubkey);
+    }).catch((err) => this.log.warn('[GroupAPI] membership check failed:', err));
+  }
+
+  /** Inner half of `handleIncomingGroupMessage` — runs only after the
+   *  membership gate passes. Preserves the original test hook + production
+   *  render contracts. */
+  private handleIncomingGroupMessageAuthorised(groupId: string, rumor: any, senderPubkey: string): void {
     // Test-only override. Unit tests set this to observe delivery without
     // exercising the full IndexedDB + rootScope pipeline.
     if(this.onGroupMessage) {

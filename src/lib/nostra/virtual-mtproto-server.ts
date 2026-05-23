@@ -1527,10 +1527,25 @@ export class NostraMTProtoServer {
     try {
       const {peerId, mid, date, text, media, replyToMid, groupedId} = params;
 
+      // For group bubbles (negative peerId) the bubble's name pill is
+      // visible and reads `message.fromId`. Without stamping it the
+      // bubble renders "Deleted Account" / `data-peer-id="0"` until the
+      // relay echo arrives ~0.5–2 s later and the receive path overwrites
+      // the row (FIND-01e78a01 #3). For DM `is-out` bubbles the pill is
+      // CSS-hidden so leaving fromPeerId undefined is harmless.
+      let fromPeerId: number | undefined;
+      if(isGroupPeer(peerId) && this.ownPubkey) {
+        try {
+          fromPeerId = await this.mapper.mapPubkey(this.ownPubkey);
+        } catch(err) {
+          console.debug(LOG_PREFIX, 'injectOutgoingBubble: mapPubkey(self) failed:', (err as any)?.message);
+        }
+      }
+
       const msg = this.mapper.createTwebMessage({
         mid,
         peerId,
-        fromPeerId: undefined,
+        fromPeerId,
         date,
         text,
         isOutgoing: true,
