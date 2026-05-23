@@ -405,6 +405,18 @@ export class GroupAPI {
     if(!group) throw new Error(`Group not found: ${groupId}`);
     if(group.adminPubkey !== this.ownPubkey) throw new Error('Only admin can remove members');
 
+    // Symmetric to addMember: shape-validate the pubkey BEFORE we mutate the
+    // store so a typo or invalid input throws instead of silently doing
+    // nothing. Previously a malformed pubkey was a no-op (filter found no
+    // match → unchanged members) which the explorer surfaced as an
+    // "asymmetry with addMember" anti-bug (FIND-3ce67f93 carryforward).
+    if(typeof memberPubkey !== 'string' || !SECP_PUBKEY_HEX_RE.test(memberPubkey)) {
+      throw new Error(`removeMember: invalid pubkey ${memberPubkey?.slice?.(0, 8)}… (must be 64-char lowercase hex)`);
+    }
+    if(!group.members.includes(memberPubkey)) {
+      throw new Error(`removeMember: pubkey ${memberPubkey.slice(0, 8)}… is not a member of ${groupId.slice(0, 8)}`);
+    }
+
     const remaining = group.members.filter(m => m !== memberPubkey);
     await this.store.updateMembers(groupId, remaining);
 

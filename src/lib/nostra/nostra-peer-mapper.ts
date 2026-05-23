@@ -190,6 +190,22 @@ export class NostraPeerMapper {
       opts.peerId.toPeerId(true) :
       opts.peerId.toPeerId(false);
 
+    // tweb's saveMessages would normally compute `message.fromId` from
+    // `from_id` (line 5149 in appMessagesManager), but our P2P render path
+    // bypasses that. bubbles.ts reads `message.fromId` directly for the
+    // colored-name peerIdForColor and for the createTitle(peerId,...) call —
+    // without it the bubble renders `data-peer-id="0"` / "Deleted Account"
+    // even though `from_id` is populated (FIND-3ce67f93 sender-side
+    // attribution bug on group bubbles).
+    if(opts.fromPeerId) {
+      (message as any).fromId = opts.fromPeerId;
+    } else if(opts.isOutgoing) {
+      // Outgoing 1-on-1 fall-back: tweb's saveMessages would set fromId to
+      // myId here. We don't have myId in the mapper context, but for 1-on-1
+      // P2P chats the bubble doesn't show a name anyway (.hide-name fires
+      // when peerId === fromId). Leave undefined.
+    }
+
     return message;
   }
 
