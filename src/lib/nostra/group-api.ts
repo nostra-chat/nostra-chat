@@ -10,6 +10,7 @@
  */
 
 import {Logger, logger} from '@lib/logger';
+import rootScope from '@lib/rootScope';
 import {getGroupStore} from './group-store';
 import {groupIdToPeerId} from './group-types';
 import {wrapGroupMessage} from './nostr-crypto';
@@ -518,6 +519,27 @@ export class GroupAPI {
     const peerId = await groupIdToPeerId(groupId);
     await this.store.delete(groupId);
     await cleanupGroupChatInjection(peerId);
+
+    // Drop the chat-list dialog symmetrically (FIND-3ce67f93 obs (d)).
+    // Previous code left the dialog row + active chat container intact when
+    // leaveGroup was called programmatically — the UI button in
+    // `nostraGroupInfo.ts` dispatched `dialog_drop` itself, but every other
+    // caller (including the explorer, tests, and any future programmatic
+    // surface) skipped that step. Dispatching here makes leave idempotent
+    // with create.
+    try {
+      const dialogsStorage: any = (rootScope.managers as any)?.dialogsStorage;
+      if(typeof dialogsStorage?.dropP2PDialog === 'function') {
+        await dialogsStorage.dropP2PDialog(peerId.toPeerId(true));
+      }
+    } catch(err) {
+      this.log.warn('[GroupAPI] leaveGroup: dropP2PDialog non-critical:', err);
+    }
+    try {
+      rootScope.dispatchEvent('dialog_drop' as any, {peerId: peerId.toPeerId(true)} as any);
+    } catch(err) {
+      this.log.warn('[GroupAPI] leaveGroup: dialog_drop dispatch non-critical:', err);
+    }
 
     this.log('[GroupAPI] left group:', groupId);
   }
