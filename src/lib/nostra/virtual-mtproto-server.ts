@@ -1558,7 +1558,13 @@ export class NostraMTProtoServer {
             waveform: media.waveform
           });
         }
-        if(media.type === 'image' && media.width && media.height) {
+        if(media.type === 'image') {
+          // Render any image as photo, even without explicit dimensions —
+          // see FIND-e60cef56 γ. tweb sizes the image bubble by the
+          // photoSize w/h, so a sensible square placeholder (320×320) is
+          // a better default than collapsing to messageMediaDocument.
+          const w = media.width || 320;
+          const h = media.height || 320;
           (msg as any).media = {
             _: 'messageMediaPhoto',
             pFlags: {},
@@ -1568,8 +1574,8 @@ export class NostraMTProtoServer {
               sizes: [{
                 _: 'photoSize',
                 type: 'x',
-                w: media.width,
-                h: media.height,
+                w,
+                h,
                 size: media.size,
                 url: media.objectURL
               }],
