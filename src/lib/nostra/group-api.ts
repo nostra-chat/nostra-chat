@@ -853,6 +853,31 @@ export class GroupAPI {
       description: payload.groupDescription,
       avatar: payload.groupAvatar
     });
+
+    // Sync the main-thread mirror so the receiver's chat-list + topbar
+    // pick up the new title. Without this, FIND-3f07bfd3 δ — the rename
+    // landed in the receiver's group-store but not in `mirrors.chats`,
+    // leaving the chat-list row + topbar stuck on the prior title.
+    try {
+      const group = await this.store.get(payload.groupId);
+      if(group) {
+        const {ensureGroupChatInjected: ensureMirror} = await import('./nostra-groups-sync');
+        await ensureMirror(payload.groupId, group.peerId);
+        // Also fire a peer_title_edit hint so subscribers re-render — this
+        // is what tweb dispatches for 1:1 contact name changes.
+        try {
+          const rs: any = (await import('@lib/rootScope')).default;
+          const peerIdAsTweb = (group.peerId as any).toPeerId ?
+            (group.peerId as any).toPeerId(true) :
+            group.peerId;
+          rs.dispatchEvent('peer_title_edit', {peerId: peerIdAsTweb});
+        } catch(err) {
+          this.log.warn('[GroupAPI] handleInfoUpdate: peer_title_edit dispatch non-critical:', err);
+        }
+      }
+    } catch(err) {
+      this.log.warn('[GroupAPI] handleInfoUpdate: mirror refresh failed:', err);
+    }
   }
 
   private async handleAdminTransfer(payload: GroupControlPayload): Promise<void> {

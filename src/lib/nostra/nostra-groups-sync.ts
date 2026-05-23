@@ -171,9 +171,16 @@ function dispatchGroupHistoryAppend(groupPeerId: number, msg: any): void {
 function dispatchGroupDialogUpdate(groupPeerId: number, dialog: any): void {
   const toPeerId = (Number.prototype as any).toPeerId;
   const asPeerId = toPeerId ? (groupPeerId as any).toPeerId(true) : groupPeerId;
+  // The typed envelope for `dialogs_multiupdate` is
+  //   Map<PeerId, {dialog?: Dialog, topics?, saved?}>
+  // — earlier we wrapped the dialog bare (`new Map([[peerId, dialog]])`),
+  // which made the chat-list listener read `payload.dialog === undefined`
+  // and silently skip the entry (FIND-3f07bfd3 γ — mirror was set but no
+  // DOM row ever appeared). Wrap in `{dialog}` so the adapter picks it up.
+  const envelope = {dialog};
   const dispatchOnce = () => {
     try {
-      rootScope.dispatchEvent('dialogs_multiupdate' as any, new Map([[asPeerId, dialog]]));
+      rootScope.dispatchEvent('dialogs_multiupdate' as any, new Map([[asPeerId, envelope]]) as any);
     } catch(e: any) {
       console.debug(LOG_PREFIX, 'dialogs_multiupdate dispatch non-critical:', e?.message);
     }
@@ -248,6 +255,20 @@ export async function ensureGroupChatInjected(
     } catch(e: any) {
       console.debug(LOG_PREFIX, 'ensureGroupChatInjected: reconcilePeer non-critical:', e?.message);
     }
+  }
+
+  // Force a topbar refresh whenever this runs — tweb's chat-info template
+  // subscribes to `peer_title_edit` for late updates. Without this, the
+  // topbar stays frozen on the previous peer's title after a setPeer
+  // transition (FIND-3f07bfd3 β). Idempotent — dispatching when no title
+  // changed is a no-op for downstream renderers.
+  try {
+    const asPeerId = (groupPeerId as any).toPeerId ?
+      (groupPeerId as any).toPeerId(true) :
+      groupPeerId;
+    rootScope.dispatchEvent('peer_title_edit' as any, {peerId: asPeerId} as any);
+  } catch(e: any) {
+    console.debug(LOG_PREFIX, 'ensureGroupChatInjected: peer_title_edit dispatch non-critical:', e?.message);
   }
 }
 
