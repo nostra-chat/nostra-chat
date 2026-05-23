@@ -53,6 +53,9 @@ export interface GroupOutgoingInfo {
   content: string;
   timestamp: number;
   type: string;
+  /** rumor id of the message this send is a reply to. Used to stamp
+   *  `replyToMid` on the saved row so bubbles render the reply header. */
+  replyToRumorId?: string;
 }
 
 interface ParsedGroupRumor {
@@ -60,6 +63,9 @@ interface ParsedGroupRumor {
   type: string;
   messageId: string;
   timestamp: number;
+  /** Optional reply target — rumor id of the parent message. Populated
+   *  when the sender included `replyToRumorId` in the payload. */
+  replyToRumorId?: string;
 }
 
 // Shared mapper — IndexedDB-backed (nostra-virtual-peers), so a single
@@ -78,8 +84,11 @@ function parseGroupRumorContent(raw: string): ParsedGroupRumor | null {
     const type = typeof parsed.type === 'string' ? parsed.type : 'text';
     const messageId = typeof parsed.id === 'string' ? parsed.id : '';
     const timestamp = typeof parsed.timestamp === 'number' ? parsed.timestamp : 0;
+    const replyToRumorId = typeof parsed.replyToRumorId === 'string' && parsed.replyToRumorId.length === 64 ?
+      parsed.replyToRumorId :
+      undefined;
     if(!messageId) return null;
-    return {content, type, messageId, timestamp};
+    return {content, type, messageId, timestamp, replyToRumorId};
   } catch{
     return null;
   }
@@ -291,7 +300,7 @@ export async function handleGroupIncoming(
     console.warn(LOG_PREFIX, 'rx: rumor content unparseable; dropping', {groupId, rumorId: rumor?.id});
     return;
   }
-  const {content, type, messageId, timestamp: appTsMs} = parsed;
+  const {content, type, messageId, timestamp: appTsMs, replyToRumorId} = parsed;
   const rumorId: string = rumor.id;
   const timestampSec = typeof rumor.created_at === 'number' ?
     rumor.created_at :
@@ -334,6 +343,22 @@ export async function handleGroupIncoming(
     console.warn(LOG_PREFIX, 'rx: ensureSenderUserInjected failed; continuing', {err});
   }
 
+  // Resolve reply target — `replyToRumorId` in the payload points at the
+  // parent's rumor id (= the parent's `eventId` in our message-store). We
+  // map it to the parent's `mid` so bubbles render the reply preview header
+  // exactly the way DM replies do (NIP-10 `['e', ...]` path). Falls
+  // through to undefined if the parent isn't in our store yet — out-of-order
+  // delivery just shows a plain bubble in that case.
+  let replyToMid: number | undefined;
+  if(replyToRumorId) {
+    try {
+      const parent = await store.getByEventId(replyToRumorId);
+      if(parent?.mid) replyToMid = parent.mid;
+    } catch(err) {
+      console.debug(LOG_PREFIX, 'rx: replyTo lookup failed; bubble will render without reply header:', (err as any)?.message);
+    }
+  }
+
   try {
     await store.saveMessage({
       eventId: rumorId,
@@ -346,7 +371,8 @@ export async function handleGroupIncoming(
       deliveryState: isOutgoing ? 'sent' : 'delivered',
       mid,
       twebPeerId: groupPeerId,
-      isOutgoing
+      isOutgoing,
+      ...(replyToMid !== undefined ? {replyToMid} : {})
     });
   } catch(err) {
     console.warn(LOG_PREFIX, 'rx: saveMessage failed; continuing', {err});
@@ -358,7 +384,8 @@ export async function handleGroupIncoming(
     fromPeerId: senderPeerId,
     date: timestampSec,
     text: content,
-    isOutgoing
+    isOutgoing,
+    ...(replyToMid !== undefined ? {replyToMid} : {})
   });
 
   await injectGroupMessageIntoMirrors(groupPeerId, msg);
@@ -397,6 +424,86 @@ export async function handleGroupIncoming(
 }
 
 /**
+ * Apply an incoming (or self-echoed) edit to a group message. Symmetric
+ * to ChatAPI.editMessage's local update for DMs.
+ *
+ * Lookup is by `eventId = targetEventId` (the rumor id of the original
+ * message). The sender must match the original message's sender — anyone
+ * else editing is rejected to prevent impersonation.
+ *
+ * On success: updates the message-store row, the main-thread mirror,
+ * and dispatches tweb's `message_edit` event so bubbles re-render.
+ */
+export async function applyGroupEdit(
+  groupId: string,
+  targetEventId: string,
+  newText: string,
+  editedAtSec: number,
+  senderPubkey: string
+): Promise<void> {
+  const store = getMessageStore();
+
+  let existing: any = null;
+  try {
+    existing = await store.getByEventId(targetEventId);
+  } catch{
+    existing = null;
+  }
+  if(!existing) {
+    console.warn(LOG_PREFIX, 'edit: target eventId not found in store', {targetEventId});
+    return;
+  }
+
+  if(existing.conversationId !== `group:${groupId}`) {
+    console.warn(LOG_PREFIX, 'edit: target belongs to different conversation', {expected: `group:${groupId}`, got: existing.conversationId});
+    return;
+  }
+
+  if(existing.senderPubkey !== senderPubkey) {
+    console.warn(LOG_PREFIX, 'edit: refusing edit from non-author', {targetEventId, sender: senderPubkey.slice(0, 8), author: existing.senderPubkey.slice(0, 8)});
+    return;
+  }
+
+  try {
+    await store.saveMessage({
+      ...existing,
+      content: newText,
+      editedAt: editedAtSec
+    });
+  } catch(err) {
+    console.warn(LOG_PREFIX, 'edit: saveMessage failed', err);
+  }
+
+  let groupPeerId: number;
+  try {
+    groupPeerId = await groupIdToPeerId(groupId);
+  } catch{
+    return;
+  }
+
+  const proxy = MOUNT_CLASS_TO.apiManagerProxy as any;
+  const storageKey = `${groupPeerId}_history`;
+  const existingMirror = proxy?.mirrors?.messages?.[storageKey]?.[existing.mid];
+  if(existingMirror) {
+    existingMirror.message = newText;
+    existingMirror.edit_date = editedAtSec;
+  }
+
+  try {
+    rootScope.dispatchEvent('message_edit' as any, {
+      storageKey,
+      peerId: groupPeerId,
+      mid: existing.mid,
+      message: existingMirror || {mid: existing.mid, peerId: groupPeerId, message: newText, edit_date: editedAtSec}
+    });
+  } catch(e: any) {
+    console.debug(LOG_PREFIX, 'edit: message_edit dispatch non-critical:', e?.message);
+  }
+
+  console.log(LOG_PREFIX, 'edit applied', {groupPeerId, mid: existing.mid, targetEventId: targetEventId.slice(0, 8)});
+}
+
+/**
  * Render + persist the sender-side optimistic bubble for an outgoing
  * group message. Called by `GroupAPI.sendMessage` immediately after
  * wrapping, before the relay publish completes.
@@ -409,7 +516,7 @@ export async function handleGroupOutgoing(
   const mapper = getMapper();
   const store = getMessageStore();
 
-  const {groupId, messageId, rumorId, content, timestamp, type} = info;
+  const {groupId, messageId, rumorId, content, timestamp, type, replyToRumorId} = info;
   const timestampSec = Math.floor((timestamp || Date.now()) / 1000);
 
   let groupPeerId: number;
@@ -432,6 +539,18 @@ export async function handleGroupOutgoing(
     return;
   }
 
+  // Resolve reply target — same logic as the rx path so the sender's
+  // optimistic bubble already has the right reply header at first paint.
+  let replyToMid: number | undefined;
+  if(replyToRumorId) {
+    try {
+      const parent = await store.getByEventId(replyToRumorId);
+      if(parent?.mid) replyToMid = parent.mid;
+    } catch(err) {
+      console.debug(LOG_PREFIX, 'tx: replyTo lookup failed; bubble will render without reply header:', (err as any)?.message);
+    }
+  }
+
   try {
     await store.saveMessage({
       eventId: rumorId,
@@ -444,7 +563,8 @@ export async function handleGroupOutgoing(
       deliveryState: 'sent',
       mid,
       twebPeerId: groupPeerId,
-      isOutgoing: true
+      isOutgoing: true,
+      ...(replyToMid !== undefined ? {replyToMid} : {})
     });
   } catch(err) {
     console.warn(LOG_PREFIX, 'tx: saveMessage failed; continuing', {err});
@@ -471,7 +591,8 @@ export async function handleGroupOutgoing(
     fromPeerId: ownPeerId,
     date: timestampSec,
     text: content,
-    isOutgoing: true
+    isOutgoing: true,
+    ...(replyToMid !== undefined ? {replyToMid} : {})
   });
 
   await injectGroupMessageIntoMirrors(groupPeerId, msg);

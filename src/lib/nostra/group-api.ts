@@ -16,7 +16,8 @@ import {wrapGroupMessage} from './nostr-crypto';
 import {broadcastGroupControl} from './group-control-messages';
 import {writeGroupCreateServiceMessage} from './group-service-messages';
 import {GroupDeliveryTracker} from './group-delivery-tracker';
-import {handleGroupIncoming, handleGroupOutgoing, cleanupGroupChatInjection, injectGroupCreateDialog, type GroupDispatchFn} from './nostra-groups-sync';
+import {handleGroupIncoming, handleGroupOutgoing, applyGroupEdit, cleanupGroupChatInjection, injectGroupCreateDialog, type GroupDispatchFn} from './nostra-groups-sync';
+import {getMessageStore} from './message-store';
 import type {GroupStore} from './group-store';
 import type {GroupRecord, GroupControlPayload} from './group-types';
 import type {NTNostrEvent} from './nostr-crypto';
@@ -32,6 +33,23 @@ export interface GroupSendResult {
   rumorId: string;
   timestampMs: number;
 }
+
+/** Optional knobs accepted by `GroupAPI.sendMessage`. Kept separate so the
+ *  positional signature stays stable for existing callers (unit tests etc.). */
+export interface GroupSendOptions {
+  /** rumor id of the message being replied to (= original row's eventId).
+   *  When set, the rumor JSON carries `replyToRumorId` so receivers can
+   *  resolve the reply chain locally. */
+  replyToRumorId?: string;
+  type?: string;
+}
+
+/** Lightweight secp256k1-shape gate used by GroupAPI.addMember / createGroup
+ *  before we mutate the local store. Anything that fails this regex would
+ *  later throw in nostr-tools' `pointFromBytes` once we go to wrap, which
+ *  would leave the local record diverging from peers (see FIND-fcfcdec0
+ *  bug #4). 64-char lowercase hex is the canonical NIP-01 form. */
+const SECP_PUBKEY_HEX_RE = /^[0-9a-f]{64}$/;
 
 // ─── GroupAPI ─────────────────────────────────────────────────────
 
@@ -79,6 +97,16 @@ export class GroupAPI {
    * 5. Return groupId
    */
   async createGroup(name: string, memberPubkeys: string[], description?: string): Promise<string> {
+    // Validate member pubkeys BEFORE we touch the local store. Earlier the
+    // store was written first and the broadcast wrap exploded on the first
+    // malformed pubkey (`pointFromBytes: bad point`), leaving an orphan
+    // group on the creator that never reached any peer (FIND-fcfcdec0 #4).
+    for(const pk of memberPubkeys) {
+      if(typeof pk !== 'string' || !SECP_PUBKEY_HEX_RE.test(pk)) {
+        throw new Error(`createGroup: invalid member pubkey ${pk?.slice?.(0, 8)}… (must be 64-char lowercase hex)`);
+      }
+    }
+
     const groupId = crypto.randomUUID().split('-').join('');
     const peerId = await groupIdToPeerId(groupId);
 
@@ -92,6 +120,29 @@ export class GroupAPI {
       createdAt: Date.now(),
       updatedAt: Date.now()
     };
+
+    // Build the broadcast wraps FIRST. nostr-tools' pointFromBytes throws
+    // here if any of the supplied pubkeys is syntactically hex but not on
+    // the secp256k1 curve, so failing now keeps the local store free of
+    // the orphan group record that previous versions persisted (FIND-fcfcdec0
+    // #4). The regex gate at the top of this method catches non-hex inputs;
+    // this catches the curve-shape rejections.
+    const payload: GroupControlPayload = {
+      type: 'group_create',
+      groupId,
+      groupName: name,
+      groupDescription: description,
+      memberPubkeys: record.members,
+      adminPubkey: this.ownPubkey
+    };
+
+    let controlWraps;
+    try {
+      controlWraps = broadcastGroupControl(this.ownSk, memberPubkeys, payload);
+    } catch(err) {
+      this.log.warn('[GroupAPI] createGroup: broadcastGroupControl threw before local mutation:', err);
+      throw err;
+    }
 
     await this.store.save(record);
 
@@ -124,18 +175,21 @@ export class GroupAPI {
       }
     }
 
-    // Broadcast group_create control message
-    const payload: GroupControlPayload = {
-      type: 'group_create',
-      groupId,
-      groupName: name,
-      groupDescription: description,
-      memberPubkeys: record.members,
-      adminPubkey: this.ownPubkey
-    };
-
-    const controlWraps = broadcastGroupControl(this.ownSk, memberPubkeys, payload);
-    await this.publishFn(controlWraps);
+    try {
+      await this.publishFn(controlWraps);
+    } catch(err) {
+      // Publish failed: roll back the local group so creator and peers stay
+      // converged. The synthetic service row + mirror entries are best-effort
+      // cleaned up via cleanupGroupChatInjection.
+      this.log.warn('[GroupAPI] createGroup: publish failed, rolling back local state:', err);
+      try {
+        await this.store.delete(groupId);
+      } catch{}
+      try {
+        await cleanupGroupChatInjection(peerId);
+      } catch{}
+      throw err;
+    }
 
     this.log('[GroupAPI] group created:', groupId, name);
     return groupId;
@@ -154,9 +208,18 @@ export class GroupAPI {
    * 6. Return {messageId, rumorId, timestampMs} so VMT's sendMessage
    *    branch can derive the real mid deterministically.
    */
-  async sendMessage(groupId: string, content: string, type?: string): Promise<GroupSendResult> {
+  async sendMessage(groupId: string, content: string, typeOrOptions?: string | GroupSendOptions): Promise<GroupSendResult> {
     const group = await this.store.get(groupId);
     if(!group) throw new Error(`Group not found: ${groupId}`);
+
+    // Normalize the optional 3rd arg. Older callers pass a plain `type`
+    // string; the new shape is an options object that also carries a
+    // reply target. Both are kept supported to avoid churning unit tests.
+    const opts: GroupSendOptions = typeof typeOrOptions === 'string' ?
+      {type: typeOrOptions} :
+      (typeOrOptions || {});
+    const msgType = opts.type || 'text';
+    const replyToRumorId = opts.replyToRumorId;
 
     // Pin a single timestamp for the whole send so the payload, handler and
     // any downstream mid derivation all agree. Anchoring via `Date.now()`
@@ -165,20 +228,22 @@ export class GroupAPI {
     const timestampMs = Date.now();
     const messageId = `grp-${timestampMs}-${Math.random().toString(36).slice(2, 8)}`;
 
-    // Build message payload
-    const messagePayload = JSON.stringify({
+    // Build message payload. The `replyToRumorId` field lets receivers
+    // resolve the parent's local row to a mid for the visual reply preview
+    // — symmetric to NIP-10 `['e', ...]` on DMs. Closes FIND-fcfcdec0 #3.
+    const payloadObj: any = {
       content,
-      type: type || 'text',
+      type: msgType,
       id: messageId,
       timestamp: timestampMs
-    });
+    };
+    if(replyToRumorId) payloadObj.replyToRumorId = replyToRumorId;
+    const messagePayload = JSON.stringify(payloadObj);
 
     // Get members excluding self for wrapping (wrapGroupMessage adds self-send)
     const otherMembers = group.members.filter(m => m !== this.ownPubkey);
 
     const {wraps, rumorId} = wrapGroupMessage(this.ownSk, otherMembers, messagePayload, groupId);
-
-    const msgType = type || 'text';
 
     // Track for self-send dedup (Pitfall 7)
     this.sentMessageIds.add(messageId);
@@ -193,7 +258,7 @@ export class GroupAPI {
     try {
       await handleGroupOutgoing(
         this.ownPubkey,
-        {groupId, messageId, rumorId, content, timestamp: timestampMs, type: msgType},
+        {groupId, messageId, rumorId, content, timestamp: timestampMs, type: msgType, replyToRumorId},
         this.dispatch
       );
     } catch(err) {
@@ -207,6 +272,61 @@ export class GroupAPI {
     return {messageId, rumorId, timestampMs};
   }
 
+  /**
+   * Edit a previously-sent group message.
+   *
+   * @param groupId         - group the message lives in
+   * @param targetRumorId   - rumor id of the original message (= message-store eventId)
+   * @param newText         - replacement content
+   *
+   * 1. Resolve the original local row by eventId. Verify ownership + group.
+   * 2. Update local store + main-thread mirror + dispatch `message_edit` so
+   *    the sender sees the change before the broadcast completes.
+   * 3. Broadcast `group_edit_message` control payload to all members + self
+   *    (multi-device echo). Receivers run the same `applyGroupEdit` path.
+   */
+  async editMessage(groupId: string, targetRumorId: string, newText: string): Promise<void> {
+    const group = await this.store.get(groupId);
+    if(!group) throw new Error(`Group not found: ${groupId}`);
+
+    // Verify the original belongs to us before broadcasting an edit.
+    const store = getMessageStore();
+    const original = await store.getByEventId(targetRumorId);
+    if(!original) throw new Error(`editMessage: original rumor not in store: ${targetRumorId.slice(0, 8)}`);
+    if(original.conversationId !== `group:${groupId}`) {
+      throw new Error(`editMessage: original belongs to a different conversation`);
+    }
+    if(original.senderPubkey !== this.ownPubkey) {
+      throw new Error(`editMessage: refusing to edit non-own message`);
+    }
+
+    const editedAt = Math.floor(Date.now() / 1000);
+
+    // Update local first so the sender's bubble re-renders without waiting
+    // for the relay echo (mirrors ChatAPI.editMessage's DM behavior).
+    try {
+      await applyGroupEdit(groupId, targetRumorId, newText, editedAt, this.ownPubkey);
+    } catch(err) {
+      this.log.warn('[GroupAPI] editMessage: local apply failed (continuing to broadcast):', err);
+    }
+
+    // Broadcast to all members + self. Self-send is required so multi-device
+    // recipients pick up the edit too (mirroring broadcastGroupControl
+    // semantics for create/leave/etc).
+    const payload: GroupControlPayload = {
+      type: 'group_edit_message',
+      groupId,
+      targetEventId: targetRumorId,
+      newText,
+      editedAt
+    };
+    const otherMembers = group.members.filter(m => m !== this.ownPubkey);
+    const controlWraps = broadcastGroupControl(this.ownSk, otherMembers, payload);
+    await this.publishFn(controlWraps);
+
+    this.log('[GroupAPI] message edited:', groupId, targetRumorId.slice(0, 8));
+  }
+
   // ─── Member management ────────────────────────────────────────
 
   /**
@@ -218,8 +338,23 @@ export class GroupAPI {
     if(!group) throw new Error(`Group not found: ${groupId}`);
     if(group.adminPubkey !== this.ownPubkey) throw new Error('Only admin can add members');
 
+    // Validate BEFORE local mutation: pointFromBytes will reject anything
+    // that's syntactically hex but not on the secp256k1 curve, leaving a
+    // local member that never reached peers (FIND-fcfcdec0 #4). A regex
+    // gate catches the obvious "looks-hex-but-isn't-a-point" inputs and
+    // a try/wrap around the broadcast catches the curve-shape rejections
+    // with a transactional rollback.
+    if(typeof newMemberPubkey !== 'string' || !SECP_PUBKEY_HEX_RE.test(newMemberPubkey)) {
+      throw new Error(`addMember: invalid pubkey ${newMemberPubkey?.slice?.(0, 8)}… (must be 64-char lowercase hex)`);
+    }
+    if(group.members.includes(newMemberPubkey)) {
+      // Idempotent: re-adding an existing member is a no-op rather than
+      // a duplicate-broadcast that confuses peers' membership state.
+      this.log('[GroupAPI] addMember: pubkey already a member, skipping:', newMemberPubkey.slice(0, 8));
+      return;
+    }
+
     const updatedMembers = [...group.members, newMemberPubkey];
-    await this.store.updateMembers(groupId, updatedMembers);
 
     const payload: GroupControlPayload = {
       type: 'group_add_member',
@@ -229,9 +364,34 @@ export class GroupAPI {
       groupName: group.name
     };
 
-    // Broadcast to ALL current members + new member
-    const controlWraps = broadcastGroupControl(this.ownSk, updatedMembers, payload);
-    await this.publishFn(controlWraps);
+    // Build wraps FIRST so a malformed curve-shape pubkey throws before we
+    // touch the store. This + the regex gate above closes FIND-fcfcdec0 #4
+    // (orphan member persisted on admin after broadcast failure).
+    let controlWraps;
+    try {
+      controlWraps = broadcastGroupControl(this.ownSk, updatedMembers, payload);
+    } catch(err) {
+      this.log.warn('[GroupAPI] addMember: broadcastGroupControl threw before local mutation:', err);
+      throw err;
+    }
+
+    // Local store update happens only after wraps were built successfully.
+    // If the publish fails downstream (offline relay etc.) the local row is
+    // still consistent with the wraps we'll re-send on next online flush.
+    await this.store.updateMembers(groupId, updatedMembers);
+
+    try {
+      await this.publishFn(controlWraps);
+    } catch(err) {
+      // Roll the local membership back so admin's view re-converges with
+      // peers' on the next list refresh.
+      try {
+        await this.store.updateMembers(groupId, group.members);
+      } catch(rollbackErr) {
+        this.log.warn('[GroupAPI] addMember: rollback failed:', rollbackErr);
+      }
+      throw err;
+    }
 
     this.log('[GroupAPI] member added to group:', groupId, newMemberPubkey.slice(0, 8));
   }
@@ -384,9 +544,35 @@ export class GroupAPI {
       case 'group_admin_transfer':
         await this.handleAdminTransfer(payload);
         break;
+      case 'group_edit_message':
+        await this.handleEditMessageControl(payload, senderPubkey);
+        break;
       default:
         this.log.warn('[GroupAPI] unknown control message type:', payload.type);
     }
+  }
+
+  /**
+   * Apply an incoming edit control message. Validation symmetric to
+   * `applyGroupEdit`:
+   *   - target must exist in store
+   *   - target must belong to this group
+   *   - the edit sender must equal the target's original author
+   *
+   * On self-echo (sender === ownPubkey) the apply is a no-op merge since
+   * the local store was already updated in `editMessage`.
+   */
+  private async handleEditMessageControl(payload: GroupControlPayload, senderPubkey: string): Promise<void> {
+    const targetEventId = payload.targetEventId;
+    const newText = payload.newText;
+    const editedAt = typeof payload.editedAt === 'number' ?
+      payload.editedAt :
+      Math.floor(Date.now() / 1000);
+    if(!targetEventId || typeof newText !== 'string') {
+      this.log.warn('[GroupAPI] group_edit_message: missing fields, dropping', {hasTarget: !!targetEventId, hasText: typeof newText === 'string'});
+      return;
+    }
+    await applyGroupEdit(payload.groupId, targetEventId, newText, editedAt, senderPubkey);
   }
 
   // ─── Control message handlers ─────────────────────────────────

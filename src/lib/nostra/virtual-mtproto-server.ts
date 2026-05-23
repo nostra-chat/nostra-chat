@@ -1235,10 +1235,28 @@ export class NostraMTProtoServer {
       return emptyUpdates;
     }
 
+    // Resolve reply_to symmetrically to the DM sendMessage path: tweb sends
+    // `reply_to: {_: 'inputReplyToMessage', reply_to_msg_id: <mid>}`. We
+    // resolve the mid back to the parent row's eventId (= rumor id) and
+    // forward as `replyToRumorId` so receivers can stamp `replyToMid`
+    // locally on incoming. Without this the new group rumor lands without
+    // a reply header even though the sender chose "Reply" in the UI
+    // (FIND-fcfcdec0 #3).
+    let replyToRumorId: string | undefined;
+    const replyToMsgId: number | undefined = params?.reply_to?.reply_to_msg_id;
+    if(replyToMsgId !== undefined && replyToMsgId !== null) {
+      try {
+        const original = await getMessageStore().getByMid(replyToMsgId);
+        if(original?.eventId) replyToRumorId = original.eventId;
+      } catch(err: any) {
+        console.warn(LOG_PREFIX, 'sendGroupMessage: reply_to lookup failed:', err?.message);
+      }
+    }
+
     try {
       const {getGroupAPI} = await import('./group-api');
       const api = getGroupAPI();
-      const {messageId, rumorId, timestampMs} = await api.sendMessage(groupId, text);
+      const {messageId, rumorId, timestampMs} = await api.sendMessage(groupId, text, {replyToRumorId});
       const timestampSec = Math.floor(timestampMs / 1000);
       const mid = await this.mapper.mapEventId(rumorId, timestampSec);
 
@@ -1260,6 +1278,75 @@ export class NostraMTProtoServer {
     }
   }
 
+  /**
+   * Group-aware counterpart to `editMessage`. Looks the original row up by
+   * mid, sanity-checks ownership + conversation, then delegates to
+   * `GroupAPI.editMessage`, which does the local apply + broadcast via the
+   * `group_edit_message` control payload. Mirrors the empty-updates +
+   * `nostraEdit: true` response shape so `appMessagesManager`'s post-edit
+   * shortcut treats the edit as successful and leaves the existing bubble
+   * mounted (the old fall-through removed the optimistic update bubble
+   * without replacing it — FIND-fcfcdec0 #1).
+   */
+  private async editGroupMessage(peerId: number, params: any): Promise<any> {
+    const emptyUpdates = {
+      _: 'updates',
+      updates: [] as any[],
+      users: [] as any[],
+      chats: [] as any[],
+      date: Math.floor(Date.now() / 1000),
+      seq: 0
+    };
+
+    const mid: number = params?.id;
+    const newText: string = params?.message ?? '';
+    if(typeof mid !== 'number') return emptyUpdates;
+
+    try {
+      const store = getMessageStore();
+      const original = await store.getByMid(mid);
+      if(!original) {
+        console.warn(LOG_PREFIX, 'editGroupMessage: original mid not in store', mid);
+        return emptyUpdates;
+      }
+      if(original.senderPubkey !== this.ownPubkey) {
+        console.warn(LOG_PREFIX, 'editGroupMessage: refusing to edit non-own message');
+        return emptyUpdates;
+      }
+      if(!original.conversationId?.startsWith('group:')) {
+        console.warn(LOG_PREFIX, 'editGroupMessage: row is not a group message', {conversationId: original.conversationId});
+        return emptyUpdates;
+      }
+      const groupId = original.conversationId.slice('group:'.length);
+      const targetRumorId = original.eventId;
+      if(!targetRumorId) {
+        console.warn(LOG_PREFIX, 'editGroupMessage: original missing eventId');
+        return emptyUpdates;
+      }
+
+      const {getGroupAPI} = await import('./group-api');
+      await getGroupAPI().editMessage(groupId, targetRumorId, newText);
+
+      return {
+        _: 'updates',
+        updates: [],
+        users: [],
+        chats: [],
+        date: Math.floor(Date.now() / 1000),
+        seq: 0,
+        nostraMid: mid,
+        nostraEventId: targetRumorId,
+        nostraEdit: true
+      };
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'editGroupMessage failed', err);
+      // Reference peerId to silence unused-param warning — kept in signature
+      // for symmetry with sendGroupMessage and future per-peer routing.
+      void peerId;
+      return emptyUpdates;
+    }
+  }
+
   private async editMessage(params: any): Promise<any> {
     const emptyUpdates = {
       _: 'updates',
@@ -1274,6 +1361,15 @@ export class NostraMTProtoServer {
 
     const peerId = extractPeerId(params?.peer);
     if(peerId === null) return emptyUpdates;
+
+    // Group branch: negative peerId in GROUP_PEER_BASE range → delegate to
+    // GroupAPI.editMessage. Without this the call would fall through to
+    // the 1-on-1 path which calls `getPubkey(Math.abs(peerId))` against
+    // the group peerId — that returns null and the whole edit silently
+    // drops (FIND-fcfcdec0 #1).
+    if(isGroupPeer(peerId)) {
+      return this.editGroupMessage(peerId, params);
+    }
 
     const peerPubkey = await getPubkey(Math.abs(peerId));
     if(!peerPubkey) return emptyUpdates;

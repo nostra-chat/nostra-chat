@@ -1218,7 +1218,15 @@ export default class ChatBubbles {
       if(!this.peerId || this.peerId !== peerId) return;
       const bubble = this.getBubble(peerId as PeerId, mid);
       if(!bubble) return;
-      if(Number(peerId) >= 1e15) {
+      // Accept both 1-on-1 (positive virtual user peerIds at 1e15+) AND group
+      // peerIds (negative, |peerId| >= 2e15 in GROUP_PEER_BASE). Without the
+      // group branch, FIND-fcfcdec0 #2 — group reactions never re-rendered
+      // because the gate matched only positive peerIds and silently dropped
+      // every group event even though nostraReactionsStore had the row.
+      const numericPeer = Number(peerId);
+      const isNostraDM = numericPeer >= 1e15;
+      const isNostraGroup = numericPeer <= -2e15;
+      if(isNostraDM || isNostraGroup) {
         const {nostraReactionsLocal} = await import('@lib/nostra/nostra-reactions-local');
         const emojis = await nostraReactionsLocal.getReactionsFresh(peerId as number, mid);
         this.renderNostraReactions(bubble, emojis);

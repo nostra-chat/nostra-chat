@@ -31,7 +31,11 @@ export type GroupControlType =
   | 'group_remove_member'
   | 'group_leave'
   | 'group_info_update'
-  | 'group_admin_transfer';
+  | 'group_admin_transfer'
+  | 'group_edit_message'
+  | 'group_delete_message'
+  | 'group_reaction'
+  | 'group_unreaction';
 
 export interface GroupControlPayload {
   type: GroupControlType;
@@ -42,6 +46,15 @@ export interface GroupControlPayload {
   memberPubkeys?: string[];
   targetPubkey?: string;
   adminPubkey?: string;
+  // Edit-message fields (type === 'group_edit_message'):
+  // `targetEventId` is the rumor id of the original message (= store row eventId).
+  // `newText` is the post-edit content. `editedAt` is unix seconds.
+  targetEventId?: string;
+  newText?: string;
+  editedAt?: number;
+  // Reaction fields (type === 'group_reaction' | 'group_unreaction'):
+  emoji?: string;
+  reactionEventId?: string;
 }
 
 // ─── Group Record ───────────────────────────────────────────────────
