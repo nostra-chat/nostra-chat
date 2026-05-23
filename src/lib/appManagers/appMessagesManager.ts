@@ -1613,8 +1613,14 @@ export class AppMessagesManager extends AppManager {
     // The Virtual MTProto Server handles Blossom upload + AES-GCM encryption
     // + kind 15 rumor publish. Bubble injection and message-store persist
     // happen inside the VMT handler, so we only need to dispatch message_sent
-    // after the bridge returns.
-    if(Number(peerId) >= 1e15 && (file instanceof File || file instanceof Blob)) {
+    // after the bridge returns. Negative `peerId` in the GROUP_PEER_BASE
+    // range (groups) also routes through the bridge — VMT.nostraSendFile's
+    // group branch handles fan-out to all members via wrapGroupMessage
+    // (FIND-3786a35f obs B).
+    const peerIdNumForFile = Number(peerId);
+    const isNostraDMForFile = peerIdNumForFile >= 1e15;
+    const isNostraGroupForFile = isGroupPeer(peerIdNumForFile);
+    if((isNostraDMForFile || isNostraGroupForFile) && (file instanceof File || file instanceof Blob)) {
       const mime = (file.type || '').toLowerCase();
       const nostraType: 'image' | 'video' | 'file' | 'voice' =
         options.isVoiceMessage ? 'voice' :

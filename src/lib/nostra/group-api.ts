@@ -520,23 +520,27 @@ export class GroupAPI {
     await this.store.delete(groupId);
     await cleanupGroupChatInjection(peerId);
 
-    // Drop the chat-list dialog symmetrically (FIND-3ce67f93 obs (d)).
-    // Previous code left the dialog row + active chat container intact when
-    // leaveGroup was called programmatically — the UI button in
-    // `nostraGroupInfo.ts` dispatched `dialog_drop` itself, but every other
-    // caller (including the explorer, tests, and any future programmatic
-    // surface) skipped that step. Dispatching here makes leave idempotent
-    // with create.
+    // Drop the chat-list dialog row symmetrically (FIND-3786a35f obs (D)).
+    // Earlier we just dispatched `dialog_drop` with `{peerId}` but tweb's
+    // autonomousDialogList gates on `isDialog(d) === d._ === 'dialog'` —
+    // bare `{peerId}` fails the guard and the row stayed in the DOM.
+    // Dispatch a minimum Dialog-shaped envelope instead so the autonomous
+    // chat list deletes by getDialogKey(dialog) = dialog.peerId.
+    const groupPeerIdAsDialogPeerId = peerId.toPeerId(true);
     try {
-      const dialogsStorage: any = (rootScope.managers as any)?.dialogsStorage;
-      if(typeof dialogsStorage?.dropP2PDialog === 'function') {
-        await dialogsStorage.dropP2PDialog(peerId.toPeerId(true));
-      }
-    } catch(err) {
-      this.log.warn('[GroupAPI] leaveGroup: dropP2PDialog non-critical:', err);
-    }
-    try {
-      rootScope.dispatchEvent('dialog_drop' as any, {peerId: peerId.toPeerId(true)} as any);
+      rootScope.dispatchEvent('dialog_drop' as any, {
+        _: 'dialog',
+        peerId: groupPeerIdAsDialogPeerId,
+        peer: {_: 'peerChat', chat_id: Math.abs(peerId)},
+        top_message: 0,
+        read_inbox_max_id: 0,
+        read_outbox_max_id: 0,
+        unread_count: 0,
+        unread_mentions_count: 0,
+        unread_reactions_count: 0,
+        notify_settings: {_: 'peerNotifySettings', pFlags: {}},
+        pFlags: {}
+      } as any);
     } catch(err) {
       this.log.warn('[GroupAPI] leaveGroup: dialog_drop dispatch non-critical:', err);
     }

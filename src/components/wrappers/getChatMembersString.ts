@@ -20,6 +20,16 @@ function _getChatMembersString(chat: Chat, chatFull: ChatFull) {
     count = (chat as Chat.chat).participants_count || (chat as any).participants?.participants.length;
   }
 
+  // [Nostra.chat] FIND-3786a35f obs (C): synthetic nostra groups inject a
+  // Chat with `participants_count: members.length` but no ChatFull
+  // (or a ChatFull whose participants list is `chatParticipantsForbidden`).
+  // `getParticipantsCount` then returns 0 and the UI shows "1 member" for
+  // a multi-member group. Fall back to the Chat-level count so the synthetic
+  // group surfaces its real member count.
+  if(!count && (chat as Chat.chat).participants_count) {
+    count = (chat as Chat.chat).participants_count;
+  }
+
   const isBroadcast = (chat as Chat.channel).pFlags.broadcast;
   count = count || 1;
 
