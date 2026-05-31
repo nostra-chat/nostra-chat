@@ -316,6 +316,15 @@ export class ChatAPI {
 
     this.relayPool.subscribeMessages();
 
+    // WU-3: wait for the subscription to actually go live (relay EOSE) before
+    // the kind-1059 backfill below, so a cold client doesn't backfill into a
+    // not-yet-live subscription and miss the gap. whenSubscribed() is
+    // timeout-guarded (resolves false on timeout) so boot NEVER hangs, and we
+    // do not branch on the result. typeof-guarded for injected test pools.
+    if(typeof (this.relayPool as any).whenSubscribed === 'function') {
+      await this.relayPool.whenSubscribed(8000);
+    }
+
     // Wire kind-7 / kind-5 routing for NIP-25 reactions. The relay pool
     // dedupes by event.id; the receive module handles author verification,
     // out-of-order buffering, and store persistence + dispatch.

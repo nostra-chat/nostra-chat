@@ -145,6 +145,9 @@ export class NostrRelay {
   private subscriptionId: string = '';
   private isSubscribed: boolean = false;
   public pendingSubscribe: boolean = false;
+  // WU-3: resolves when the relay sends EOSE for the message subscription
+  // (the "live from here" marker). null until subscribeMessages() arms it.
+  private subscriptionReady: {promise: Promise<boolean>; resolve: (v: boolean) => void} | null = null;
 
   // Reconnection — fast retries first, then persistent backoff.
   // After the initial burst (1s, 2s, 4s), retries continue every 10s
@@ -323,6 +326,8 @@ export class NostrRelay {
 
     this.setConnectionState('disconnected');
     this.isSubscribed = false;
+    this.subscriptionReady?.resolve(false);
+    this.subscriptionReady = null;
 
     // Unregister as active relay
     if(activeRelay === this) {
@@ -479,8 +484,43 @@ export class NostrRelay {
       '#p': [this.publicKey]
     };
 
-    this.safeSend(JSON.stringify(['REQ', this.subscriptionId, filter]));
+    // WU-3: arm the readiness barrier BEFORE sending REQ, and only mark
+    // subscribed if the REQ actually went out. Previously isSubscribed was set
+    // unconditionally even when safeSend dropped the frame (socket not OPEN),
+    // so a cold client believed it was subscribed and silently missed the
+    // first events. Callers can await whenSubscribed() for the relay's EOSE.
+    this.armSubscriptionReady();
+    if(!this.safeSend(JSON.stringify(['REQ', this.subscriptionId, filter]))) {
+      this.log.warn('[NostrRelay] subscribeMessages: REQ not sent (socket not open); will retry');
+      return;
+    }
     this.isSubscribed = true;
+  }
+
+  /** WU-3: (re)arm the EOSE readiness deferred. */
+  private armSubscriptionReady(): void {
+    let resolve!: (v: boolean) => void;
+    const promise = new Promise<boolean>((r) => {resolve = r;});
+    this.subscriptionReady = {promise, resolve};
+  }
+
+  /**
+   * WU-3: resolve true once the relay has sent EOSE for the message
+   * subscription (live events are now flowing), or false on timeout / when not
+   * subscribed. Never rejects or hangs — safe to await on the boot path.
+   */
+  whenSubscribed(timeoutMs = 8000): Promise<boolean> {
+    // http-polling (Tor) transport has no EOSE — a connected polling relay is
+    // as "ready" as it gets, so don't stall the boot barrier on an EOSE that
+    // never arrives (would otherwise add the full timeout to every Tor boot).
+    if(this.mode === 'http-polling') {
+      return Promise.resolve(this.connectionState === 'connected');
+    }
+    if(!this.subscriptionReady) return Promise.resolve(this.isSubscribed);
+    return Promise.race([
+      this.subscriptionReady.promise,
+      new Promise<boolean>((r) => setTimeout(() => r(false), timeoutMs))
+    ]);
   }
 
   /**
@@ -900,6 +940,9 @@ export class NostrRelay {
             this.safeSend(JSON.stringify(['CLOSE', subId]));
             this.rawQueryResolvers.delete(subId);
             rawResolver.resolve(rawResolver.events);
+          } else if(subId === this.subscriptionId) {
+            this.log.debug('[NostrRelay] message subscription live (EOSE)');
+            this.subscriptionReady?.resolve(true);
           } else {
             this.log.debug('[NostrRelay] EOSE received for subscription:', subId);
           }

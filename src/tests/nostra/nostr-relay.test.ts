@@ -313,6 +313,29 @@ describe('NostrRelay', () => {
     });
   });
 
+  describe('whenSubscribed (WU-3 cold-start barrier)', () => {
+    async function connectAndSubscribe() {
+      relay.connect();
+      await new Promise((r) => setTimeout(r, 50));
+      const mockWs = getLastMockWs()!;
+      relay.subscribeMessages();
+      const req = mockWs.sentMessages.map((m) => JSON.parse(m)).find((p) => p[0] === 'REQ' && p[2]?.kinds?.includes(1059));
+      return {mockWs, subId: req[1] as string};
+    }
+
+    test('resolves true after the relay sends EOSE for the message subscription', async() => {
+      const {mockWs, subId} = await connectAndSubscribe();
+      const readyP = relay.whenSubscribed(2000);
+      mockWs.simulateMessage(['EOSE', subId]);
+      await expect(readyP).resolves.toBe(true);
+    });
+
+    test('resolves false on timeout when EOSE never arrives (never hangs)', async() => {
+      await connectAndSubscribe();
+      await expect(relay.whenSubscribed(20)).resolves.toBe(false);
+    });
+  });
+
   describe('unsubscribeMessages', () => {
     test('sends CLOSE message', async() => {
       relay.connect();

@@ -480,6 +480,44 @@ export class NostrRelayPool {
     }
   }
 
+  /**
+   * WU-3: resolve true once ANY read relay has gone live (sent EOSE for its
+   * message subscription), or false on timeout / when no relay is subscribable.
+   * Races each relay's per-relay whenSubscribed(); never rejects or hangs — safe
+   * to await on the boot path. "ANY relay ready" is the right barrier: the pool
+   * dedupes across relays, so the first relay that goes live is enough to stop
+   * dropping the first inbound events; waiting for ALL would stall behind the
+   * slowest/unreachable relay.
+   */
+  whenSubscribed(timeoutMs = 8000): Promise<boolean> {
+    const readEntries = this.relayEntries.filter((e) =>
+      e.config.read && this.enabled.get(e.config.url) !== false
+    );
+    if(readEntries.length === 0) {
+      return Promise.resolve(false);
+    }
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const done = (v: boolean) => {
+        if(settled) return;
+        settled = true;
+        resolve(v);
+      };
+      let pending = readEntries.length;
+      for(const entry of readEntries) {
+        entry.instance.whenSubscribed(timeoutMs).then((ready) => {
+          if(ready) {
+            done(true);
+          } else if(--pending === 0) {
+            done(false);
+          }
+        });
+      }
+      // Hard ceiling — settle even if a relay's whenSubscribed never resolves.
+      setTimeout(() => done(false), timeoutMs);
+    });
+  }
+
   unsubscribeMessages(): void {
     this.isSubscribedFlag = false;
     for(const entry of this.relayEntries) {
