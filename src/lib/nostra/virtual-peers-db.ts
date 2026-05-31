@@ -108,8 +108,13 @@ export async function updateMappingProfile(
         resolve();
         return;
       }
-      // Only update if no user-supplied nickname exists
-      if(!existing.displayName) {
+      // WU-2 #10: overwrite the displayName only when it was kind:0-derived
+      // (equals the previously-stored profile name) or empty — so a contact's
+      // kind:0 rebrand propagates. A user-supplied nickname (distinct from the
+      // kind:0 name) is preserved. Previously `!existing.displayName` dropped
+      // every rename once any name was set.
+      const prevK0Name = existing.nostrProfile?.display_name || existing.nostrProfile?.name || '';
+      if(!existing.displayName || existing.displayName === prevK0Name) {
         existing.displayName = displayName;
       }
       existing.nostrProfile = nostrProfile;

@@ -634,6 +634,40 @@ describe('storeMapping / getMapping round-trip', () => {
     const result = await getMapping(pubkey);
     expect(result!.displayName).toBeUndefined();
   });
+
+  // WU-2 #10: a contact's kind:0 rebrand must update the stored displayName.
+  // Old guard (!existing.displayName) only set it when empty, so a rename was
+  // dropped forever. New rule: overwrite when the existing name was kind:0-
+  // derived (== the stored profile name); preserve a user-supplied nickname.
+  test('updateMappingProfile updates a kind:0-derived displayName on rebrand', async() => {
+    const pubkey = 'e'.repeat(64);
+    await storeMapping(pubkey, 300, 'Alice', {name: 'Alice', display_name: 'Alice'});
+
+    await updateMappingProfile(pubkey, 'Alice Rebranded', {name: 'Alice Rebranded', display_name: 'Alice Rebranded'});
+
+    const result = await getMapping(pubkey);
+    expect(result!.displayName).toBe('Alice Rebranded');
+  });
+
+  test('updateMappingProfile preserves a user-supplied nickname distinct from the kind:0 name', async() => {
+    const pubkey = 'f'.repeat(64);
+    await storeMapping(pubkey, 301, 'MyNickname', {name: 'Bob', display_name: 'Bob'});
+
+    await updateMappingProfile(pubkey, 'Bob Rebranded', {name: 'Bob Rebranded', display_name: 'Bob Rebranded'});
+
+    const result = await getMapping(pubkey);
+    expect(result!.displayName).toBe('MyNickname');
+  });
+
+  test('updateMappingProfile sets displayName when none existed', async() => {
+    const pubkey = '1'.repeat(64);
+    await storeMapping(pubkey, 302);
+
+    await updateMappingProfile(pubkey, 'Fresh Name', {name: 'Fresh Name'});
+
+    const result = await getMapping(pubkey);
+    expect(result!.displayName).toBe('Fresh Name');
+  });
 });
 
 describe('updateMappingProfile', () => {
