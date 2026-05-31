@@ -42,6 +42,7 @@ import {ensureSenderUserInjected} from './ensure-sender-user-injected';
 import {buildNostraMedia} from './nostra-media-shape';
 import {MOUNT_CLASS_TO} from '@config/debug';
 import rootScope from '@lib/rootScope';
+import {nostraReactionsStore} from './nostra-reactions-store';
 
 const LOG_PREFIX = '[NostraGroupsSync]';
 
@@ -506,6 +507,66 @@ export async function handleGroupIncoming(
   // Reference ownPubkey to silence unused-param warning — kept in signature
   // for future delivery-tracker wiring (mark sender-self-echoes read, etc).
   void ownPubkey;
+}
+
+// WU-2: apply an incoming/own group reaction. Mirrors applyGroupEdit's
+// eventId→local-mid resolution, then persists to nostraReactionsStore and
+// dispatches nostra_reactions_changed so every member's bubble re-renders.
+export async function applyGroupReaction(
+  groupId: string,
+  targetEventId: string,
+  emoji: string,
+  fromPubkey: string,
+  createdAtSec: number
+): Promise<void> {
+  if(!emoji) return;
+  const store = getMessageStore();
+
+  let existing: any = null;
+  try {
+    existing = await store.getByEventId(targetEventId);
+  } catch{
+    existing = null;
+  }
+  if(!existing) {
+    console.warn(LOG_PREFIX, 'reaction: target eventId not found in store', {targetEventId});
+    return;
+  }
+  if(existing.conversationId !== `group:${groupId}`) {
+    console.warn(LOG_PREFIX, 'reaction: target belongs to different conversation', {expected: `group:${groupId}`, got: existing.conversationId});
+    return;
+  }
+
+  let groupPeerId: number;
+  try {
+    groupPeerId = await groupIdToPeerId(groupId);
+  } catch{
+    return;
+  }
+
+  // Deterministic reactionEventId so a re-delivered control message is
+  // idempotent (store.add is first-write-wins) and a future unreaction can
+  // target the exact row.
+  try {
+    await nostraReactionsStore.add({
+      targetEventId,
+      targetMid: existing.mid,
+      targetPeerId: groupPeerId,
+      fromPubkey,
+      emoji,
+      reactionEventId: `grp:${targetEventId}:${fromPubkey}:${emoji}`,
+      createdAt: createdAtSec
+    });
+  } catch(err) {
+    console.warn(LOG_PREFIX, 'reaction: store add failed', err);
+    return;
+  }
+
+  try {
+    rootScope.dispatchEventSingle('nostra_reactions_changed' as any, {peerId: groupPeerId, mid: existing.mid});
+  } catch(e: any) {
+    console.debug(LOG_PREFIX, 'reaction: dispatch non-critical:', e?.message);
+  }
 }
 
 /**
