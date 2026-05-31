@@ -76,6 +76,27 @@ describe('nostra-send-file', () => {
     expect(dispatched.some(d => d.name === 'nostra_file_upload_completed')).toBe(true);
   });
 
+  it('carries the caption to sendFileMessage and saves it as the row content (#11)', async() => {
+    mockedUpload.mockImplementation(async() => ({url: 'https://mock/x', sha256: 'abc'}));
+    const {ctx} = makeCtx();
+
+    await sendFileViaNostra(ctx, {
+      peerId: 1_000_000_000_000_009,
+      blob: new Blob([new Uint8Array([1])], {type: 'image/png'}),
+      type: 'image',
+      caption: 'sunset 🌅',
+      tempMid: -9,
+      width: 10,
+      height: 10
+    });
+
+    // caption reaches the relay publish via the sendFileMessage extras (→ fileContent)
+    const extras = (ctx.chatAPI.sendFileMessage as any).mock.calls[0][8];
+    expect(extras).toMatchObject({caption: 'sunset 🌅'});
+    // caption persisted as the local row content so the sender's own bubble shows it
+    expect((ctx.saveMessage as any).mock.calls[0][0]).toMatchObject({content: 'sunset 🌅'});
+  });
+
   it('retries 3 times on upload failure, then hard fails', async() => {
     mockedUpload.mockRejectedValue(new Error('network'));
     const {ctx, dispatched} = makeCtx();

@@ -51,7 +51,7 @@ export interface SendCtx {
       mimeType: string,
       size: number,
       dim?: {width: number; height: number},
-      extras?: {duration?: number; waveform?: string; mid?: number; twebPeerId?: number; timestampSec?: number}
+      extras?: {duration?: number; waveform?: string; mid?: number; twebPeerId?: number; timestampSec?: number; caption?: string}
     ): Promise<string>;
   };
   dispatch(name: string, payload: any): void;
@@ -261,12 +261,12 @@ export async function sendFileViaNostra(
       blob.type || 'application/octet-stream',
       blob.size,
       args.width && args.height ? {width: args.width, height: args.height} : undefined,
-      {duration: args.duration, waveform: args.waveform, mid, twebPeerId: Math.abs(peerId), timestampSec}
+      {duration: args.duration, waveform: args.waveform, mid, twebPeerId: Math.abs(peerId), timestampSec, caption: args.caption}
     );
 
     await ctx.saveMessage({
       peerId, mid, eventId,
-      content: '',
+      content: args.caption || '',
       mimeType: blob.type || 'application/octet-stream',
       size: blob.size, url, sha256: sha256Hex,
       keyHex, ivHex,

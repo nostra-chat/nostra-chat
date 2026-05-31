@@ -156,7 +156,8 @@ export function extractFileMetadata(
         keyHex: fileParsed.key || fileParsed.keyHex || '',
         ivHex: fileParsed.iv || fileParsed.ivHex || '',
         duration: typeof fileParsed.duration === 'number' ? fileParsed.duration : undefined,
-        waveform: typeof fileParsed.waveform === 'string' ? fileParsed.waveform : undefined
+        waveform: typeof fileParsed.waveform === 'string' ? fileParsed.waveform : undefined,
+        caption: typeof fileParsed.caption === 'string' && fileParsed.caption ? fileParsed.caption : undefined
       };
     }
   } catch{
@@ -359,7 +360,10 @@ export async function handleRelayMessage(
     from: msg.from,
     to: ctx.ownId,
     type: msgType,
-    content: parsed.content,
+    // #11: for a file message the rendered bubble text is the caption (render
+    // reads row.content as `text`) — never the fileContent JSON. Caption-less
+    // files store ''. Plain text keeps parsed.content.
+    content: fileMetadata ? (fileMetadata.caption || '') : parsed.content,
     timestamp: msg.timestamp,
     status: 'delivered',
     relayEventId: msg.id,
