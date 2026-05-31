@@ -136,17 +136,42 @@ the review (verified against current source) found:
   IDB as the single source of truth) is the sounder direction but needs a live
   repro to verify it doesn't lose live-render messages.
 
-- **(b) DM→group — blocked on a sync→async contract change.** `setInnerPeer`
-  (appImManager.ts:2778) is **synchronous** (`return this.setPeer(options)`); the
-  recommended fix needs to `await` the group-store lookup + `ensureGroupChatInjected`
-  + `invalidateHistoryCache` BEFORE `setPeer` reads the cache. Doing that either
-  changes a core navigation method's sync contract (regression risk on EVERY
-  chat-open) or fires the work-and-forget with no ordering guarantee. The topbar
-  half (dispatch `peer_title_edit` / resolve title from `mirrors.chats` for
-  negative peerIds) is the lower-risk slice to do first; the render half needs the
-  ordering handled carefully in a supervised session.
+- **(b) DM→group — FEASIBLE (the review's "sync" claim was wrong).** The review
+  cited `setInnerPeer` at appImManager.ts:2778 as synchronous — that line is
+  unrelated typing code. The real `setInnerPeer` is at **appImManager.ts:2607 and
+  is already `async`**, so awaiting the group lookup + inject + cache-invalidate
+  before the reuse/new-chat `return this.setPeer(options)` paths is safe (no
+  contract change). Ready-to-apply patch — insert after the
+  `options.type ??= ChatType.Chat;` block (~line 2625), gated on
+  `isGroupPeer(peerId)` (NOT bare `< 0`, so DMs/native chats pay nothing):
+  ```ts
+  if(isGroupPeer(peerId as number)) {            // import from '@lib/nostra/group-types'
+    try {
+      const {getGroupStore} = await import('@lib/nostra/group-store');
+      const rec = await getGroupStore().getByPeerId(peerId as number);
+      if(rec?.groupId) {
+        const {ensureGroupChatInjected} = await import('@lib/nostra/nostra-groups-sync');
+        await ensureGroupChatInjected(rec.groupId, peerId as number); // mirrors.chats + peer_title_edit
+      }
+      await this.managers.appMessagesManager.invalidateHistoryCache(peerId); // drop stale single-top slice
+    } catch(e: any) { console.debug('[setInnerPeer] WU-5b group coherence non-critical:', e?.message); }
+  }
+  ```
+  Deterministically E2E-verifiable (a navigation, not a timing race): open a DM,
+  then `setInnerPeer` a 3-message group, assert topbar == group name AND 3
+  bubbles. Cost: a re-fetch on every group (re)entry — acceptable for correctness.
 
-Net: none of (a)/(b)/(c) is a safe autonomous merge. (a) and (c)'s first-draft
-patches are dead ends (documented so the supervised session doesn't re-try them);
-(b) is tractable but needs the sync/async decision made with live navigation
-testing. WU-3 (the related cold-start race) WAS safely closed — see PR #124.
+Net: (a)'s first-draft patch is a dead end (verified — the same
+`!loadedAll.bottom` guard is downstream in `_renderNewMessage`); the real fix is
+at that guard, supervised. (c)'s reconcile-via-`getHistory` is, per the review, a
+no-op (NOT independently re-verified here — verify `getHistory`'s return shape
+before relying on it); the sounder direction is the Worker IDB as single source.
+**(b) DM→group is FEASIBLE + deterministically E2E-verifiable — the ready-to-apply
+patch above is the recommended next merge**, left for a live-verified pass rather
+than an end-of-long-session autonomous change. WU-3 (the related cold-start race)
+was safely closed — see PR #124.
+
+> Correction note: an earlier revision of this section wrongly stated
+> `setInnerPeer` was synchronous (citing the wrong line) and implied a
+> working-tree corruption. Both were mistakes — the method is `async` at :2607
+> and `git status` was clean throughout. Corrected here after direct verification.
