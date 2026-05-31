@@ -109,3 +109,44 @@ render/history-anchor path on a P2P crypto messenger — merging a speculative f
 without a live red→green repro is the wrong trade-off. The fixes above are
 scoped and ready for a supervised session (`pnpm start` + Playwright + docker
 strfry), each with a concrete assertion to drive.
+
+---
+
+## Adversarial-review outcome (2026-05-31)
+
+A design + adversarial-review pass produced candidate patches for all three;
+the review (verified against current source) found:
+
+- **(a) burst-truncation — proposed listener patch is a NO-OP.** Forcing
+  `renderNewMessage` from the `history_append` listener doesn't help: the same
+  `if(!this.scrollable.loadedAll.bottom){...return}` guard exists DOWNSTREAM in
+  `_renderNewMessage` (bubbles.ts ~3983), so the message is still dropped.
+  Relaxing that guard risks DUPLICATE own bubbles (the deferred-render re-fetch
+  at ~3985-3993 already re-renders after setPeer settles) and attaching into a
+  sliced/re-anchored history. The real fix must distinguish "own send at bottom"
+  from "scrolled-up send" at the `_renderNewMessage` guard, not the listener.
+
+- **(c) dual-store — proposed reconciliation is a GUARANTEED NO-OP.**
+  `appMessagesManager.getHistory({...})` returns `messages` only on the
+  `searchType === 'uncached'` branch; a normal `getHistory` call returns
+  `messages: undefined`, so a reconcile that diffs `res.messages` against the DOM
+  builds an empty map and heals nothing — while adding a 200-msg fetch + full-DOM
+  scan on every `peer_changed`. Option (B) (drop the redundant main-thread
+  `setMessageToStorage` at nostra-message-handler.ts:264 and rely on the Worker
+  IDB as the single source of truth) is the sounder direction but needs a live
+  repro to verify it doesn't lose live-render messages.
+
+- **(b) DM→group — blocked on a sync→async contract change.** `setInnerPeer`
+  (appImManager.ts:2778) is **synchronous** (`return this.setPeer(options)`); the
+  recommended fix needs to `await` the group-store lookup + `ensureGroupChatInjected`
+  + `invalidateHistoryCache` BEFORE `setPeer` reads the cache. Doing that either
+  changes a core navigation method's sync contract (regression risk on EVERY
+  chat-open) or fires the work-and-forget with no ordering guarantee. The topbar
+  half (dispatch `peer_title_edit` / resolve title from `mirrors.chats` for
+  negative peerIds) is the lower-risk slice to do first; the render half needs the
+  ordering handled carefully in a supervised session.
+
+Net: none of (a)/(b)/(c) is a safe autonomous merge. (a) and (c)'s first-draft
+patches are dead ends (documented so the supervised session doesn't re-try them);
+(b) is tractable but needs the sync/async decision made with live navigation
+testing. WU-3 (the related cold-start race) WAS safely closed — see PR #124.
