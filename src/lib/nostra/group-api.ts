@@ -17,7 +17,7 @@ import {wrapGroupMessage} from './nostr-crypto';
 import {broadcastGroupControl} from './group-control-messages';
 import {writeGroupCreateServiceMessage} from './group-service-messages';
 import {GroupDeliveryTracker} from './group-delivery-tracker';
-import {handleGroupIncoming, handleGroupOutgoing, applyGroupEdit, cleanupGroupChatInjection, ensureGroupChatInjected, injectGroupCreateDialog, type GroupDispatchFn} from './nostra-groups-sync';
+import {handleGroupIncoming, handleGroupOutgoing, applyGroupEdit, applyGroupReaction, cleanupGroupChatInjection, ensureGroupChatInjected, injectGroupCreateDialog, type GroupDispatchFn} from './nostra-groups-sync';
 import {getMessageStore} from './message-store';
 import type {GroupStore} from './group-store';
 import type {GroupRecord, GroupControlPayload} from './group-types';
@@ -399,6 +399,46 @@ export class GroupAPI {
     this.log('[GroupAPI] message edited:', groupId, targetRumorId.slice(0, 8));
   }
 
+  /**
+   * WU-2: react to a group message. Unlike editMessage there is no
+   * own-author restriction — any member may react to any message.
+   * Applies locally (optimistic) then broadcasts a group_reaction control
+   * payload to all other members so the reaction reaches everyone, not just
+   * the reacted-to author (the kind-7 path tagged only the author, whose
+   * pubkey is unresolvable from the hash-based group peerId).
+   */
+  async reactToMessage(groupId: string, targetRumorId: string, emoji: string): Promise<void> {
+    const group = await this.store.get(groupId);
+    if(!group) throw new Error(`Group not found: ${groupId}`);
+    if(!emoji) return;
+
+    const createdAt = Math.floor(Date.now() / 1000);
+
+    // Local-first so the reactor's own bubble updates without waiting for the
+    // relay echo (mirrors editMessage's optimistic apply).
+    try {
+      await applyGroupReaction(groupId, targetRumorId, emoji, this.ownPubkey, createdAt);
+    } catch(err) {
+      this.log.warn('[GroupAPI] reactToMessage: local apply failed (continuing to broadcast):', err);
+    }
+
+    // Broadcast to all other members so the reaction reaches everyone — the
+    // kind-7 path only tagged the reacted-to author, whose pubkey is
+    // unresolvable from the hash-based group peerId.
+    const payload: GroupControlPayload = {
+      type: 'group_reaction',
+      groupId,
+      targetEventId: targetRumorId,
+      emoji,
+      createdAt
+    };
+    const otherMembers = group.members.filter(m => m !== this.ownPubkey);
+    const controlWraps = broadcastGroupControl(this.ownSk, otherMembers, payload);
+    await this.publishFn(controlWraps);
+
+    this.log('[GroupAPI] reaction sent:', groupId, emoji, targetRumorId.slice(0, 8));
+  }
+
   // ─── Member management ────────────────────────────────────────
 
   /**
@@ -747,6 +787,9 @@ export class GroupAPI {
       case 'group_edit_message':
         await this.handleEditMessageControl(payload, senderPubkey);
         break;
+      case 'group_reaction':
+        await this.handleReactionControl(payload, senderPubkey);
+        break;
       default:
         this.log.warn('[GroupAPI] unknown control message type:', payload.type);
     }
@@ -773,6 +816,24 @@ export class GroupAPI {
       return;
     }
     await applyGroupEdit(payload.groupId, targetEventId, newText, editedAt, senderPubkey);
+  }
+
+  /**
+   * Apply an incoming reaction control message. No author restriction —
+   * any member may react to any message. Self-echo is idempotent because
+   * the local store add (in reactToMessage) is first-write-wins.
+   */
+  private async handleReactionControl(payload: GroupControlPayload, senderPubkey: string): Promise<void> {
+    const targetEventId = payload.targetEventId;
+    const emoji = payload.emoji;
+    const createdAt = typeof payload.createdAt === 'number' ?
+      payload.createdAt :
+      Math.floor(Date.now() / 1000);
+    if(!targetEventId || !emoji) {
+      this.log.warn('[GroupAPI] group_reaction: missing fields, dropping', {hasTarget: !!targetEventId, hasEmoji: !!emoji});
+      return;
+    }
+    await applyGroupReaction(payload.groupId, targetEventId, emoji, senderPubkey, createdAt);
   }
 
   // ─── Control message handlers ─────────────────────────────────

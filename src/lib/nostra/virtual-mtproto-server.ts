@@ -1584,6 +1584,26 @@ export class NostraMTProtoServer {
       return emptyUpdates;
     }
 
+    // WU-2: group reactions go through the group control channel (N gift-wraps
+    // to all members) instead of the 1:1 kind-7 path, which only p-tags the
+    // reacted-to author — unreachable for a hash-based group peerId, so other
+    // members never saw the reaction.
+    if(isGroupPeer(peerId)) {
+      try {
+        const {getGroupStore} = await import('./group-store');
+        const group = await getGroupStore().getByPeerId(peerId);
+        if(group?.groupId) {
+          const {getGroupAPI} = await import('./group-api');
+          await getGroupAPI().reactToMessage(group.groupId, resolved.relayEventId, emoji);
+        } else {
+          console.warn(LOG_PREFIX, 'sendReaction: no group record for peerId', peerId);
+        }
+      } catch(e) {
+        console.warn(LOG_PREFIX, 'sendReaction: group reaction failed', e);
+      }
+      return emptyUpdates;
+    }
+
     try {
       const {nostraReactionsPublish} = await import('./nostra-reactions-publish');
       await nostraReactionsPublish.publish({

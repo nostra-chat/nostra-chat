@@ -55,6 +55,7 @@ export interface GroupControlPayload {
   // Reaction fields (type === 'group_reaction' | 'group_unreaction'):
   emoji?: string;
   reactionEventId?: string;
+  createdAt?: number;
 }
 
 // ─── Group Record ───────────────────────────────────────────────────
