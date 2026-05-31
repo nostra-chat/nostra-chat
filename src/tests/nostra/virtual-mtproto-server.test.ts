@@ -844,6 +844,50 @@ describe('NostraMTProtoServer', () => {
     });
   });
 
+  // ─── Notify settings ──────────────────────────────────────────────
+  // WU-1 #4: account.updateNotifySettings/getNotifySettings now persist
+  // per-peer to localStorage. Previously updateNotifySettings fell through
+  // fallback() (matched '.set' → returned true, dropping the mute) and
+  // getNotifySettings returned a hardcoded static, so per-peer mute did
+  // not survive reload.
+
+  describe('account.updateNotifySettings + getNotifySettings round-trip (WU-1)', () => {
+    const peer = {_: 'inputNotifyPeer', peer: {_: 'inputPeerUser', user_id: 777}};
+
+    beforeEach(() => {
+      localStorage.clear();
+    });
+
+    it('getNotifySettings returns a peerNotifySettings shape when nothing stored', async () => {
+      const r = await server.handleMethod('account.getNotifySettings', {peer});
+      expect(r._).toBe('peerNotifySettings');
+    });
+
+    it('updateNotifySettings persists mute_until + silent and round-trips via getNotifySettings', async () => {
+      await server.handleMethod('account.updateNotifySettings', {
+        peer,
+        settings: {_: 'inputPeerNotifySettings', mute_until: 2147483647, silent: true}
+      });
+
+      const r = await server.handleMethod('account.getNotifySettings', {peer});
+      expect(r._).toBe('peerNotifySettings');
+      expect(r.mute_until).toBe(2147483647);
+      expect(r.silent).toBe(true);
+    });
+
+    it('is per-peer scoped — muting one peer does not mute another', async () => {
+      await server.handleMethod('account.updateNotifySettings', {
+        peer,
+        settings: {_: 'inputPeerNotifySettings', mute_until: 2147483647}
+      });
+
+      const other = await server.handleMethod('account.getNotifySettings', {
+        peer: {_: 'inputNotifyPeer', peer: {_: 'inputPeerUser', user_id: 888}}
+      });
+      expect(other.mute_until ?? 0).toBe(0);
+    });
+  });
+
   // ─── Fallback ─────────────────────────────────────────────────────
 
   describe('fallback', () => {
@@ -896,6 +940,35 @@ describe('NostraMTProtoServer', () => {
       const result = await server.handleMethod('channels.joinChannel', {});
 
       expect(result).toBe(true);
+    });
+
+    // WU-1 #5: surface unhandled silent-noops in dev/explorer builds so a UI
+    // action routed through an unimplemented action method doesn't disappear
+    // unnoticed. Return value is unchanged (still true) — diagnostic only.
+    it('warns (dev) on an unhandled action-pattern method while still returning true', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const result = await server.handleMethod('channels.toggleForum', {});
+
+      expect(result).toBe(true);
+      expect(warn).toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it('does not warn for a known static method', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await server.handleMethod('updates.getState', {});
+
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it('warns at most once per distinct unhandled method', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await server.handleMethod('channels.toggleSlowMode', {});
+      await server.handleMethod('channels.toggleSlowMode', {});
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
     });
 
     it('updates.getState returns state shape', async () => {

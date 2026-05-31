@@ -29,6 +29,7 @@ import {purchaseUsernameCaption} from '@components/sidebarLeft/tabs/editProfile'
 import confirmationPopup from '@components/confirmationPopup';
 import PopupElement from '@components/popups';
 import apiManagerProxy from '@lib/apiManagerProxy';
+import {isGroupPeer} from '@lib/nostra/group-types';
 import {handleChannelsTooMuch} from '@components/popups/channelsTooMuch';
 
 export default class AppChatTypeTab extends SliderSuperTabEventable {
@@ -324,7 +325,11 @@ export default class AppChatTypeTab extends SliderSuperTabEventable {
       this.scrollable.append(section.container);
     }
 
-    {
+    // WU-1 #1: nostra groups have no relay-level forward-restriction protocol,
+    // so the "Restrict Saving Content" toggle was a false security promise —
+    // it stuck on but never propagated. Hide it for nostra group peers
+    // (mirrors the Pin/Unpin hide in 66350b05) rather than ship a fake guard.
+    if(!isGroupPeer(this.chatId.toPeerId(true))) {
       const section = new SettingSection({
         name: 'SavingContentTitle',
         caption: isBroadcast ? 'RestrictSavingContentInfoChannel' : 'RestrictSavingContentInfoGroup'
