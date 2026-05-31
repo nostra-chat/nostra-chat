@@ -15,6 +15,7 @@ import MTProtoMessagePort from '@lib/mainWorker/mainMessagePort';
 import {AppStoragesManager} from '@appManagers/appStoragesManager';
 import createManagers from '@appManagers/createManagers';
 import {ActiveAccountNumber} from '@lib/accounts/types';
+import {invokeManagerMethod} from '@appManagers/invokeManagerMethod';
 import AppStateManager from '@appManagers/appStateManager';
 import rootScope from '@lib/rootScope';
 import AccountController from '@lib/accounts/accountController';
@@ -106,8 +107,7 @@ export class AppManagersManager {
           for(const accountNumber in managersByAccount) {
             const managers = managersByAccount[+accountNumber as any as ActiveAccountNumber];
             const manager = managers[name as keyof Managers];
-            // @ts-ignore
-            results.push(manager[method](...args));
+            results.push(invokeManagerMethod(manager, name as string, method, args));
           }
 
           return results.some((result) => result instanceof Promise) ? Promise.all(results) : results;
@@ -115,8 +115,7 @@ export class AppManagersManager {
 
         const managers = managersByAccount[accountNumber];
         const manager = managers[name as keyof Managers];
-        // @ts-ignore
-        return manager[method](...args);
+        return invokeManagerMethod(manager, name as string, method, args);
       });
     });
 
