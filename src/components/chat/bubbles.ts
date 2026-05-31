@@ -5194,6 +5194,15 @@ export default class ChatBubbles {
     [this.chatInner, this.remover].forEach((element) => {
       element.classList.toggle('no-messages', !hasMessages);
     });
+    // #14: the empty-chat "no messages here yet" placeholder bubble is only
+    // torn down on setPeer, so after the first live send/receive it lingered
+    // below the real messages until the chat was reopened. The CSS toggle
+    // above only hides the container class, not this bubble. Once real
+    // messages exist, remove it. (checkIfEmptyPlaceholderNeeded won't re-add
+    // it while the chat is non-empty.)
+    if(hasMessages && this.emptyPlaceholderBubble) {
+      this.cleanupPlaceholders();
+    }
   }
 
   private processBatch = async(...args: Parameters<ChatBubbles['batchProcessor']['process']>) => {

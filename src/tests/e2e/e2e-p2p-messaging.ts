@@ -150,6 +150,10 @@ async function main() {
     const relayB2 = await getRelayStatus(pageB);
     console.log('User B relay status after contact add:', JSON.stringify(relayB2, null, 2));
 
+    // #14: a freshly-opened empty chat shows the "no messages" placeholder.
+    const phBefore = await pageB.evaluate(() => document.querySelectorAll('.empty-bubble-placeholder').length);
+    console.log('PLACEHOLDER before first message (Bob empty chat):', phBefore);
+
     // Step 3: User A adds User B
     console.log('\n=== Step 3: User A adds User B with nickname "Bob" ===');
     await addContactAndOpenChat(pageA, npubB, 'Bob');
@@ -241,6 +245,15 @@ async function main() {
     }
 
     console.log('Message in chat BUBBLE:', received);
+
+    // #14: once a real message is rendered, the empty-chat placeholder must be
+    // gone (it previously lingered below the message until the chat reopened).
+    if(received) {
+      await pageB.waitForTimeout(1000);
+      const phAfter = await pageB.evaluate(() => document.querySelectorAll('.empty-bubble-placeholder').length);
+      console.log('TEST PLACEHOLDER CLEARED (#14):', phAfter === 0 ? 'PASS' : 'FAIL', '(count=' + phAfter + ')');
+    }
+
     if(received) {
       console.log('TEST RECEIVE (bubble): PASS');
     } else {
