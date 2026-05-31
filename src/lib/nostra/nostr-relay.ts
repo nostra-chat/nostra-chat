@@ -510,6 +510,12 @@ export class NostrRelay {
    * subscribed. Never rejects or hangs — safe to await on the boot path.
    */
   whenSubscribed(timeoutMs = 8000): Promise<boolean> {
+    // http-polling (Tor) transport has no EOSE — a connected polling relay is
+    // as "ready" as it gets, so don't stall the boot barrier on an EOSE that
+    // never arrives (would otherwise add the full timeout to every Tor boot).
+    if(this.mode === 'http-polling') {
+      return Promise.resolve(this.connectionState === 'connected');
+    }
     if(!this.subscriptionReady) return Promise.resolve(this.isSubscribed);
     return Promise.race([
       this.subscriptionReady.promise,
