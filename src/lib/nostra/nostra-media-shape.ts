@@ -20,6 +20,8 @@ export interface NostraFileMetadata {
   ivHex: string;
   duration?: number;
   waveform?: string;
+  /** #11: caption typed with the file (rendered as the bubble text) */
+  caption?: string;
 }
 
 export function buildNostraMedia(mid: number, fm: NostraFileMetadata): any {

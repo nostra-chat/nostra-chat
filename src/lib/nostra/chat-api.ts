@@ -70,6 +70,8 @@ export interface ChatMessage {
     ivHex: string;
     duration?: number;
     waveform?: string;
+    /** #11: caption typed with the photo/file (rendered as the bubble text) */
+    caption?: string;
   };
 }
 
@@ -493,7 +495,7 @@ export class ChatAPI {
     mimeType: string,
     size: number,
     dim?: {width: number; height: number},
-    extras?: {duration?: number; waveform?: string; mid?: number; twebPeerId?: number; timestampSec?: number}
+    extras?: {duration?: number; waveform?: string; mid?: number; twebPeerId?: number; timestampSec?: number; caption?: string}
   ): Promise<string> {
     const fileContent = JSON.stringify({
       url,
@@ -504,7 +506,10 @@ export class ChatAPI {
       iv,
       ...(dim ? {width: dim.width, height: dim.height} : {}),
       ...(extras?.duration !== undefined ? {duration: extras.duration} : {}),
-      ...(extras?.waveform !== undefined ? {waveform: extras.waveform} : {})
+      ...(extras?.waveform !== undefined ? {waveform: extras.waveform} : {}),
+      // #11: carry the caption so the recipient sees the text typed with the
+      // photo/file. The 1:1 path previously dropped it (group path carried it).
+      ...(extras?.caption ? {caption: extras.caption} : {})
     });
     const {mid, twebPeerId, timestampSec} = extras || {};
     return this.sendMessage(type as ChatMessageType, fileContent, {mid, twebPeerId, timestampSec});

@@ -184,7 +184,7 @@ async function main() {
           isMedia: true,
           width: 1,
           height: 1,
-          caption: ''
+          caption: 'IMG_CAPTION_E2E_7f3a'
         });
         return {ok: true, peerId};
       } catch(err: any) {
@@ -297,7 +297,8 @@ async function main() {
                   has: true,
                   imgSrc: img.src.slice(0, 60),
                   isBlobUrl: img.src.startsWith('blob:'),
-                  mid: b.getAttribute('data-mid')
+                  mid: b.getAttribute('data-mid'),
+                  caption: ((b.querySelector('.message') || b).textContent || '').trim()
                 };
               }
             }
@@ -309,6 +310,13 @@ async function main() {
       }
       return null;
     })();
+
+    // #11: the caption typed with the image must reach the receiver bubble.
+    if(bBubble && bBubble.caption && bBubble.caption.includes('IMG_CAPTION_E2E_7f3a')) {
+      record('I5', 'Receiver bubble shows the image caption (#11)', 'PASS', bBubble.caption);
+    } else {
+      record('I5', 'Receiver bubble shows the image caption (#11)', 'FAIL', 'caption=' + JSON.stringify(bBubble?.caption));
+    }
 
     if(bBubble && bBubble.isBlobUrl) {
       record('I4', 'Receiver bubble renders decrypted image (blob: URL)', 'PASS', bBubble.imgSrc);

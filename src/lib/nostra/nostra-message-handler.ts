@@ -214,7 +214,7 @@ export function buildTwebMessage(data: IncomingMessageData): any {
     peerId: data.peerId,
     fromPeerId: data.peerId,
     date: data.timestamp,
-    text: media ? '' : data.message.content,
+    text: media ? (data.message.fileMetadata?.caption || '') : data.message.content,
     isOutgoing: false,
     media
   });
