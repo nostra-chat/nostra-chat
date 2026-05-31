@@ -38,6 +38,10 @@ TESTS=(
   e2e-vmtproto-smoke.ts
   e2e-local-relay-smoke.ts
   e2e-p2p-messaging.ts
+  # WU-4 #12: group bilateral send/receive — was orphaned (existed but never
+  # in the suite). e2e-groups-ui-attribution.ts stays excluded: its UI-click
+  # create-group flow is flaky (GroupAPI-init race) — separate harness fix.
+  e2e-groups-bilateral.ts
   e2e-relay-status.ts
   e2e-relay-publish.ts
   e2e-persistence-status.ts
