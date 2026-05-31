@@ -1227,9 +1227,18 @@ export default class ChatBubbles {
       const isNostraDM = numericPeer >= 1e15;
       const isNostraGroup = numericPeer <= -2e15;
       if(isNostraDM || isNostraGroup) {
-        const {nostraReactionsLocal} = await import('@lib/nostra/nostra-reactions-local');
-        const emojis = await nostraReactionsLocal.getReactionsFresh(peerId as number, mid);
-        this.renderNostraReactions(bubble, emojis);
+        // WU-4 #15: this async listener's dynamic import can reject (e.g. the
+        // chunk fetch fails while offline). Without a guard the rejection
+        // escapes eventListenerBase (which only catches sync throws) as an
+        // uncaught pageerror. Swallow + log; a missed re-render self-heals on
+        // the next dispatch. Prod precaches the chunk so this is dev-reachable.
+        try {
+          const {nostraReactionsLocal} = await import('@lib/nostra/nostra-reactions-local');
+          const emojis = await nostraReactionsLocal.getReactionsFresh(peerId as number, mid);
+          this.renderNostraReactions(bubble, emojis);
+        } catch(err) {
+          this.log.warn('nostra_reactions_changed re-render failed', err);
+        }
       }
     });
 
