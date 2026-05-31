@@ -49,6 +49,10 @@ const ACTION_PATTERNS = [
   '.toggle', '.send', '.block', '.unblock', '.join', '.leave'
 ];
 
+// WU-1 #5: dev/explorer-only diagnostics. Surfaces unhandled silent-noops
+// so an unimplemented UI action doesn't disappear unnoticed; off in prod.
+const IS_DEV_DIAGNOSTICS = (import.meta as any)?.env?.PROD !== true;
+
 // ─── Known method fallback shapes ───────────────────────────────────
 
 export const NOSTRA_STATIC: Record<string, any> = {
@@ -359,6 +363,9 @@ export class NostraMTProtoServer {
     }).catch(swallowHandler('VirtualMTProto.pendingFlush'));
   }
 
+  // WU-1 #5: methods already warned about (warn once per method, dev only).
+  private warnedFallbacks = new Set<string>();
+
   async handleMethod(method: string, params: any): Promise<any> {
     switch(method) {
       case 'messages.getDialogs':
@@ -421,6 +428,15 @@ export class NostraMTProtoServer {
 
       case 'account.setPrivacy':
         return this.setPrivacy(params);
+
+      case 'account.getNotifySettings':
+        return this.getNotifySettings(params);
+
+      case 'account.updateNotifySettings':
+        return this.updateNotifySettings(params);
+
+      case 'messages.editChatTitle':
+        return this.editChatTitle(params);
 
       default:
         return this.fallback(method, params);
@@ -496,6 +512,93 @@ export class NostraMTProtoServer {
       chats: [] as any[],
       users: [] as any[]
     };
+  }
+
+  // ─── Notify settings persistence (WU-1 #4) ────────────────────────
+  //
+  // Tweb's appNotificationsManager calls account.updateNotifySettings when
+  // the user mutes/unmutes a peer and account.getNotifySettings on open.
+  // With no handler updateNotifySettings fell through fallback() and the
+  // mute was dropped on reload (getNotifySettings returned a static). Same
+  // silent-noop shape as setPrivacy — persist per-peer via localStorage.
+  private notifyKey(notifyPeer: any): string {
+    const t = notifyPeer?._ || 'default';
+    if(t === 'inputNotifyPeer') {
+      const ip = notifyPeer.peer || {};
+      const id = ip.user_id ?? ip.chat_id ?? ip.channel_id ?? '?';
+      return `nostra-notify:${ip._ || 'peer'}:${id}`;
+    }
+    return `nostra-notify:${t}`;
+  }
+
+  private async getNotifySettings(params: any): Promise<any> {
+    const base = {_: 'peerNotifySettings', pFlags: {} as any, flags: 0};
+    try {
+      if(typeof localStorage === 'undefined') return base;
+      const raw = localStorage.getItem(this.notifyKey(params?.peer));
+      if(!raw) return base;
+      const stored = JSON.parse(raw);
+      return {
+        _: 'peerNotifySettings',
+        pFlags: stored?.silent ? {silent: true} : {},
+        flags: 0,
+        ...stored
+      };
+    } catch{
+      return base;
+    }
+  }
+
+  private async updateNotifySettings(params: any): Promise<any> {
+    try {
+      if(typeof localStorage !== 'undefined') {
+        const s = params?.settings || {};
+        const toStore: any = {};
+        if(s.mute_until !== undefined) toStore.mute_until = s.mute_until;
+        if(s.silent !== undefined) toStore.silent = s.silent;
+        if(s.sound !== undefined) toStore.sound = s.sound;
+        if(s.show_previews !== undefined) toStore.show_previews = s.show_previews;
+        localStorage.setItem(this.notifyKey(params?.peer), JSON.stringify(toStore));
+      }
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'updateNotifySettings persist failed:', err);
+    }
+    return true;
+  }
+
+  // ─── Group rename wiring (WU-1 #3) ────────────────────────────────
+  //
+  // The Edit-Chat tab calls appChatsManager.editTitle → messages.editChatTitle
+  // for a (basic-chat) nostra group. With no handler the rename fell through
+  // fallback() and was silently discarded — never reaching other members.
+  // GroupAPI.renameGroup already exists; route the live method to it.
+  private async editChatTitle(params: any): Promise<any> {
+    const emptyUpdates = {
+      _: 'updates',
+      updates: [] as any[],
+      users: [] as any[],
+      chats: [] as any[],
+      date: Math.floor(Date.now() / 1000),
+      seq: 0
+    };
+    const title = typeof params?.title === 'string' ? params.title.trim() : '';
+    const chatId = params?.chat_id;
+    if(!title || chatId == null) return emptyUpdates;
+
+    const peerId = -Math.abs(Number(chatId));
+    if(!isGroupPeer(peerId)) return emptyUpdates;
+
+    try {
+      const {getGroupStore} = await import('./group-store');
+      const group = await getGroupStore().getByPeerId(peerId);
+      if(!group?.groupId) return emptyUpdates;
+
+      const {getGroupAPI} = await import('./group-api');
+      await getGroupAPI().renameGroup(group.groupId, title);
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'editChatTitle: group rename failed', err);
+    }
+    return emptyUpdates;
   }
 
   // ─── Private implementations ──────────────────────────────────────
@@ -2300,6 +2403,13 @@ export class NostraMTProtoServer {
     // Action methods → return true
     for(const pattern of ACTION_PATTERNS) {
       if(method.includes(pattern)) {
+        // WU-1 #5: surface the silent no-op in dev/explorer builds (once per
+        // method) so an unhandled UI action doesn't vanish unnoticed. The
+        // return value is unchanged; this is diagnostic only and off in prod.
+        if(IS_DEV_DIAGNOSTICS && !this.warnedFallbacks.has(method)) {
+          this.warnedFallbacks.add(method);
+          console.warn(LOG_PREFIX, `unhandled action method "${method}" → silent no-op (returns true). If a UI surface depends on it, add an explicit handler or hide the UI.`);
+        }
         return true;
       }
     }
