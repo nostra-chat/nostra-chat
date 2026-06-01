@@ -157,19 +157,34 @@ the review (verified against current source) found:
     } catch(e: any) { console.debug('[setInnerPeer] WU-5b group coherence non-critical:', e?.message); }
   }
   ```
-  Deterministically E2E-verifiable (a navigation, not a timing race): open a DM,
-  then `setInnerPeer` a 3-message group, assert topbar == group name AND 3
-  bubbles. Cost: a re-fetch on every group (re)entry — acceptable for correctness.
+  **LIVE-TESTED — this simple patch is INSUFFICIENT (verified, not merged).** I
+  built a deterministic E2E (`src/tests/e2e/e2e-groups-setpeer-coherence.ts`:
+  open a DM, then `setInnerPeer` a 3-message group, assert topbar == group name
+  AND ≥3 bubbles). The bug reproduces cleanly (RED: topbar stays `"Bob-Fuzz"`,
+  bubbles=2). With the patch above applied + confirmed served in the dev bundle,
+  the E2E STILL FAILS: topbar stays on the DM name and the render shows <3 bubbles
+  — and `invalidateHistoryCache` visibly ran (the bubble count *changed*), so the
+  block executed but neither half resolved. WU5b is therefore deeper than an
+  inject+invalidate nudge:
+  - **Topbar half:** `ensureGroupChatInjected`'s `peer_title_edit` dispatch does
+    not re-title the topbar here — likely the subsequent `return this.setPeer(
+    options)` re-renders the topbar from a chat whose group title still isn't
+    resolved. Fix the title path directly (resolve from `mirrors.chats` for
+    negative peerIds at setPeer time), not via a pre-setPeer event.
+  - **Render half:** `invalidateHistoryCache` + `setPeer` does NOT force a full
+    `getGroupHistory` render — the group still renders a partial slice. Needs the
+    bubbles `setPeer`/`changeHistoryStorageKey` group path to re-fetch all
+    messages, not just re-anchor.
+  The ineffective patch was reverted (it adds a re-fetch cost with no benefit).
 
-Net: (a)'s first-draft patch is a dead end (verified — the same
-`!loadedAll.bottom` guard is downstream in `_renderNewMessage`); the real fix is
-at that guard, supervised. (c)'s reconcile-via-`getHistory` is, per the review, a
-no-op (NOT independently re-verified here — verify `getHistory`'s return shape
-before relying on it); the sounder direction is the Worker IDB as single source.
-**(b) DM→group is FEASIBLE + deterministically E2E-verifiable — the ready-to-apply
-patch above is the recommended next merge**, left for a live-verified pass rather
-than an end-of-long-session autonomous change. WU-3 (the related cold-start race)
-was safely closed — see PR #124.
+Net: ALL THREE WU-5 sub-issues need direct render/topbar-path work, not the
+first-draft patches — (a) and (c) are dead-end patches (verified by source),
+and (b)'s inject+invalidate is now ALSO verified insufficient by **live E2E**.
+The valuable output of this pass: a **clean deterministic repro**
+(`e2e-groups-setpeer-coherence.ts`, currently RED — not wired into run-all.sh)
+plus three ruled-out approaches, so a supervised session starts from a red repro
++ a known-bad-path list instead of from scratch. WU-3 (the related cold-start
+race) was safely closed and shipped — see PR #124 / v0.25.3.
 
 > Correction note: an earlier revision of this section wrongly stated
 > `setInnerPeer` was synchronous (citing the wrong line) and implied a
