@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.25.3](https://github.com/nostra-chat/nostra-chat/compare/v0.25.2...v0.25.3) (2026-05-31)
+
+
+### Bug Fixes
+
+* **chat:** clear empty-chat placeholder once the first message renders ([b98c477](https://github.com/nostra-chat/nostra-chat/commit/b98c477b5a0a31aa11edfdce94fea6d45fe0ce09))
+* **groups:** propagate reactions to all members via group control channel ([148cba4](https://github.com/nostra-chat/nostra-chat/commit/148cba4c96467339eac799bae67e76ec376ae51d))
+* **p2p:** carry DM image/file caption through to the receiver ([58af21d](https://github.com/nostra-chat/nostra-chat/commit/58af21de76b181fcc44ecc9db3fbe385dfcc8a44))
+* **p2p:** update displayName on contact rebrand; guard reaction re-render listener ([d91b7b8](https://github.com/nostra-chat/nostra-chat/commit/d91b7b8075efa69b3d0c9bb9632046cb33dcd059))
+* **relay:** cold-start subscription readiness barrier (WU-3) ([ac96414](https://github.com/nostra-chat/nostra-chat/commit/ac964145290f0f2e480f60b0da37ea108e0f1cc6))
+* **vmt:** honest fallback — notify persistence, group rename, hide false forward-restriction toggle ([e3c1e89](https://github.com/nostra-chat/nostra-chat/commit/e3c1e8945fb720aaef697a5a91d8f565edf2eb5b))
+* **workers:** descriptive error when a manager method is missing (guarded dispatch) ([b971273](https://github.com/nostra-chat/nostra-chat/commit/b97127344ee68e50be0f417920c557d0acb8962a))
+
 ## [0.25.2](https://github.com/nostra-chat/nostra-chat/compare/v0.25.1...v0.25.2) (2026-05-23)
 
 
