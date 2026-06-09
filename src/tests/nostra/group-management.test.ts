@@ -3,6 +3,13 @@ import '../setup';
 import {describe, it, expect, beforeEach, beforeAll, vi} from 'vitest';
 import type {GroupRecord, GroupControlPayload} from '@lib/nostra/group-types';
 
+// Polyfill Number.prototype.toPeerId (tweb runtime addition, not available in test)
+if(!(Number.prototype as any).toPeerId) {
+  (Number.prototype as any).toPeerId = function(isChat?: boolean) {
+    return isChat ? -Math.abs(this as number) : Math.abs(this as number);
+  };
+}
+
 // ─── Mock setup ─────────────────────────────────────────────────
 
 // Hoisted mock state shared across resetModules boundaries
@@ -98,11 +105,13 @@ beforeAll(async() => {
   controlModule = await import('@lib/nostra/group-control-messages');
 });
 
-const OWN_PUBKEY = 'ownpub00000000000000000000000000000000000000000000000000000000ab';
+// Pubkeys must be 64-char lowercase hex — GroupAPI validates them since the
+// FIND-fcfcdec0 hardening (the old 'membera…' fixtures now get rejected).
+const OWN_PUBKEY = 'a'.repeat(62) + 'ab';
 const OWN_SK = new Uint8Array(32).fill(1);
-const MEMBER_A = 'membera0000000000000000000000000000000000000000000000000000001';
-const MEMBER_B = 'memberb0000000000000000000000000000000000000000000000000000002';
-const NEW_MEMBER = 'newmem00000000000000000000000000000000000000000000000000000003';
+const MEMBER_A = 'b'.repeat(62) + '01';
+const MEMBER_B = 'c'.repeat(62) + '02';
+const NEW_MEMBER = 'd'.repeat(62) + '03';
 const GROUP_ID = 'abc123def456abc123def456abc123de00';
 
 function makeGroup(overrides: Partial<GroupRecord> = {}): GroupRecord {
@@ -191,6 +200,29 @@ describe('Group Management', () => {
       expect(payload.type).toBe('group_leave');
       expect(store().delete).toHaveBeenCalledWith(GROUP_ID);
     });
+
+    // FIND-46ca4c46: getGroupHistory's orphan self-heal scans message-store
+    // conversation IDs — if leave keeps the messages, the left group gets
+    // resurrected (with ownPubkey as admin) on the next history load.
+    it('purges conversation messages so orphan self-heal cannot resurrect the left group', async() => {
+      const {getMessageStore} = await import('@lib/nostra/message-store');
+      const msgStore = getMessageStore();
+      const convId = `group:${GROUP_ID}`;
+      await msgStore.saveMessage({
+        eventId: 'ev-leave-purge-1',
+        conversationId: convId,
+        senderPubkey: OWN_PUBKEY,
+        content: 'hello group',
+        type: 'text',
+        timestamp: 1700000000,
+        deliveryState: 'sent'
+      });
+
+      store().get.mockResolvedValueOnce(makeGroup());
+      await api.leaveGroup(GROUP_ID);
+
+      expect(await msgStore.getMessages(convId, 50)).toHaveLength(0);
+    });
   });
 
   describe('handleControlMessage', () => {
@@ -226,6 +258,33 @@ describe('Group Management', () => {
 
       await api.handleControlMessage(rumor, MEMBER_A);
       expect(store().delete).toHaveBeenCalledWith(GROUP_ID);
+    });
+
+    it('group_remove_member with targetPubkey=self purges conversation messages (FIND-46ca4c46)', async() => {
+      const {getMessageStore} = await import('@lib/nostra/message-store');
+      const msgStore = getMessageStore();
+      const convId = `group:${GROUP_ID}`;
+      await msgStore.saveMessage({
+        eventId: 'ev-remove-purge-1',
+        conversationId: convId,
+        senderPubkey: MEMBER_A,
+        content: 'bye',
+        type: 'text',
+        timestamp: 1700000001,
+        deliveryState: 'sent'
+      });
+
+      const payload: GroupControlPayload = {
+        type: 'group_remove_member', groupId: GROUP_ID, targetPubkey: OWN_PUBKEY
+      };
+      const rumor = {
+        id: 'ctrl-remove-purge', kind: 14, content: JSON.stringify(payload),
+        pubkey: MEMBER_A, created_at: Math.floor(Date.now() / 1000),
+        tags: [['control', 'true'], ['group', GROUP_ID]]
+      };
+
+      await api.handleControlMessage(rumor, MEMBER_A);
+      expect(await msgStore.getMessages(convId, 50)).toHaveLength(0);
     });
 
     // ─── Admin-orphan protection (Phase 2b.4 fix) ────────────────
