@@ -181,11 +181,14 @@ export class GroupAPI {
     } catch(err) {
       // Publish failed: roll back the local group so creator and peers stay
       // converged. The synthetic service row + mirror entries are best-effort
-      // cleaned up via cleanupGroupChatInjection.
+      // cleaned up via cleanupGroupChatInjection. The service row written
+      // above must go too, or getGroupHistory's orphan self-heal rebuilds
+      // the rolled-back group from it (FIND-46ca4c46).
       this.log.warn('[GroupAPI] createGroup: publish failed, rolling back local state:', err);
       try {
         await this.store.delete(groupId);
       } catch{}
+      await this.purgeGroupMessages(groupId);
       try {
         await cleanupGroupChatInjection(peerId);
       } catch{}
@@ -642,6 +645,7 @@ export class GroupAPI {
     // group in chat list until the next reload.
     const peerId = await groupIdToPeerId(groupId);
     await this.store.delete(groupId);
+    await this.purgeGroupMessages(groupId);
     await cleanupGroupChatInjection(peerId);
 
     // Drop the chat-list dialog row symmetrically (FIND-3786a35f obs (D)).
@@ -688,7 +692,46 @@ export class GroupAPI {
       return this.leaveGroup(group.groupId);
     }
     this.log('[GroupAPI] leaveGroupByPeerId: orphan peer (no store record), cleaning mirror only:', peerId);
+    await this.purgeGroupMessagesByPeerId(peerId);
     await cleanupGroupChatInjection(peerId);
+  }
+
+  /**
+   * Purge all message-store rows for a group conversation. Leaving a group
+   * (or being removed) must delete the messages too: getGroupHistory's
+   * orphan self-heal scans message-store conversation IDs and would
+   * otherwise resurrect the departed group — with ownPubkey promoted to
+   * admin — on the next history load (FIND-46ca4c46).
+   */
+  private async purgeGroupMessages(groupId: string): Promise<void> {
+    try {
+      await getMessageStore().deleteMessages(`group:${groupId}`);
+    } catch(err) {
+      this.log.warn('[GroupAPI] purgeGroupMessages failed (non-fatal):', groupId, err);
+    }
+  }
+
+  /**
+   * Variant for orphan peers where only the tweb peerId is known: scan
+   * stored conversation IDs and purge the one whose groupIdToPeerId
+   * matches — same resolution getGroupHistory's self-heal uses, so the
+   * purge removes exactly what the self-heal would resurrect.
+   */
+  private async purgeGroupMessagesByPeerId(peerId: number): Promise<void> {
+    try {
+      const store = getMessageStore();
+      const convIds = await store.getAllConversationIds();
+      for(const convId of convIds) {
+        if(!convId.startsWith('group:')) continue;
+        const candidateId = convId.slice('group:'.length);
+        if(await groupIdToPeerId(candidateId) === peerId) {
+          await store.deleteMessages(convId);
+          break;
+        }
+      }
+    } catch(err) {
+      this.log.warn('[GroupAPI] purgeGroupMessagesByPeerId failed (non-fatal):', peerId, err);
+    }
   }
 
   // ─── Incoming message handling ────────────────────────────────
@@ -899,6 +942,7 @@ export class GroupAPI {
       // and the chat list doesn't flash the removed group on refresh.
       const peerId = await groupIdToPeerId(payload.groupId);
       await this.store.delete(payload.groupId);
+      await this.purgeGroupMessages(payload.groupId);
       await cleanupGroupChatInjection(peerId);
       this.log('[GroupAPI] removed from group:', payload.groupId);
     } else {
