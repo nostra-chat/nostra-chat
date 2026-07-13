@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.26.0](https://github.com/nostra-chat/nostra-chat/compare/v0.25.3...v0.26.0) (2026-07-13)
+
+
+### Features
+
+* stabilize v1 baseline and broadcast channels ([c47f0cb](https://github.com/nostra-chat/nostra-chat/commit/c47f0cb7ade65c8562d0fe5c604e3ef56cbfd976))
+
+
+### Bug Fixes
+
+* **crypto:** normalize media inputs for WebCrypto ([72f1dda](https://github.com/nostra-chat/nostra-chat/commit/72f1ddaade1f6011fa9bc97ba0b2a384cdf29612))
+
 ## [0.25.3](https://github.com/nostra-chat/nostra-chat/compare/v0.25.2...v0.25.3) (2026-05-31)
 
 
