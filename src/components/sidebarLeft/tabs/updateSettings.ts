@@ -20,6 +20,7 @@ import {
   type IntegritySourceDetail
 } from '@lib/update/update-baseline';
 import {MANIFEST_SOURCES} from '@lib/update/manifest-verifier';
+import {classifyIntegritySources} from '@lib/update/integrity-source-presentation';
 import {getSnoozeInfo, clearSnooze, probeForManualInstall} from '@lib/update/update-popup-controller';
 
 function formatAbsoluteDateTime(tsMs: number): string {
@@ -117,7 +118,7 @@ function buildIntegrityDetailsBlock(details: IntegritySourceDetail[]): HTMLDivEl
   block.style.cssText = 'display:flex;flex-direction:column;gap:0.375rem;padding:0.25rem 1.5rem 0.75rem 4.5rem;font-size:0.875rem';
 
   // Flag fields that disagree across the `ok` sources. The cross-source
-  // verdict keys on {version, gitSha, swUrl} — on localhost all three rows
+  // verdict keys on {version, gitSha, swUrl, swHash} — on localhost all three rows
   // can look green with the same version yet the overall verdict is
   // `conflict` because gitSha/swUrl differ (your dev build vs prod).
   // Showing the disagreeing fields inline is what makes the conflict legible.
@@ -131,17 +132,22 @@ function buildIntegrityDetailsBlock(details: IntegritySourceDetail[]): HTMLDivEl
   const versionConflict = disagrees((s) => s.version);
   const shaConflict = disagrees((s) => s.gitSha);
   const swConflict = disagrees((s) => s.swUrl);
+  const hashConflict = disagrees((s) => s.swHash);
   const shortSha = (sha?: string) => sha ? sha.slice(0, 8) : '';
+  const presentations = classifyIntegritySources(details);
 
-  for(const s of details) {
+  for(const [index, s] of details.entries()) {
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap';
-    const icon = s.status === 'ok' ? '✅' : s.status === 'error' ? '❌' : '⚠️';
+    const presentation = presentations[index];
+    row.dataset.integrityState = presentation;
+    const icon = presentation === 'agreeing' ? '✅' : presentation === 'error' ? '❌' : '⚠️';
     const label = document.createElement('span');
     const parts: string[] = [`${icon} ${s.name}: ${s.status}`];
     if(s.version) parts.push(`${versionConflict ? '⚠ ' : ''}v${s.version}`);
     if(s.gitSha) parts.push(`${shaConflict ? '⚠ ' : ''}@${shortSha(s.gitSha)}`);
     if(s.swUrl && swConflict) parts.push(`sw=${s.swUrl}`);
+    if(s.swHash && hashConflict) parts.push(`hash=${shortSha(s.swHash)}`);
     if(s.error) parts.push(`— ${s.error}`);
     label.textContent = parts.join(' ');
     label.style.cssText = 'flex:1;min-width:0;word-break:break-word;color:var(--secondary-text-color)';

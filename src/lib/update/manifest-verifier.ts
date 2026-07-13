@@ -68,7 +68,14 @@ export async function verifyManifestsAcrossSources(): Promise<IntegrityResult> {
   const sourcesBreakdown: IntegrityResult['sources'] = sources.map((src, i) => {
     const r = results[i];
     if(r.kind === 'ok') {
-      return {name: src.name, status: 'ok', version: r.manifest.version, gitSha: r.manifest.gitSha, swUrl: r.manifest.swUrl};
+      return {
+        name: src.name,
+        status: 'ok',
+        version: r.manifest.version,
+        gitSha: r.manifest.gitSha,
+        swUrl: r.manifest.swUrl,
+        swHash: r.manifest.bundleHashes[r.manifest.swUrl]
+      };
     }
     return {name: src.name, status: 'error', error: r.error};
   });

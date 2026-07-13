@@ -26,6 +26,7 @@ export interface IntegrityResult {
     version?: string;
     gitSha?: string;
     swUrl?: string;
+    swHash?: string;
   }>;
   checkedAt: number;
 }

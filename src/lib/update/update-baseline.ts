@@ -32,6 +32,7 @@ export interface IntegritySourceDetail {
   version?: string;
   gitSha?: string;
   swUrl?: string;
+  swHash?: string;
   error?: string;
 }
 
