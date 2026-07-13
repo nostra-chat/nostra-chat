@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.1](https://github.com/nostra-chat/nostra-chat/compare/v0.26.0...v0.26.1) (2026-07-13)
+
+
+### Bug Fixes
+
+* **updates:** distinguish divergent integrity sources ([bca8afd](https://github.com/nostra-chat/nostra-chat/commit/bca8afd3cec004570ab02b42ff52330be5d18225))
+
 ## [0.26.0](https://github.com/nostra-chat/nostra-chat/compare/v0.25.3...v0.26.0) (2026-07-13)
 
 
