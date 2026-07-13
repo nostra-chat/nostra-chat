@@ -1,8 +1,7 @@
 // @ts-nocheck
 import {test, expect} from '@playwright/test';
-import {launchOptions} from '../e2e/helpers/launch-options';
-import {LocalRelay} from '../e2e/helpers/local-relay';
-import {dismissOverlays} from '../e2e/helpers/dismiss-overlays';
+import {LocalRelay} from './helpers/local-relay';
+import {dismissOverlays} from './helpers/dismiss-overlays';
 
 test.describe('NIP-25 reactions end-to-end', () => {
   test('A reacts on B message → B sees reaction; A removes → B loses it', async({browser}) => {

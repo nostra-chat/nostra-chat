@@ -3,7 +3,9 @@
  */
 
 import '../setup';
+import 'fake-indexeddb/auto';
 import type {PublishResult} from '@lib/nostra/nostr-relay-pool';
+import {getPublicKey} from 'nostr-tools';
 
 // Dynamic import to get a fresh OfflineQueue after clearing IndexedDB.
 // Under isolate:false, relay-failover.test.ts calls vi.resetModules()
@@ -13,12 +15,14 @@ import type {PublishResult} from '@lib/nostra/nostr-relay-pool';
 // each time.
 let OfflineQueue: typeof import('@lib/nostra/offline-queue').OfflineQueue;
 let createOfflineQueue: typeof import('@lib/nostra/offline-queue').createOfflineQueue;
+let loadAllQueuedMessages: typeof import('@lib/nostra/offline-queue').loadAllQueuedMessages;
 type QueuedMessage = import('@lib/nostra/offline-queue').QueuedMessage;
 
 beforeAll(async() => {
   const mod = await import('@lib/nostra/offline-queue');
   OfflineQueue = mod.OfflineQueue;
   createOfflineQueue = mod.createOfflineQueue;
+  loadAllQueuedMessages = mod.loadAllQueuedMessages;
 });
 
 // ==================== Mock Classes ====================
@@ -85,15 +89,17 @@ describe('OfflineQueue', () => {
         req.onerror = () => reject(req.error);
         req.onupgradeneeded = (e) => {
           const d = (e.target as IDBOpenDBRequest).result;
-          if(!d.objectStoreNames.contains('messages')) {
-            d.createObjectStore('messages', {keyPath: 'id'});
+          if(!d.objectStoreNames.contains('offline-messages')) {
+            const store = d.createObjectStore('offline-messages', {keyPath: 'id'});
+            store.createIndex('to', 'to', {unique: false});
+            store.createIndex('timestamp', 'timestamp', {unique: false});
           }
         };
       });
-      if(db.objectStoreNames.contains('messages')) {
+      if(db.objectStoreNames.contains('offline-messages')) {
         await new Promise<void>((resolve) => {
-          const tx = db.transaction('messages', 'readwrite');
-          tx.objectStore('messages').clear();
+          const tx = db.transaction('offline-messages', 'readwrite');
+          tx.objectStore('offline-messages').clear();
           tx.oncomplete = () => resolve();
           tx.onerror = () => resolve();
         });
@@ -169,22 +175,53 @@ describe('OfflineQueue', () => {
       expect(id3).not.toBe(id1);
     });
 
-    test('stores relay event ID in queued message after successful publish', async() => {
+    test('does not retain a message after successful immediate publish', async() => {
       mockRelayPool.simulateConnect();
 
       const peerId = 'BBBBBB.CCCCCC.DDDDDD';
       const payload = 'Test with relay';
 
-      await queue.queue(peerId, payload);
+      const eventId = await queue.queue(peerId, payload);
 
       const queued = queue.getQueued(peerId);
-      expect(queued).toHaveLength(1);
-      expect(queued[0].relayEventId).toBeDefined();
-      expect(queued[0].relayEventId).toContain('event-');
+      expect(queued).toHaveLength(0);
+      expect(eventId).toContain('event-');
     });
   });
 
   describe('flush()', () => {
+    test('encrypts the durable payload and decrypts it after restart', async() => {
+      const ownKey = new Uint8Array(32).fill(1);
+      const recipient = getPublicKey(new Uint8Array(32).fill(2));
+      (mockRelayPool as any).getPrivateKey = () => ownKey;
+
+      await queue.queue(recipient, 'secret at rest');
+      const persisted = await loadAllQueuedMessages();
+      expect(persisted[0].payloadEncrypted).toBe(true);
+      expect(persisted[0].payload).not.toContain('secret at rest');
+
+      queue.destroy();
+      queue = new OfflineQueue(mockRelayPool as any);
+      mockRelayPool.simulateConnect();
+      await expect(queue.flush(recipient)).resolves.toBe(1);
+      expect(mockRelayPool.publishCalls[0].plaintext).toBe('secret at rest');
+    });
+
+    test('restores a durably queued message after restart and publishes it once', async() => {
+      await queue.queue('BBBBBB.CCCCCC.DDDDDD', 'survives restart');
+      queue.destroy();
+
+      queue = new OfflineQueue(mockRelayPool as any);
+      mockRelayPool.simulateConnect();
+
+      await expect(queue.flush('BBBBBB.CCCCCC.DDDDDD')).resolves.toBe(1);
+      expect(mockRelayPool.publishCalls).toEqual([{
+        recipientPubkey: 'BBBBBB.CCCCCC.DDDDDD',
+        plaintext: 'survives restart'
+      }]);
+      expect(queue.getQueued('BBBBBB.CCCCCC.DDDDDD')).toHaveLength(0);
+    });
+
     test('calls relayPool.publish() for each queued message', async() => {
       // Queue while disconnected
       await queue.queue('BBBBBB.CCCCCC.DDDDDD', 'message 1');

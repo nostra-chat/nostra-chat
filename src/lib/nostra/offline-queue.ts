@@ -23,6 +23,7 @@
 
 import {Logger, logger} from '@lib/logger';
 import {NostrRelayPool} from './nostr-relay-pool';
+import {getConversationKey, nip44Decrypt, nip44Encrypt} from './nostr-crypto';
 
 /**
  * Queued message structure
@@ -34,6 +35,8 @@ export interface QueuedMessage {
   to: string;
   /** Plaintext message content */
   payload: string;
+  /** True when payload is NIP-44 encrypted for local at-rest storage. */
+  payloadEncrypted?: boolean;
   /** Unix timestamp when queued */
   timestamp: number;
   /** Relay event ID -- set after successful relay publish */
@@ -205,8 +208,8 @@ export class OfflineQueue {
   /** Counter for generating message IDs */
   private messageIdCounter = 0;
 
-  /** True once IndexedDB restore has completed in constructor */
-  private _initialized = false;
+  /** Resolves once IndexedDB restore has completed. Mutations await this to avoid restore races. */
+  private readonly initialization: Promise<void>;
 
   /**
    * Create a new OfflineQueue
@@ -222,14 +225,13 @@ export class OfflineQueue {
     }
 
     // Restore queued messages from IndexedDB (per D029)
-    loadFromIndexedDB()
+    this.initialization = loadFromIndexedDB()
     .then(messages => {
       for(const msg of messages) {
         const peerQueue = this._queue.get(msg.to) || [];
         peerQueue.push(msg);
         this._queue.set(msg.to, peerQueue);
       }
-      this._initialized = true;
       if(messages.length > 0) {
         this.log('[OfflineQueue] restored', messages.length, 'queued message(s) from IndexedDB');
       } else {
@@ -237,11 +239,31 @@ export class OfflineQueue {
       }
     })
     .catch(err => {
-      this._initialized = true;
       this.log.warn('[OfflineQueue] failed to restore from IndexedDB:', err, '- continuing with empty queue');
     });
 
     this.log('[OfflineQueue] initializing…');
+  }
+
+  /** Encrypt a durable copy when the initialized identity key is available. */
+  private prepareForStorage(message: QueuedMessage): QueuedMessage {
+    if(message.payloadEncrypted) return message;
+    const privateKey = this.relayPool.getPrivateKey?.();
+    if(!privateKey) return message;
+    const conversationKey = getConversationKey(privateKey, message.to);
+    return {
+      ...message,
+      payload: nip44Encrypt(message.payload, conversationKey),
+      payloadEncrypted: true
+    };
+  }
+
+  /** Resolve a persisted encrypted payload immediately before publishing. */
+  private plaintextForPublish(message: QueuedMessage): string {
+    if(!message.payloadEncrypted) return message.payload;
+    const privateKey = this.relayPool.getPrivateKey?.();
+    if(!privateKey) throw new Error('Identity key unavailable for offline message decryption');
+    return nip44Decrypt(message.payload, getConversationKey(privateKey, message.to));
   }
 
   /**
@@ -255,20 +277,22 @@ export class OfflineQueue {
    * @returns Generated message ID
    */
   async queue(recipientPubkey: string, payload: string): Promise<string> {
+    await this.initialization;
     const messageId = this.generateMessageId();
     const timestamp = Date.now();
 
     this.log('[OfflineQueue] queuing message for:', recipientPubkey.slice(0, 8) + '…', 'id:', messageId);
-
-    let relayEventId: string | undefined;
 
     // Attempt to publish via relay pool if connected
     try {
       if(this.relayPool.isConnected()) {
         const result = await this.relayPool.publish(recipientPubkey, payload);
         if(result.successes.length > 0) {
-          relayEventId = result.successes[0];
+          const relayEventId = result.successes[0];
           this.log('[OfflineQueue] published to relay pool, event ID:', relayEventId.slice(0, 8) + '…');
+          // A relay accepted the event: keeping it in the offline queue would
+          // publish a fresh NIP-17 event on the next flush and duplicate it.
+          return relayEventId;
         } else {
           this.log('[OfflineQueue] relay pool publish had no successes, message stored locally');
         }
@@ -284,18 +308,24 @@ export class OfflineQueue {
       id: messageId,
       to: recipientPubkey,
       payload,
-      timestamp,
-      relayEventId
+      timestamp
     };
 
     const peerQueue = this._queue.get(recipientPubkey) || [];
     peerQueue.push(message);
     this._queue.set(recipientPubkey, peerQueue);
 
-    // Persist to IndexedDB (per D029) — fire and forget; failures are non-fatal
-    saveToIndexedDB(message).catch(err => {
-      this.log.warn('[OfflineQueue] failed to persist to IndexedDB:', err);
-    });
+    // Do not report a durable queue success before IndexedDB commits. Keep the
+    // in-memory copy for this session if persistence fails, but propagate the
+    // error so callers can expose a failed/non-durable send state.
+    try {
+      await saveToIndexedDB(this.prepareForStorage(message));
+    } catch(err) {
+      this.log.error('[OfflineQueue] failed to persist to IndexedDB:', err);
+      const persistenceError = new Error('Unable to persist offline message');
+      (persistenceError as Error & {cause?: unknown}).cause = err;
+      throw persistenceError;
+    }
 
     return messageId;
   }
@@ -311,6 +341,7 @@ export class OfflineQueue {
    * @returns Number of messages flushed
    */
   async flush(recipientPubkey: string): Promise<number> {
+    await this.initialization;
     if(!this.relayPool.isConnected()) {
       this.log.debug('[OfflineQueue] flush skipped: relay pool not connected');
       return 0;
@@ -327,6 +358,20 @@ export class OfflineQueue {
     let flushed = 0;
 
     for(const msg of peerQueue) {
+      // A previous run published successfully but could not finish cleanup.
+      // Do not publish a second NIP-17 event; only complete durable deletion.
+      if(msg.relayEventId) {
+        try {
+          await deleteFromIndexedDB(msg.id);
+          this.acknowledge(msg.id);
+          flushed++;
+        } catch(err) {
+          this.log.error('[OfflineQueue] failed to clean published message:', err);
+          break;
+        }
+        continue;
+      }
+
       // Check if message has exceeded max retries
       const retryCount = msg.retryCount || 0;
       if(retryCount >= MAX_RETRY_ATTEMPTS) {
@@ -336,14 +381,14 @@ export class OfflineQueue {
       }
 
       try {
-        const result = await this.relayPool.publish(msg.to, msg.payload);
+        const result = await this.relayPool.publish(msg.to, this.plaintextForPublish(msg));
         if(result.successes.length > 0) {
-          // Mark as acknowledged so we don't deliver it again
+          // Persist the published marker before deletion. If cleanup is
+          // interrupted, the next run deletes the row without republishing.
+          msg.relayEventId = result.successes[0];
+          await saveToIndexedDB(this.prepareForStorage(msg));
+          await deleteFromIndexedDB(msg.id);
           this.acknowledge(msg.id);
-          // Remove from IndexedDB (per D029)
-          deleteFromIndexedDB(msg.id).catch(err => {
-            this.log.warn('[OfflineQueue] failed to delete from IndexedDB:', err);
-          });
           flushed++;
         } else {
           // All relays failed -- increment retry count with exponential backoff
@@ -351,7 +396,7 @@ export class OfflineQueue {
           const delay = Math.min(BACKOFF_BASE_MS * Math.pow(BACKOFF_MULTIPLIER, msg.retryCount), BACKOFF_MAX_MS);
           this.log.debug('[OfflineQueue] publish failed, retry', msg.retryCount, 'next in', delay, 'ms');
           // Persist updated retry count
-          saveToIndexedDB(msg).catch((e) => console.debug('[OfflineQueue] IndexedDB persist failed:', e?.message));
+          await saveToIndexedDB(this.prepareForStorage(msg));
           break;
         }
       } catch(err) {
@@ -359,7 +404,11 @@ export class OfflineQueue {
         msg.retryCount = retryCount + 1;
         this.log.error('[OfflineQueue] failed to publish queued message:', err);
         // Persist updated retry count
-        saveToIndexedDB(msg).catch((e) => console.debug('[OfflineQueue] IndexedDB persist failed:', e?.message));
+        try {
+          await saveToIndexedDB(this.prepareForStorage(msg));
+        } catch(persistErr) {
+          this.log.error('[OfflineQueue] failed to persist retry state:', persistErr);
+        }
         break;
       }
     }
@@ -422,6 +471,7 @@ export class OfflineQueue {
    *                          clears all queued messages.
    */
   async clearQueue(recipientPubkey?: string): Promise<void> {
+    await this.initialization;
     if(recipientPubkey) {
       const count = this.getQueueSize(recipientPubkey);
       this._queue.delete(recipientPubkey);
@@ -443,19 +493,20 @@ export class OfflineQueue {
    * @returns true if the message was found and retried
    */
   async retryMessage(messageId: string): Promise<boolean> {
+    await this.initialization;
     for(const [, messages] of this._queue) {
       const msg = messages.find(m => m.id === messageId);
       if(msg) {
         msg.retryCount = 0;
         // Persist reset
-        saveToIndexedDB(msg).catch((e) => console.debug('[OfflineQueue] IndexedDB persist failed:', e?.message));
+        await saveToIndexedDB(this.prepareForStorage(msg));
 
         if(this.relayPool.isConnected()) {
           try {
-            const result = await this.relayPool.publish(msg.to, msg.payload);
+            const result = await this.relayPool.publish(msg.to, this.plaintextForPublish(msg));
             if(result.successes.length > 0) {
+              await deleteFromIndexedDB(msg.id);
               this.acknowledge(msg.id);
-              deleteFromIndexedDB(msg.id).catch((e) => console.debug('[OfflineQueue] IndexedDB delete failed:', e?.message));
               return true;
             }
           } catch{

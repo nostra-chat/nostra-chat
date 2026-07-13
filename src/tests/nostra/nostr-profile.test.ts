@@ -4,6 +4,7 @@
 
 import '../setup';
 import {profileToDisplayName, fetchNostrProfile, NostrProfile} from '@lib/nostra/nostr-profile';
+import {finalizeEvent, getPublicKey} from 'nostr-tools';
 
 // --- MockWebSocket ---
 
@@ -144,7 +145,17 @@ describe('profileToDisplayName', () => {
 // --- fetchNostrProfile tests ---
 
 describe('fetchNostrProfile', () => {
-  const testPubkey = 'a'.repeat(64);
+  const testSecretKey = new Uint8Array(32).fill(7);
+  const testPubkey = getPublicKey(testSecretKey);
+
+  function profileEvent(profile: NostrProfile) {
+    return finalizeEvent({
+      kind: 0,
+      content: JSON.stringify(profile),
+      tags: [],
+      created_at: Math.floor(Date.now() / 1000)
+    }, testSecretKey);
+  }
 
   test('returns profile when relay responds with EVENT', async() => {
     const profileData: NostrProfile = {
@@ -176,7 +187,7 @@ describe('fetchNostrProfile', () => {
     ws.simulateMessage([
       'EVENT',
       subId,
-      {kind: 0, content: JSON.stringify(profileData)}
+      profileEvent(profileData)
     ]);
 
     const result = await promise;
@@ -238,7 +249,7 @@ describe('fetchNostrProfile', () => {
     ws2.simulateMessage([
       'EVENT',
       subId,
-      {kind: 0, content: JSON.stringify(profileData)}
+      profileEvent(profileData)
     ]);
 
     const result = await promise;

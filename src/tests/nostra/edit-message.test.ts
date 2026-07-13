@@ -26,6 +26,7 @@ afterAll(() => {
 
 const SENDER_PUB = 'a'.repeat(64);
 const OWN_PUB = 'b'.repeat(64);
+const EDIT_TIMESTAMP = Math.floor(Date.now() / 1000);
 
 function makeCtx(overrides: Partial<ReceiveContext> = {}): ReceiveContext {
   const log = Object.assign(((..._args: any[]) => {}) as any, {
@@ -49,13 +50,13 @@ async function seedOriginal(appId: string, content: string) {
   const store = getMessageStore();
   const conversationId = store.getConversationId(OWN_PUB, SENDER_PUB);
   await store.saveMessage({
-    eventId: 'rumor-hex-of-original',
+    eventId: 'd'.repeat(64),
     appMessageId: appId,
     conversationId,
     senderPubkey: SENDER_PUB,
     content,
     type: 'text',
-    timestamp: 1700000000,
+    timestamp: EDIT_TIMESTAMP - 100,
     deliveryState: 'delivered',
     mid: 12345
   });
@@ -63,10 +64,10 @@ async function seedOriginal(appId: string, content: string) {
 
 function editRumor(appId: string, newContent: string, fromOverride?: string): DecryptedMessage {
   return {
-    id: 'rumor-hex-of-edit',
+    id: 'e'.repeat(64),
     from: fromOverride ?? SENDER_PUB,
     content: JSON.stringify({id: 'chat-new-1', from: SENDER_PUB, to: OWN_PUB, type: 'text', content: newContent, timestamp: Date.now()}),
-    timestamp: 1700000100,
+    timestamp: EDIT_TIMESTAMP,
     rumorKind: 14,
     tags: [
       ['p', OWN_PUB],
@@ -208,7 +209,7 @@ describe('handleRelayMessage — edit handling', () => {
 
     const stored = await getMessageStore().getByAppMessageId(appId);
     expect(stored?.content).toBe('hello edited');
-    expect(stored?.editedAt).toBe(1700000100);
+    expect(stored?.editedAt).toBe(EDIT_TIMESTAMP);
     expect(stored?.mid).toBe(12345);
   });
 

@@ -1,5 +1,10 @@
 # Phase 2b.2b Verification Checklist
 
+> Historical verification protocol from April 2026. Paths, counts, and
+> unchecked boxes below are preserved as history rather than current pass
+> evidence. See `.planning/STATE.md` and `docs/FUZZ-FINDINGS.md` for current
+> status.
+
 Manual 2-device verification steps. Complete all boxes before merging.
 
 ## Baseline emit (T7 — REQUIRED before merge)

@@ -38,13 +38,42 @@ async function sha256b64(bytes: Uint8Array): Promise<string> {
 }
 
 describe('handleUpdateApproved', () => {
+  it('rejects a correctly signed downgrade before downloading assets', async() => {
+    const priv = ed.utils.randomSecretKey();
+    const pub = await ed.getPublicKeyAsync(priv);
+    const manifest: any = {
+      schemaVersion: 2,
+      version: '0.11.0',
+      gitSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      published: new Date().toISOString(),
+      swUrl: './sw.js',
+      signingKeyFingerprint: 'ed25519:x',
+      securityRelease: false,
+      securityRollback: false,
+      bundleHashes: {'./sw.js': `sha256-${'0'.repeat(64)}`},
+      changelog: '',
+      alternateSources: {},
+      rotation: null
+    };
+    const bytes = new TextEncoder().encode(JSON.stringify(manifest));
+    const sig = bytesToBase64(await ed.signAsync(bytes, priv));
+    global.fetch = vi.fn() as any;
+    await setActiveVersion('0.12.0', 'ed25519:x');
+
+    const res = await handleUpdateApproved(manifest, sig, bytesToBase64(pub));
+
+    expect(res.outcome).toBe('downgrade-rejected');
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect((await getActiveVersion())?.version).toBe('0.12.0');
+  });
+
   it('downloads, verifies, and swaps atomically on all-match', async() => {
     const priv = ed.utils.randomSecretKey();
     const pub = await ed.getPublicKeyAsync(priv);
     const indexHtml = new TextEncoder().encode('<html></html>');
     const swJs = new TextEncoder().encode('/* sw */');
     const manifest: any = {
-      schemaVersion: 2, version: '0.13.0', gitSha: 'x', published: '2026-01-01',
+      schemaVersion: 2, version: '0.13.0', gitSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', published: new Date().toISOString(),
       swUrl: './sw.js', signingKeyFingerprint: 'ed25519:x',
       securityRelease: false, securityRollback: false,
       bundleHashes: {
@@ -71,7 +100,7 @@ describe('handleUpdateApproved', () => {
     const priv = ed.utils.randomSecretKey();
     const pub = await ed.getPublicKeyAsync(priv);
     const indexHtml = new TextEncoder().encode('<html></html>');
-    const manifest: any = {schemaVersion: 2, version: '0.13.0', gitSha: 'x', published: '2026-01-01', swUrl: './sw.js', signingKeyFingerprint: 'ed25519:x', securityRelease: false, securityRollback: false, bundleHashes: {'./index.html': 'sha256-DEADBEEF'}, changelog: '', alternateSources: {}, rotation: null};
+    const manifest: any = {schemaVersion: 2, version: '0.13.0', gitSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', published: new Date().toISOString(), swUrl: './sw.js', signingKeyFingerprint: 'ed25519:x', securityRelease: false, securityRollback: false, bundleHashes: {'./index.html': `sha256-${'0'.repeat(64)}`, './sw.js': `sha256-${'1'.repeat(64)}`}, changelog: '', alternateSources: {}, rotation: null};
     const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest));
     const sig = bytesToBase64(await ed.signAsync(manifestBytes, priv));
     global.fetch = vi.fn(async() => new Response(indexHtml)) as any;
@@ -94,7 +123,7 @@ describe('handleUpdateApproved', () => {
     const indexJs = new TextEncoder().encode('export const x = 1;');
     const swJs = new TextEncoder().encode('/* sw */');
     const manifest: any = {
-      schemaVersion: 2, version: '0.13.0', gitSha: 'x', published: '2026-01-01',
+      schemaVersion: 2, version: '0.13.0', gitSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', published: new Date().toISOString(),
       swUrl: './sw.js', signingKeyFingerprint: 'ed25519:x',
       securityRelease: false, securityRollback: false,
       bundleHashes: {
@@ -142,7 +171,7 @@ describe('handleUpdateApproved', () => {
     const priv = ed.utils.randomSecretKey();
     const pub = await ed.getPublicKeyAsync(priv);
     const wrongPriv = ed.utils.randomSecretKey();
-    const manifest: any = {schemaVersion: 2, version: '0.13.0', gitSha: 'x', published: '2026-01-01', swUrl: './sw.js', signingKeyFingerprint: 'ed25519:x', securityRelease: false, securityRollback: false, bundleHashes: {}, changelog: '', alternateSources: {}, rotation: null};
+    const manifest: any = {schemaVersion: 2, version: '0.13.0', gitSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', published: '2026-01-01', swUrl: './sw.js', signingKeyFingerprint: 'ed25519:x', securityRelease: false, securityRollback: false, bundleHashes: {'./sw.js': `sha256-${'0'.repeat(64)}`}, changelog: '', alternateSources: {}, rotation: null};
     const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest));
     const sig = bytesToBase64(await ed.signAsync(manifestBytes, wrongPriv));
     await setActiveVersion('0.12.0', 'ed25519:x');

@@ -1,12 +1,29 @@
 # Release & Deployment
 
-Detailed reference for the Nostra.chat release pipeline. For the day-to-day rules, see the "Release & Deployment" section in `CLAUDE.md`.
+**Authority:** operational release procedure, interpreted together with the
+live workflows in `.github/workflows/`.
+**Last reviewed:** 2026-07-12. Workflow configuration wins if this document
+becomes stale; correct both in the same change.
+
+Detailed reference for the Nostra.chat release pipeline. For day-to-day agent
+rules, see `AGENTS.md`; `CLAUDE.md` supplies additional Claude Code context.
 
 ## Pipeline
 
-`.github/workflows/deploy.yml` triggers **only** on `push: tags: v*`. Daily commits to `main` do NOT run CI or deploy — `main` is unprotected, push directly. Tag push runs `pnpm lint` → `npx tsc --noEmit` → `pnpm build:release` as a server-side gate, then publishes to 4 mirrors. `build:release` differs from `build` only by a `pnpm run update-tor-consensus` prelude that refreshes `public/webtor/*.br.bin` against live directory authorities; `build` uses the committed snapshot so local dev builds stay reproducible without network access to Tor dir auths.
+`.github/workflows/deploy.yml` triggers **only** on `push: tags: v*` and is the
+only workflow authorized to deploy. Pull-request verification is a separate,
+non-deploying workflow and must never publish artifacts or require production
+secrets. A tag push runs `pnpm lint` → `npx tsc --noEmit` →
+`pnpm build:release` as a server-side release gate, then publishes to 4
+mirrors. `build:release` differs from `build` by a
+`pnpm run update-tor-consensus` prelude that refreshes
+`public/webtor/*.br.bin` against live directory authorities; `build` uses the
+committed snapshot so local and PR builds remain reproducible without network
+access to Tor directory authorities.
 
-**Do NOT re-add `push: branches: main` or `pull_request:` triggers** — the pipeline is intentionally tag-triggered so every production update flows through a version tag.
+**Do not add branch or pull-request triggers to `deploy.yml`.** Add verification
+to the dedicated PR workflow instead, preserving the rule that every
+production update flows through a version tag.
 
 ## Live Mirrors
 
@@ -18,12 +35,17 @@ Detailed reference for the Nostra.chat release pipeline. For the day-to-day rule
 | IPFS (stable via DNSLink) | https://ipfs.nostra.chat |
 | IPFS (raw CID) | CID per release, pinned on Filebase |
 
-## Two Release Paths
+## Release path
 
 1. **release-please PR** — merge the open `chore(main): release X.Y.Z` PR that release-please maintains. Creates the tag and triggers deploy with full CHANGELOG. **Do NOT enable auto-merge** on this PR — it accumulates commits, merge it manually when you want to release.
-2. **Local `pnpm version patch|minor|major`** — `preversion` runs lint + tsc locally, bumps `package.json`, tags, `postversion` auto-pushes commit + tag.
 
-Never edit `package.json` version or `CHANGELOG.md` manually — one of the two paths always owns them.
+`pnpm version patch|minor|major` is a manual-recovery mechanism only when
+Release Please itself is broken and requires explicit maintainer authorization.
+It is not an alternative normal release path because it bypasses the managed
+release PR and can produce incomplete release notes.
+
+Never edit `package.json` version or `CHANGELOG.md` manually; Release Please
+owns both in the normal path.
 
 ## Conventional Commits
 
@@ -35,7 +57,9 @@ Never edit `package.json` version or `CHANGELOG.md` manually — one of the two 
 
 ## CI Gotchas
 
-- **release-please PRs don't trigger CI** (`GITHUB_TOKEN` anti-recursion). Under tag-triggered deploy this is harmless — merge immediately.
+- A Release Please PR may need its checks triggered or confirmed separately,
+  depending on GitHub's anti-recursion behavior. Never treat a missing check as
+  permission to merge without the local/PR verification gate.
 - **`deploy-ipfs` job permissions**: needs explicit `permissions: contents: read, statuses: write`. Without `statuses: write` the IPFS upload succeeds but the job fails when posting the CID as a commit status.
 - **Pinata rejected**: `ipshipyard/ipfs-deploy-action@v1` rejects Pinata as sole provider and requires a CAR upload provider (Filebase works). Do not re-add Pinata.
 

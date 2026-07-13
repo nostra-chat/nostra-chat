@@ -1,4 +1,5 @@
 import {verifyDetachedSignature} from './signing/verify';
+import {validateManifestFreshness, validateUpdateManifest} from './manifest-validation';
 
 export const MANIFEST_URL = '/update-manifest.json';
 export const SIG_URL = '/update-manifest.json.sig';
@@ -8,6 +9,8 @@ export interface ProbeResult {
     | 'up-to-date'
     | 'update-available'
     | 'invalid-signature'
+    | 'invalid-manifest'
+    | 'stale-manifest'
     | 'downgrade-rejected'
     | 'network-error'
     | 'parse-error';
@@ -51,6 +54,11 @@ export async function probe(trustedPubkeyB64: string, activeVersion?: string): P
   const manifestBytes = new TextEncoder().encode(manifestText);
   const ok = await verifyDetachedSignature(manifestBytes, sigText.trim(), trustedPubkeyB64);
   if(!ok) return {outcome: 'invalid-signature'};
+
+  const validation = validateUpdateManifest(manifest);
+  if(!validation.ok) return {outcome: 'invalid-manifest', reason: validation.reason};
+  const freshness = validateManifestFreshness(manifest.published);
+  if(!freshness.ok) return {outcome: 'stale-manifest', reason: freshness.reason};
 
   const sigTrimmed = sigText.trim();
   if(activeVersion && manifest.version === activeVersion) {

@@ -87,7 +87,7 @@ async function main(): Promise<void> {
     }
 
     // Popup title renders.
-    const titleLocator = page.locator('text=Aggiornamento disponibile');
+    const titleLocator = page.getByText(/Update available|Aggiornamento disponibile/i, {exact: true});
     await titleLocator.waitFor({state: 'visible', timeout: 5000}).catch(() => {});
     if(await titleLocator.count() === 0) {
       fail('UpdateConsent popup title not visible');
@@ -104,8 +104,8 @@ async function main(): Promise<void> {
     }
 
     // Both action buttons present.
-    const ignoraBtn = page.locator('button:has-text("Ignora")');
-    const accettaBtn = page.locator('button:has-text("Accetta")');
+    const ignoraBtn = page.getByRole('button', {name: /Ignore|Ignora/i});
+    const accettaBtn = page.getByRole('button', {name: /Accept|Accetta/i});
     if(await ignoraBtn.count() === 0) fail('Ignora button missing');
     else pass('Ignora button rendered');
     if(await accettaBtn.count() === 0) fail('Accetta button missing');

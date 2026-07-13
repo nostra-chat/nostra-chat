@@ -69,6 +69,37 @@ export interface NostrEvent {
   sig?: string;
 }
 
+/** Resource limits for untrusted relay input, applied before crypto work. */
+export const MAX_RELAY_FRAME_CHARS = 1_500_000;
+export const MAX_RELAY_EVENT_CONTENT_CHARS = 750_000;
+export const MAX_RELAY_EVENT_TAGS = 128;
+export const MAX_RELAY_TAG_FIELDS = 16;
+export const MAX_RELAY_TAG_FIELD_CHARS = 4096;
+export const MAX_HTTP_POLL_EVENTS = 500;
+
+const HEX_64_RE = /^[0-9a-f]{64}$/;
+const HEX_128_RE = /^[0-9a-f]{128}$/;
+
+/**
+ * Cheap structural validation for hostile relay events. Signature validation
+ * remains a separate mandatory step after this resource/shape gate.
+ */
+export function isStructurallyValidRelayEvent(value: unknown): value is NostrEvent {
+  if(!value || typeof value !== 'object') return false;
+  const event = value as Partial<NostrEvent>;
+  if(!Number.isSafeInteger(event.created_at) || !Number.isSafeInteger(event.kind)) return false;
+  if(typeof event.pubkey !== 'string' || !HEX_64_RE.test(event.pubkey)) return false;
+  if(typeof event.id !== 'string' || !HEX_64_RE.test(event.id)) return false;
+  if(typeof event.sig !== 'string' || !HEX_128_RE.test(event.sig)) return false;
+  if(typeof event.content !== 'string' || event.content.length > MAX_RELAY_EVENT_CONTENT_CHARS) return false;
+  if(!Array.isArray(event.tags) || event.tags.length > MAX_RELAY_EVENT_TAGS) return false;
+  return event.tags.every((tag) =>
+    Array.isArray(tag) &&
+    tag.length <= MAX_RELAY_TAG_FIELDS &&
+    tag.every((field) => typeof field === 'string' && field.length <= MAX_RELAY_TAG_FIELD_CHARS)
+  );
+}
+
 /**
  * Singleton relay instance for publishing events.
  * Set by NostrRelay.initialize() when the relay connects.
@@ -252,6 +283,9 @@ export class NostrRelay {
         if(this.isSubscribed || this.pendingSubscribe) {
           this.pendingSubscribe = false;
           this.subscribeMessages();
+        }
+        for(const [subscriptionId, subscription] of this.rawSubscriptions) {
+          this.safeSend(JSON.stringify(['REQ', subscriptionId, subscription.filter]));
         }
 
         // Only WS mode uses the periodic ping — Tor mode piggybacks on
@@ -458,6 +492,17 @@ export class NostrRelay {
 
       this.safeSend(JSON.stringify(['REQ', queryId, filter]));
     });
+  }
+
+  /** Subscribe to a bounded raw-event filter; returns an unsubscribe callback. */
+  subscribeRawEvents(filter: Record<string, unknown>, callback: (event: NostrEvent) => void): () => void {
+    const subscriptionId = `nostra-raw-live-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    this.rawSubscriptions.set(subscriptionId, {filter, callback});
+    if(this.connectionState === 'connected') this.safeSend(JSON.stringify(['REQ', subscriptionId, filter]));
+    return () => {
+      this.rawSubscriptions.delete(subscriptionId);
+      this.safeSend(JSON.stringify(['CLOSE', subscriptionId]));
+    };
   }
 
   /**
@@ -829,6 +874,9 @@ export class NostrRelay {
         });
         const url = `${httpsUrl}/?${params}`;
         const body = await this.torFetchFn(url);
+        if(typeof body !== 'string' || body.length > MAX_RELAY_FRAME_CHARS) {
+          throw new Error('relay HTTP poll response exceeds safe size');
+        }
 
         // Each Tor fetch IS a real latency sample — record it directly
         // instead of firing a separate synthetic ping.
@@ -844,9 +892,14 @@ export class NostrRelay {
         }
 
         if(Array.isArray(events) && events.length > 0) {
-          this.lastPolled = Math.max(...events.map(e => e.created_at)) + 1;
-          for(const event of events) {
-            this.handleEvent(event);
+          const validEvents = events
+          .slice(0, MAX_HTTP_POLL_EVENTS)
+          .filter(isStructurallyValidRelayEvent);
+          if(validEvents.length > 0) {
+            this.lastPolled = Math.max(...validEvents.map(e => e.created_at)) + 1;
+          }
+          for(const event of validEvents) {
+            await this.handleEvent(event);
           }
         }
         consecutiveFailures = 0;
@@ -896,11 +949,20 @@ export class NostrRelay {
     resolve: (events: NostrEvent[]) => void;
   }> = new Map();
 
+  private rawSubscriptions: Map<string, {
+    filter: Record<string, unknown>;
+    callback: (event: NostrEvent) => void;
+  }> = new Map();
+
   /**
    * Handle incoming WebSocket messages
    */
   private handleMessage(data: string): void {
     try {
+      if(typeof data !== 'string' || data.length > MAX_RELAY_FRAME_CHARS) {
+        this.log.warn('[NostrRelay] dropping oversized relay frame');
+        return;
+      }
       const message = JSON.parse(data);
 
       if(!Array.isArray(message)) {
@@ -912,13 +974,20 @@ export class NostrRelay {
       switch(type) {
         case 'EVENT': {
           const [, subId, event] = message as [string, string, NostrEvent];
+          if(typeof subId !== 'string' || !isStructurallyValidRelayEvent(event)) {
+            this.log.warn('[NostrRelay] dropping malformed relay EVENT frame');
+            return;
+          }
           // Check if this event belongs to a pending query
           const queryResolver = this.queryResolvers.get(subId);
           const rawResolver = this.rawQueryResolvers.get(subId);
+          const rawSubscription = this.rawSubscriptions.get(subId);
           if(queryResolver) {
             this.collectQueryEvent(event, queryResolver.events);
           } else if(rawResolver) {
             rawResolver.events.push(event);
+          } else if(rawSubscription) {
+            if(verifyEvent(event)) rawSubscription.callback(event);
           } else {
             this.handleEvent(event);
           }
@@ -980,7 +1049,7 @@ export class NostrRelay {
    * Collect and unwrap a gift-wrap event into the query results array
    */
   private async collectQueryEvent(event: NostrEvent, collected: DecryptedMessage[]): Promise<void> {
-    if(!event.content || !event.pubkey || event.kind !== NOSTR_KIND_GIFTWRAP) {
+    if(!isStructurallyValidRelayEvent(event) || !event.content || event.kind !== NOSTR_KIND_GIFTWRAP) {
       return;
     }
 
@@ -1019,6 +1088,10 @@ export class NostrRelay {
    * self-sent messages vs. messages from others.
    */
   private async handleEvent(event: NostrEvent): Promise<void> {
+    if(!isStructurallyValidRelayEvent(event)) {
+      this.log.warn('[NostrRelay] dropping structurally invalid event');
+      return;
+    }
     // Ignore events without required fields (kind-7 reactions allow empty
     // content in theory, but NIP-25 defines content as the reaction emoji
     // so in practice it is always set; kind-5 delete has content='' but

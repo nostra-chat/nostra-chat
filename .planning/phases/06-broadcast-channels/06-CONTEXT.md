@@ -1,7 +1,7 @@
 # Phase 6: Broadcast Channels - Context
 
 **Gathered:** 2026-04-03
-**Status:** Ready for planning
+**Status:** Core protocol/store implemented 2026-07-12; UI integration pending
 
 <domain>
 ## Phase Boundary
@@ -25,7 +25,7 @@ Does NOT include: channel search/discovery (v2), private/invite-only channels (v
 - **D-05:** Sottoscrizione via link/ID condivisibile (event ID del kind 40 o formato bech32). Campo "Join Channel" nell'app. Nessuna ricerca globale in v1 — discovery via link diretto.
 
 ### Permessi e moderazione
-- **D-06:** Owner + delegati (admin) possono pubblicare. Lista admin come array di pubkey nel metadata kind 41. L'owner aggiorna il kind 41 per aggiungere/rimuovere admin. I subscriber verificano che il kind 42 sia firmato da una pubkey nella lista admin o dall'owner.
+- **D-06 (superseded 2026-07-12):** v1 is owner-only. Only the kind-40 signer may publish kind 42, update kind 41, or delete posts. Delegated admins are deferred because they require explicit revocation and conflict semantics.
 - **D-07:** Edit messaggi via kind 42 replacement — nuovo kind 42 con tag `e` che referenzia l'originale. I subscriber sostituiscono il messaggio in UI.
 - **D-08:** Delete messaggi via NIP-09 (kind 5) con i 3 livelli di Phase 4: (1) locale: rimuovi da IndexedDB/cache, (2) pubblica kind 5 referenziando il kind 42 — i subscriber lo nascondono, (3) best-effort: relay onorano la deletion.
 

@@ -1,5 +1,10 @@
 # CLAUDE.md — Nostra.chat
 
+> Shared repository rules, verification requirements, and safety constraints
+> live in [`AGENTS.md`](AGENTS.md). Read that file first. This document retains
+> Claude Code context and detailed project notes; when duplicated guidance
+> diverges, verify the repository and update both documents.
+
 ## Project Overview
 
 **Nostra.chat** is a decentralized messaging client (https://nostra.chat/) built with Solid.js and TypeScript. Forked from Telegram Web K, it replaces the Telegram backend with peer-to-peer encrypted chat over Nostr relays. The codebase is large (~100k+ lines excluding vendor), mature, and highly performance-oriented. License: GPL v3.
@@ -25,7 +30,7 @@ pnpm install
 pnpm start          # Dev server on :8080
 pnpm build          # Production build → dist/
 pnpm test           # Run tests (Vitest)
-pnpm test:nostra:quick  # Critical P2P tests only (~160 tests in <2s)
+pnpm test:nostra:quick  # Critical P2P test selection; current count varies
 pnpm test:nostra        # Full P2P test suite
 pnpm lint           # ESLint on src/**/*.{ts,tsx}
 ```
@@ -190,7 +195,6 @@ Full reference: [`docs/RELEASE.md`](docs/RELEASE.md). Day-to-day rules:
 
 ## Nostra.chat Architecture Notes
 
-Subsystem rules — Worker context, Virtual MTProto / MessagePort bridge + middleware rules table, SW install precache, message receive pipeline, delivery tracker, logout & cleanup, UI components, Phase A update popup, Nostra module architecture, background push, MTProto intercept, bug fuzzer, bubble rendering — live in [`docs/CLAUDE-RULES.md`](docs/CLAUDE-RULES.md). Read it before touching any of those areas.
+Subsystem rules — Worker context, Virtual MTProto / MessagePort bridge + middleware rules table, SW install precache, message receive pipeline, delivery tracker, logout & cleanup, UI components, Phase A update popup, Nostra module architecture, background push, MTProto intercept, bug fuzzer, bubble rendering — live in [`docs/SUBSYSTEM-RULES.md`](docs/SUBSYSTEM-RULES.md). Read them before touching any of those areas.
 
 For deep architecture narrative (Tor runtime, Vitest/E2E quirks, profile sync internals, Phase A update system, profile tab layout, Blossom upload) see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). For fuzz status / open findings / per-phase closure log see [`docs/FUZZ-FINDINGS.md`](docs/FUZZ-FINDINGS.md).
-

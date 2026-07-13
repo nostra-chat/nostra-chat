@@ -339,6 +339,7 @@ async function main() {
     }
   } catch(err) {
     console.error('Test error:', err);
+    record('I0', 'Harness completes the image-send flow', 'FAIL', String(err));
   } finally {
     console.log('\n=== Console logs ===');
     logs.slice(-40).forEach((l) => console.log('  ' + l));

@@ -1,5 +1,5 @@
 import {describe, it, expect, afterEach} from 'vitest';
-import {downloadAndVerify} from '@lib/update/update-flow';
+import {downloadAndVerify, startUpdateSigned} from '@lib/update/update-flow';
 import {setUpdateTransport, resetUpdateTransport} from '@lib/update/update-transport';
 import {UpdateFlowError} from '@lib/update/types';
 
@@ -44,5 +44,35 @@ describe('downloadAndVerify', () => {
     };
 
     await expect(downloadAndVerify(manifest as any)).rejects.toThrow(UpdateFlowError);
+  });
+});
+
+describe('signed update multi-tab coordination', () => {
+  it('does not start a second update while another tab holds the update lock', async() => {
+    const previousNavigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: {
+        serviceWorker: {getRegistration: async() => { throw new Error('must not register'); }},
+        locks: {request: async(_name: string, _options: unknown, callback: (lock: null) => Promise<unknown>) => callback(null)}
+      }
+    });
+    try {
+      const manifest = {
+        schemaVersion: 2,
+        version: '1.2.3',
+        gitSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        published: new Date().toISOString(),
+        swUrl: './sw.js',
+        bundleHashes: {'./sw.js': `sha256-${'0'.repeat(64)}`}
+      };
+      await expect(startUpdateSigned(manifest, 'signature')).resolves.toMatchObject({
+        ok: false,
+        outcome: 'update-in-progress'
+      });
+    } finally {
+      if(previousNavigatorDescriptor) Object.defineProperty(globalThis, 'navigator', previousNavigatorDescriptor);
+      else delete (globalThis as any).navigator;
+    }
   });
 });

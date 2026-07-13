@@ -152,11 +152,11 @@ export class NostraBridge {
 
     if(mode === 'off') {
       // No Tor path at all — go direct immediately.
-      pool.initialize().catch(() => {});
+      pool.initialize().catch(swallowHandler('NostraBridge.pool.initialize.direct'));
     } else if(mode === 'when-available') {
       // Direct-first path with background Tor upgrade. No banner.
       transport.bootstrap();
-      pool.initialize().catch(() => {});
+      pool.initialize().catch(swallowHandler('NostraBridge.pool.initialize.directFirst'));
     } else {
       // mode === 'only' — mount the startup banner, wait for Tor before opening the pool.
       if(typeof window !== 'undefined') {
@@ -174,7 +174,9 @@ export class NostraBridge {
         };
         rootScope.addEventListener('nostra_tor_state', handler);
       });
-      onceActive.then(() => pool.initialize()).catch(() => {});
+      onceActive
+      .then(() => pool.initialize())
+      .catch(swallowHandler('NostraBridge.pool.initialize.torOnly'));
     }
 
     // Initialize mini-relay worker

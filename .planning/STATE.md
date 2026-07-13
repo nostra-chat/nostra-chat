@@ -1,150 +1,97 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.0
-milestone_name: milestone
-status: verifying
-stopped_at: Phase 6 context gathered
-last_updated: "2026-04-03T20:05:10.851Z"
-last_activity: 2026-04-03
-progress:
-  total_phases: 7
-  completed_phases: 6
-  total_plans: 26
-  completed_plans: 26
-  percent: 93
+milestone_name: baseline-v1
+status: verified
+current_workstream: maintenance
+last_updated: "2026-07-12"
+released_version: 0.25.3
 ---
 
-# Project State
+# Project state
 
-## Project Reference
+**As of:** 2026-07-12
+**Update rule:** revise this file whenever the active workstream, verified
+baseline, release version, or requirement state changes.
 
-See: .planning/PROJECT.md (updated 2026-03-31)
+## Project reference
 
-**Core value:** Private, censorship-resistant messaging that feels as good as Telegram
-**Current focus:** Phase 4 — 1:1 Messaging E2E
+See `.planning/PROJECT.md` for the product definition and durable decisions.
 
-## Current Position
+**Core value:** private, censorship-resistant messaging that feels as good as
+Telegram.
 
-Phase: 07 of 6 (disable telegram mtproto remove server dependency)
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-04-03
+## Current position
 
-Progress: [█████████░] 93%
+The repository has shipped through version 0.25.3. Identity, encrypted 1:1
+messaging, multi-relay transport, Telegram MTProto isolation, groups,
+controlled updates, push notifications, fuzzing, and the agentic explorer all
+have substantial production implementations and automated coverage.
 
-## Performance Metrics
+The v1 baseline and hardening workstream completed its ordered local gates on
+2026-07-12:
 
-**Velocity:**
+1. shared agent instructions;
+2. documentation alignment;
+3. reproducible local and pull-request baseline;
+4. messaging, storage, and relay hardening;
+5. controlled PWA update hardening;
+6. critical-flow E2E consolidation;
+7. Broadcast Channels;
+8. measured incremental refactoring and performance work.
 
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: 0 hours
+`AGENTS.md` is the operational entry point for this workstream. A subsystem is
+not considered reverified merely because it shipped previously; current test
+or runtime evidence is required by the corresponding gate.
 
-**By Phase:**
+## Capability status
 
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| - | - | - | - |
+| Area | Implementation evidence | Current verification state |
+|---|---|---|
+| Build and multi-mirror distribution | release workflow and releases through 0.25.3 | local baseline PASS; PR workflow added |
+| Identity and encrypted key storage | identity modules and Nostra tests | local baseline PASS; broader manual security review remains periodic |
+| Multi-relay and Tor transport | relay/Tor modules and regression tests | resource/input hardening and baseline PASS |
+| 1:1 NIP-17 messaging and media | production modules, unit tests, curated bilateral E2E | critical flows PASS; broader legacy E2E remains separate |
+| Telegram MTProto isolation | guarded dispatch and VMT invariant tests | quick/full baseline PASS |
+| Private groups | production fixes and bilateral create/send/receive E2E | extended management UI E2E remains separate |
+| Controlled PWA updates | signed updater, threat model, recovery docs, 92 tests, production hash validation | controller-change browser matrix remains long E2E |
+| Background push | client/SW implementation and dedicated tests | live service E2E remains separate |
+| Fuzzer and explorer | committed harnesses, reports, and test suites | all 15 Explorer unit files PASS; driver/fuzz remain separate long gates |
+| Broadcast Channels | owner-only NIP-28 API/store, bounded relay sync, virtual chat rendering and browser E2E | CHN-01–04 verified; richer info/share UI deferred |
 
-**Recent Trend:**
+## Sources of truth
 
-- Last 5 plans: -
-- Trend: -
+- Requirements and traceability: `.planning/REQUIREMENTS.md`
+- Future sequence and completion criteria: `.planning/ROADMAP.md`
+- Durable subsystem invariants: `docs/SUBSYSTEM-RULES.md`
+- Architecture and harness behavior: `docs/ARCHITECTURE.md`
+- User-visible capability audit: `docs/FEATURE_MATRIX.md`
+- Reproducible verification evidence: verification documents and current
+  command output, not unchecked historical plan boxes
+- Release behavior: `docs/RELEASE.md` and `.github/workflows/`
 
-*Updated after each plan completion*
-| Phase 01-build-pipeline-distribution P01 | 15 | 2 tasks | 9 files |
-| Phase 01-build-pipeline-distribution P03 | 10 | 3 tasks | 2 files |
-| Phase 01-build-pipeline-distribution P02 | 11 | 2 tasks | 11 files |
-| Phase 01-build-pipeline-distribution P04 | 4 | 1 tasks | 1 files |
-| Phase 01-build-pipeline-distribution P05 | 0 | 2 tasks | 1 files |
-| Phase 02 P01 | 7 | 2 tasks | 10 files |
-| Phase 02 P03 | 5 | 2 tasks | 7 files |
-| Phase 02 P04 | 9 | 2 tasks | 9 files |
-| Phase 02 P02 | 13 | 2 tasks | 7 files |
-| Phase 03 P02 | 6 | 2 tasks | 7 files |
-| Phase 03 P01 | 16 | 2 tasks | 11 files |
-| Phase 03 P03 | 45 | 3 tasks | 12 files |
-| Phase 04 P01 | 13 | 2 tasks | 10 files |
-| Phase 04 P02 | 3 | 2 tasks | 3 files |
-| Phase 04 P03 | 7 | 2 tasks | 6 files |
-| Phase 04 P06 | 3 | 1 tasks | 5 files |
-| Phase 07 P01 | 7 | 2 tasks | 5 files |
-| Phase 07 P02 | 3 | 2 tasks | 2 files |
-| Phase 07 P03 | 11 | 2 tasks | 2 files |
-| Phase 05-group-messaging P02 | 17 | 2 tasks | 9 files |
-| Phase 05-group-messaging P05 | 7 | 2 tasks | 13 files |
+When these disagree, code, tests, workflow configuration, and runtime evidence
+win; update the stale document in the same workstream.
 
-## Accumulated Context
+## Known risks and deferred verification
 
-### Decisions
+- Pull-request CI is defined but has not yet produced a remote GitHub run in
+  this worktree; deployment remains tag-only.
+- Historical planning checkboxes do not consistently match completed plans.
+- `docs/FEATURE_MATRIX.md` records audited evidence boundaries; broader legacy
+  browser flows remain separate from the passing critical suite.
+- Several manual verification checklists contain unticked historical gates;
+  they are evidence protocols, not proof that the checks passed.
+- The current user modification in `docs/FUZZ-FINDINGS.md` must be preserved
+  and treated as authoritative for the active fuzz findings.
+- Broadcast Channels use public NIP-28 and owner-only publishing for v1;
+  dedicated metadata/share/avatar UX remains deferred.
+- Large inherited UI/manager files remain high-risk and should only be
+  refactored incrementally after characterization tests and measurements.
 
-Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
+## Historical planning
 
-- D031: webtor-rs only (tor-wasm removed)
-- D034: Fallback chain: webtor-rs → WebSocket direct
-- D040: Vendor stubs in src/vendor/ need replacement with real modules
-- **NEW: All v1 messaging via Nostr relay (no WebRTC)** — eliminates TURN, ICE IP leaks, NAT issues. WebRTC deferred to v2 for voice/video.
-- Roadmap: OwnID → npub migration function must ship with Phase 2 to avoid data loss
-- [Phase 01-build-pipeline-distribution]: await-thenable ESLint rule suppressed per-line (eslint-disable-next-line) at setAppSettings/setAppState calls — genuinely return Promises but typed void by SetStoreFunction
-- [Phase 01-build-pipeline-distribution]: build-output.test.ts checks asset src/href attrs only for absolute URLs — meta/canonical tags legitimately use https://nostra.chat
-- [Phase 01-build-pipeline-distribution]: COOP/COEP applied to /* via _headers — required for SharedArrayBuffer in Chrome 92+
-- [Phase 01-build-pipeline-distribution]: GitHub Pages 404 fallback uses sessionStorage path preservation; index.html needs no restore script as PWA boots from root
-- [Phase 01-build-pipeline-distribution]: solid-transition-group kept as vendor file (not npm package) — vite alias must remain pointing to src/vendor/solid-transition-group
-- [Phase 01-build-pipeline-distribution]: Vendor stubs need types matching all call sites — @ts-nocheck does not suppress consumer errors; stubs must expose correct TypeScript types
-- [Phase 01-build-pipeline-distribution]: emojiFromCodePoints expects number[] — callers with string unified format must split on '-' and parseInt hex
-- [Phase 01-build-pipeline-distribution]: Single build artifact shared across deploy jobs — no rebuild per job, guarantees identical asset hashes on all mirrors
-- [Phase 01-build-pipeline-distribution]: wrangler-action@v3 used (not deprecated cloudflare/pages-action) for Cloudflare Pages deploy
-- [Phase 01-build-pipeline-distribution]: IPFS deploy uses ipshipyard/ipfs-deploy-action@v1 with Pinata as pinning backend — satisfies DIST-04 censorship resistance requirement
-- [Phase 01-build-pipeline-distribution]: ENS/HNS decentralized domain deferred to future phase — HTTP gateway link sufficient for Phase 1
-- [Phase 02]: Used nostr-tools/nip06 wrappers instead of direct @scure/bip39 — cleaner API, same underlying library
-- [Phase 02]: IndexedDB version bumped to 2 for nostr-identity and nostr-keys stores alongside existing identity store
-- [Phase 02]: jsQR used for cross-browser QR decoding (BarcodeDetector not in Firefox); AddContact navigates via appImManager.setPeer()
-- [Phase 02]: NIP-05 verification logic extracted to pure module (nip05.ts) to avoid UI dependency chain in tests
-- [Phase 02]: NIP-04 fully removed from nostr-relay.ts; all encryption uses NIP-44 conversation keys
-- [Phase 02]: Lock screen tests verify crypto roundtrips rather than component rendering (jsdom limitations)
-- [Phase 02]: Migration opens Nostra.chat DB without version to avoid v1/v2 conflicts with key-storage
-- [Phase 03]: rootScope tor/relay events added by Plan 02 inline (Plan 01 parallel execution)
-- [Phase 03]: Fallback confirmation popup is strictly modal — no auto-fallback to direct connection
-- [Phase 03]: Direct banner dismiss uses sessionStorage (reappears each session for privacy awareness)
-- [Phase 03]: PrivacyTransport accepts optional WebtorClient via constructor for DI/testing
-- [Phase 03]: Tor failure sets state to 'failed' (never auto-fallback) per PRIV-03
-- [Phase 03]: Pool recovery skips reconnection when in Tor mode without fetchFn (Pitfall 6)
-- [Phase 03]: Onboarding always mounts regardless of identity presence -- handles both new and existing users internally
-- [Phase 03]: NostrRelay.initialize() uses encrypted identity store (loadEncryptedIdentity + decryptKeys + importFromMnemonic) instead of deprecated loadIdentity()
-- [Phase 04]: Used nostr-tools/nip17 wrapManyEvents for self-send + recipient wrapping
-- [Phase 04]: Used nostr-tools/nip59 lower-level API for receipt wrapping (custom rumor tags)
-- [Phase 04]: Pool wraps once and publishes to all relays via publishRawEvent
-- [Phase 04]: Deprecated legacy createRumor/createSeal/createGiftWrap instead of removing
-- [Phase 04]: Removed sendMedia in favor of sendFileMessage for Blossom pipeline
-- [Phase 04]: Web Crypto API only for media encryption — zero npm dependencies for AES-256-GCM
-- [Phase 04]: BlossomClient is transport-agnostic via fetchFn injection — works with Tor or direct
-- [Phase 04]: Forward-only state machine for delivery tracking; reciprocal read receipt privacy (WhatsApp-style)
-- [Phase 04]: Message requests use IndexedDB with pubkey keyPath for O(1) blocked-sender lookup
-- [Phase 04]: Dynamic import pattern for mounting Solid.js components from .ts files; nostra_contact_accepted event for accept-to-dialog bridge
-- [Phase 07]: All invokeApi fall-throughs to stub._original removed; zero code paths reach real MTProto
-- [Phase 07]: Defense-in-depth guards use synchronous throw for immediate prevention
-- [Phase 07]: Relay connectivity uses Map<url, boolean> with any-connected = online heuristic
-- [Phase 07]: Removed all MTProto DC status dependencies from ConnectionStatusComponent
-- [Phase 07]: randomlyChooseVersionFromSearch commented out (not deleted) to preserve D-03
-- [Phase 07]: getPremium() given .catch(noop) for MTPROTO_DISABLED rejection suppression
-- [Phase 07]: Source-code validation tests for boot-path invariants
-- [Phase 05-group-messaging]: Group message routing checks isControlEvent before getGroupIdFromRumor in chat-api.ts
-- [Phase 05-group-messaging]: Display bridge uses peerChat type with negative peer IDs and from_id != peer_id for sender attribution
-- [Phase 05-group-messaging]: SliderSuperTab (DOM-based) pattern for group info sidebar — matches tweb sidebar architecture
-
-### Pending Todos
-
-None yet.
-
-### Blockers/Concerns
-
-- Phase 2: OwnID → npub migration must handle pre-populated IndexedDB; test with existing data
-- Phase 3: Tor progressive loading (webtor-rs) has limited external documentation
-- Phase 4: Media transfer via relay needs sizing strategy (base64 vs blob upload to external host)
-
-## Session Continuity
-
-Last session: 2026-04-03T20:05:10.829Z
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/06-broadcast-channels/06-CONTEXT.md
+Detailed plans, research, summaries, and verification notes under
+`.planning/phases/` and `docs/superpowers/` are historical records. Preserve
+them, but do not use their unchecked boxes as current status. Git history and
+the current files above are authoritative for ongoing work.

@@ -3,6 +3,7 @@ import {UpdateFlowError} from '@lib/update/types';
 import {updateTransport} from '@lib/update/update-transport';
 import {PromisePool} from '@lib/update/promise-pool';
 import {setFlowState} from '@lib/update/update-state-machine';
+import {isSafeManifestPath, validateUpdateManifest} from './manifest-validation';
 
 async function sha256Hex(buf: ArrayBuffer): Promise<string> {
   const h = await crypto.subtle.digest('SHA-256', buf);
@@ -15,6 +16,11 @@ export async function downloadAndVerify(
 ): Promise<Map<string, ArrayBuffer>> {
   const files = new Map<string, ArrayBuffer>();
   const entries = Object.entries(manifest.bundleHashes);
+  for(const [path] of entries) {
+    if(!isSafeManifestPath(path)) {
+      throw new UpdateFlowError({type: 'network-error', err: `unsafe manifest path: ${path}`});
+    }
+  }
   const pool = new PromisePool(6);
   let completed = 0;
 
@@ -135,24 +141,79 @@ export interface SignedUpdateOptions {
   onProgress?: (done: number, total: number) => void;
 }
 
-export async function startUpdateSigned(
+async function promoteApprovedServiceWorker(manifest: Manifest): Promise<void> {
+  localStorage.setItem('nostra.update.pendingFinalization', '1');
+  localStorage.setItem('nostra.update.pendingManifest', JSON.stringify(manifest));
+  try {
+    const swUrl = new URL(manifest.swUrl, location.origin).href;
+    const registration = await navigator.serviceWorker.register(swUrl, {
+      type: 'module',
+      scope: './',
+      updateViaCache: 'none'
+    });
+    const worker = registration.installing || registration.waiting || registration.active;
+    if(!worker) throw new Error('no service worker after approved registration');
+    if(worker.state !== 'installed' && worker.state !== 'activated') {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('approved service worker install timed out')), 60_000);
+        const check = () => {
+          if(worker.state === 'installed' || worker.state === 'activated') {
+            clearTimeout(timer);
+            resolve();
+          } else if(worker.state === 'redundant') {
+            clearTimeout(timer);
+            reject(new Error('approved service worker became redundant'));
+          }
+        };
+        worker.addEventListener('statechange', check);
+        check();
+      });
+    }
+    const waiting = registration.waiting;
+    if(waiting) waiting.postMessage({type: 'SKIP_WAITING'});
+  } catch(err) {
+    localStorage.removeItem('nostra.update.pendingFinalization');
+    localStorage.removeItem('nostra.update.pendingManifest');
+    throw err;
+  }
+}
+
+async function startUpdateSignedUnlocked(
   manifest: any,
   signature: string,
   manifestText?: string,
   opts: SignedUpdateOptions = {}
 ): Promise<SignedUpdateResult> {
+  const validation = validateUpdateManifest(manifest);
+  if(!validation.ok || manifest.schemaVersion !== 2) {
+    return {ok: false, outcome: 'invalid-manifest', reason: validation.reason || 'signed updates require schemaVersion 2'};
+  }
   const reg = await navigator.serviceWorker.getRegistration();
   if(!reg || !reg.active) return {ok: false, outcome: 'no-active-sw', reason: 'no-active-sw'};
 
   return new Promise((resolve) => {
     const channel = new MessageChannel();
-    channel.port1.onmessage = (ev) => {
+    const timer = setTimeout(() => {
+      channel.port1.close();
+      resolve({ok: false, outcome: 'update-timeout', reason: 'service worker did not finish within 120 seconds'});
+    }, 120_000);
+    channel.port1.onmessage = async(ev) => {
       if(ev.data?.type === 'UPDATE_PROGRESS') {
         opts.onProgress?.(ev.data.done, ev.data.total);
         return;
       }
       if(ev.data?.type === 'UPDATE_RESULT') {
+        clearTimeout(timer);
+        channel.port1.close();
         const d = ev.data;
+        if(d.outcome === 'applied') {
+          try {
+            await promoteApprovedServiceWorker(manifest);
+          } catch(err) {
+            resolve({ok: false, outcome: 'register-failed', reason: String(err)});
+            return;
+          }
+        }
         resolve({
           ok: d.outcome === 'applied',
           outcome: d.outcome,
@@ -164,5 +225,21 @@ export async function startUpdateSigned(
       }
     };
     reg.active!.postMessage({type: 'UPDATE_APPROVED', manifest, signature, manifestText}, [channel.port2]);
+  });
+}
+
+export async function startUpdateSigned(
+  manifest: any,
+  signature: string,
+  manifestText?: string,
+  opts: SignedUpdateOptions = {}
+): Promise<SignedUpdateResult> {
+  const lockManager = (navigator as Navigator & {locks?: {
+    request<T>(name: string, options: {ifAvailable: boolean; mode: 'exclusive'}, callback: (lock: unknown | null) => Promise<T>): Promise<T>;
+  }}).locks;
+  if(!lockManager) return startUpdateSignedUnlocked(manifest, signature, manifestText, opts);
+  return lockManager.request('nostra-pwa-update', {ifAvailable: true, mode: 'exclusive'}, async(lock) => {
+    if(!lock) return {ok: false, outcome: 'update-in-progress', reason: 'another tab is applying this update'};
+    return startUpdateSignedUnlocked(manifest, signature, manifestText, opts);
   });
 }

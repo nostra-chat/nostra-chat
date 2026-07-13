@@ -1,5 +1,6 @@
 import type {Manifest, IntegrityResult, IntegrityVerdict} from '@lib/update/types';
 import {updateTransport} from '@lib/update/update-transport';
+import {validateUpdateManifest} from './manifest-validation';
 
 interface ManifestSource {
   name: string;
@@ -19,8 +20,6 @@ function getSources(): ManifestSource[] {
   }
   return MANIFEST_SOURCES;
 }
-
-const SUPPORTED_SCHEMAS: ReadonlyArray<number> = [1, 2];
 
 // `fetchOne` returns a tagged result instead of throwing so the caller can
 // tell network failures apart from validation failures. Before this split,
@@ -48,12 +47,8 @@ async function fetchOne(source: ManifestSource): Promise<FetchOneResult> {
   } catch(err) {
     return {kind: 'validation', error: `invalid JSON: ${err instanceof Error ? err.message : String(err)}`};
   }
-  if(!SUPPORTED_SCHEMAS.includes(m.schemaVersion)) {
-    return {kind: 'validation', error: `unsupported schemaVersion ${m.schemaVersion}`};
-  }
-  if(!m.version || !m.swUrl || !m.bundleHashes || !m.bundleHashes[m.swUrl]) {
-    return {kind: 'validation', error: 'malformed manifest'};
-  }
+  const validation = validateUpdateManifest(m);
+  if(!validation.ok) return {kind: 'validation', error: validation.reason || 'malformed manifest'};
   return {kind: 'ok', manifest: m};
 }
 

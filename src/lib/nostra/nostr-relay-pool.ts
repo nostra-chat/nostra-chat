@@ -466,6 +466,19 @@ export class NostrRelayPool {
     return results;
   }
 
+  /** Fan out a live raw subscription to all enabled read relays. */
+  subscribeRawEvents(filter: Record<string, unknown>, callback: (event: NostrEvent) => void): () => void {
+    const seen = new Set<string>();
+    const unsubscribers = this.relayEntries
+    .filter(entry => entry.config.read && this.enabled.get(entry.config.url) !== false)
+    .map(entry => entry.instance.subscribeRawEvents(filter, (event) => {
+      if(!event.id || seen.has(event.id)) return;
+      seen.add(event.id);
+      callback(event);
+    }));
+    return () => unsubscribers.forEach(unsubscribe => unsubscribe());
+  }
+
   subscribeMessages(): void {
     this.isSubscribedFlag = true;
     for(const entry of this.relayEntries) {

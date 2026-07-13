@@ -216,14 +216,16 @@ async function test_1_2() {
     await page.waitForTimeout(1000);
 
     const npubPrefix = npubB.slice(0, 10);
-    const hasFallback = await page.evaluate((prefix: string) => {
+    const hasFallback = await page.evaluate(({prefix, profileName}: {prefix: string; profileName: string}) => {
       const els = document.querySelectorAll('.dialog-title, .peer-title, a');
       for(const el of els) {
         const t = el.textContent || '';
-        if(t.includes(prefix) || t.includes('npub1')) return true;
+        // With a reachable kind-0 profile, the remote display name is the
+        // preferred no-nickname label. npub is only the offline fallback.
+        if(t.includes(profileName) || t.includes(prefix) || t.includes('npub1')) return true;
       }
       return false;
-    }, npubPrefix);
+    }, {prefix: npubPrefix, profileName: 'UserB_1_2'});
 
     const hasP2PLabel = await page.evaluate(() => {
       const els = document.querySelectorAll('.dialog-title, .peer-title, a');
@@ -234,7 +236,7 @@ async function test_1_2() {
     });
 
     const passed = hasFallback && !hasP2PLabel;
-    record('1.2', 'Add contact without nickname -> shows npub-style string (not "P2P")',
+    record('1.2', 'Add contact without nickname -> shows profile/npub fallback (not "P2P")',
       passed,
       hasFallback ? 'npub shown' : hasP2PLabel ? 'got P2P label instead' : 'neither found');
     if(!passed) {

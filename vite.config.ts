@@ -162,8 +162,9 @@ export default defineConfig({
     testTransformMode: {web: ['.[jt]sx?$']},
     // otherwise, solid would be loaded twice:
     // deps: {registerNodeLoader: true},
-    // if you have few tests, try commenting one
-    // or both out to improve performance:
+    // Keep one process and one module graph for deterministic IndexedDB
+    // singleton behavior. Tests that replace shared bridge/store modules must
+    // use the dependency instance owned by the subject under test.
     threads: false,
     isolate: false,
     globals: true,

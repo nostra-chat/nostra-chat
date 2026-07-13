@@ -15,6 +15,7 @@ import {buildNostraMedia} from './nostra-media-shape';
 import {getPubkey, getMapping} from './virtual-peers-db';
 import {swallowHandler} from './log-swallow';
 import {isGroupPeer} from './group-types';
+import {channelIdToPeerId, isChannelPeer} from './channel-types';
 // Lazy imports for group-store / group-api so test files that never hit the
 // group branch don't drag nostra-groups-sync into their module graph. Each
 // test file mocks `@config/debug`'s MOUNT_CLASS_TO with its own proxy; a
@@ -1218,6 +1219,9 @@ export class NostraMTProtoServer {
     if(isGroupPeer(peerId)) {
       return this.sendGroupMessage(peerId, params);
     }
+    if(isChannelPeer(peerId)) {
+      return this.sendChannelMessage(peerId, params);
+    }
 
     const peerPubkey = await getPubkey(Math.abs(peerId));
     if(!peerPubkey) return emptyUpdates;
@@ -1300,6 +1304,30 @@ export class NostraMTProtoServer {
       };
     } catch(err) {
       console.warn(LOG_PREFIX, 'sendMessage: failed', err);
+      return emptyUpdates;
+    }
+  }
+
+  private async sendChannelMessage(peerId: number, params: any): Promise<any> {
+    const emptyUpdates: any = {_: 'updates', updates: [], users: [], chats: [], date: Math.floor(Date.now() / 1000), seq: 0};
+    try {
+      const {getChannelStore} = await import('./channel-store');
+      const channels = await getChannelStore().getChannels();
+      let channelId: string | undefined;
+      for(const channel of channels) {
+        if(await channelIdToPeerId(channel.channelId) === peerId) {
+          channelId = channel.channelId;
+          break;
+        }
+      }
+      if(!channelId) throw new Error('Channel peer is not subscribed');
+      const {getChannelAPI} = await import('./channel-api');
+      const eventId = await getChannelAPI().publishPost(channelId, String(params?.message ?? ''));
+      const {NostraBridge} = await import('./nostra-bridge');
+      emptyUpdates.nostraMid = await NostraBridge.getInstance().mapEventIdToMid(eventId, emptyUpdates.date);
+      return emptyUpdates;
+    } catch(err) {
+      console.warn(LOG_PREFIX, 'sendChannelMessage failed:', err);
       return emptyUpdates;
     }
   }

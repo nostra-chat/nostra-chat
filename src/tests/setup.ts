@@ -6,6 +6,20 @@ const globalScope: any = typeof globalThis !== 'undefined' ? globalThis :
                          typeof global !== 'undefined' ? global :
                          typeof self !== 'undefined' ? self : {};
 
+// tweb installs these numeric ID helpers during application boot. Tests that
+// exercise managers directly need the same minimal runtime contract.
+if(!(Number.prototype as any).toPeerId) {
+  (Number.prototype as any).toPeerId = function(isChat?: boolean) {
+    return isChat ? -Math.abs(Number(this)) : Math.abs(Number(this));
+  };
+}
+
+if(!(Number.prototype as any).toChatId) {
+  (Number.prototype as any).toChatId = function() {
+    return Math.abs(Number(this));
+  };
+}
+
 if(!globalScope.crypto) {
   Object.defineProperty(globalScope, 'crypto', {
     value: {

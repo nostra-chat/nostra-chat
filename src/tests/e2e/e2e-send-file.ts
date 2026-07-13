@@ -234,6 +234,7 @@ async function main() {
     }
   } catch(err) {
     console.error('Test error:', err);
+    record('F0', 'Harness completes the file-send flow', 'FAIL', String(err));
   } finally {
     await relay.stop();
     await blossom.stop();

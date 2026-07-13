@@ -9,6 +9,7 @@
 
 import '../setup';
 import {fetchNostrProfile, profileToDisplayName, NostrProfile} from '@lib/nostra/nostr-profile';
+import {finalizeEvent, getPublicKey} from 'nostr-tools';
 
 // --- MockWebSocket ---
 
@@ -76,7 +77,17 @@ afterEach(() => {
 // --- Kind 0 fetch unit tests ---
 
 describe('kind 0 profile fetch', () => {
-  const testPubkey = 'ab'.repeat(32);
+  const testSecretKey = new Uint8Array(32).fill(9);
+  const testPubkey = getPublicKey(testSecretKey);
+
+  function profileEvent(profile: NostrProfile) {
+    return finalizeEvent({
+      kind: 0,
+      content: JSON.stringify(profile),
+      tags: [],
+      created_at: Math.floor(Date.now() / 1000)
+    }, testSecretKey);
+  }
 
   test('fetchNostrProfile returns profile with display_name from relay', async() => {
     const promise = fetchNostrProfile(testPubkey, ['wss://relay.test']);
@@ -92,10 +103,7 @@ describe('kind 0 profile fetch', () => {
     ws.simulateMessage([
       'EVENT',
       subId,
-      {
-        kind: 0,
-        content: JSON.stringify({display_name: 'TestName'})
-      }
+      profileEvent({display_name: 'TestName'})
     ]);
 
     const result = await promise;
@@ -126,10 +134,7 @@ describe('kind 0 profile fetch', () => {
     ws.simulateMessage([
       'EVENT',
       subId,
-      {
-        kind: 0,
-        content: JSON.stringify(profileData)
-      }
+      profileEvent(profileData)
     ]);
 
     const profile = await promise;
@@ -186,10 +191,7 @@ describe('kind 0 profile fetch', () => {
     ws.simulateMessage([
       'EVENT',
       subId,
-      {
-        kind: 0,
-        content: JSON.stringify({name: 'bob_nostr'})
-      }
+      profileEvent({name: 'bob_nostr'})
     ]);
 
     const profile = await promise;
@@ -216,7 +218,7 @@ describe('kind 0 profile fetch', () => {
     ws.simulateMessage([
       'EVENT',
       req[1],
-      {kind: 0, content: JSON.stringify(fullProfile)}
+      profileEvent(fullProfile)
     ]);
 
     const profile = await promise;
@@ -237,7 +239,7 @@ describe('kind 0 profile fetch', () => {
     ws.simulateMessage([
       'EVENT',
       subId,
-      {kind: 0, content: JSON.stringify({display_name: 'Test'})}
+      profileEvent({display_name: 'Test'})
     ]);
 
     await promise;

@@ -189,6 +189,26 @@ export async function mountNostraOnboarding(container: HTMLElement): Promise<Onb
         console.warn('[NostraOnboardingIntegration] GroupAPI init failed:', err);
       }
 
+      // --- Initialize public NIP-28 ChannelAPI ---
+      try {
+        const {initChannelAPI} = await import('@lib/nostra/channel-api');
+        const privKeyBytes = new Uint8Array(identity.privateKey.match(/.{2}/g)!.map(b => parseInt(b, 16)));
+        const pool = bridge.getRelayPool();
+        if(pool) {
+          const channelAPI = initChannelAPI(identity.publicKey, privKeyBytes, pool);
+          const {getChannelStore} = await import('@lib/nostra/channel-store');
+          const {refreshChannelDialog} = await import('@lib/nostra/nostra-channels-sync');
+          for(const channel of await getChannelStore().getChannels()) {
+            if(!channel.subscribed) continue;
+            channelAPI.watch(channel.channelId);
+            await refreshChannelDialog(channel.channelId, identity.publicKey);
+          }
+        }
+        console.log('[NostraOnboardingIntegration] ChannelAPI initialized');
+      } catch(err) {
+        console.warn('[NostraOnboardingIntegration] ChannelAPI init failed:', err);
+      }
+
       // --- Initialize NostraSync ---
       const sync = new NostraSync(identity.publicKey, (event: string, data: any) => {
         rootScope.dispatchEvent(event as any, data);

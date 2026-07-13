@@ -276,6 +276,7 @@ describe('migration', () => {
       const reEncrypted = messages.find((m: any) => m.id === 'oq-1');
       expect(reEncrypted).toBeDefined();
       expect(reEncrypted!.payload).not.toBe('Hello from old identity');
+      expect(reEncrypted!.payloadEncrypted).toBe(true);
 
       // Verify re-encrypted message is decodeable with new NIP-06 keys
       const newIdentity = importFromMnemonic(VALID_MNEMONIC);

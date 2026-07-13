@@ -1,5 +1,9 @@
 # Phase 2b.1 — 2-Device Manual Verification
 
+> Historical verification protocol from April 2026. Unchecked boxes are not a
+> pass record. Use it for regression context; current v1 evidence is recorded
+> by the active baseline/E2E workstream in `.planning/STATE.md`.
+
 Complete all steps on 2 real devices (Device A, Device B) with distinct identities, connected to the same set of relays (default config or a shared test relay). Run in production build (`pnpm build && pnpm serve` or deployed ipfs.nostra.chat), NOT dev mode — dev-only Vite gotchas can mask real bugs.
 
 ## Setup

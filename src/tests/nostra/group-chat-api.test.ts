@@ -126,10 +126,10 @@ beforeAll(async() => {
   GroupDeliveryTracker = trackerMod.GroupDeliveryTracker;
 });
 
-const OWN_PUBKEY = 'ownpub00000000000000000000000000000000000000000000000000000000ab';
+const OWN_PUBKEY = 'a'.repeat(64);
 const OWN_SK = new Uint8Array(32).fill(1);
-const MEMBER_A = 'membera0000000000000000000000000000000000000000000000000000001';
-const MEMBER_B = 'memberb0000000000000000000000000000000000000000000000000000002';
+const MEMBER_A = 'b'.repeat(64);
+const MEMBER_B = 'c'.repeat(64);
 
 describe('GroupAPI', () => {
   let api: any;

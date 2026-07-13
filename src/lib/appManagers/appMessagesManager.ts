@@ -69,6 +69,7 @@ import {joinDeepPath} from '@helpers/object/setDeepProperty';
 // import {isVirtualPeer, sendTextViaChatAPI, sendMediaViaChatAPI} from '../nostra/nostra-send-bridge';
 import {isP2PPeer} from '@lib/nostra/nostra-bridge';
 import {isGroupPeer} from '@lib/nostra/group-types';
+import {isChannelPeer} from '@lib/nostra/channel-types';
 import insertInDescendSortedArray from '@helpers/array/insertInDescendSortedArray';
 import {LOCAL_ENTITIES} from '@lib/richTextProcessor';
 import {isDialog, isSavedDialog, isForumTopic, isMonoforumDialog} from '@appManagers/utils/dialogs/isDialog';
@@ -1439,7 +1440,7 @@ export class AppMessagesManager extends AppManager {
         // returns empty updates. Finalize the message: clear pending flags,
         // persist to storage, and dispatch message_sent so the bubble
         // transitions from ⏳ to ✓.
-        if(updates?._ === 'updates' && (updates as any).updates?.length === 0 && (Number(peerId) >= 1e15 || isGroupPeer(Number(peerId)))) {
+        if(updates?._ === 'updates' && (updates as any).updates?.length === 0 && (Number(peerId) >= 1e15 || isGroupPeer(Number(peerId)) || isChannelPeer(Number(peerId)))) {
           const tempId = message.id;
           const tempMessage = copy(message);
           const storage = this.getHistoryMessagesStorage(peerId);
@@ -2798,7 +2799,7 @@ export class AppMessagesManager extends AppManager {
       // peers so VMT.sendMessage / sendGroupMessage can resolve the parent
       // (FIND-16af771a). For regular MTProto peers, keep the legacy mangle.
       const numericPeer = Number(options.peerId);
-      const isNostraPeer = numericPeer >= 1e15 || isGroupPeer(numericPeer);
+      const isNostraPeer = numericPeer >= 1e15 || isGroupPeer(numericPeer) || isChannelPeer(numericPeer);
       return {
         _: 'inputReplyToMessage',
         monoforum_peer_id: this.appPeersManager.canManageDirectMessages(options.peerId) && options.replyToMonoforumPeerId ?
@@ -2912,7 +2913,7 @@ export class AppMessagesManager extends AppManager {
       // timestamp-based mid. Skipping the Worker-side history_append
       // avoids a double-render (one from temp mid + one from real mid)
       // and keeps the bubble flow predictable.
-      const isP2POrGroupPeer = Number(peerId) >= 1e15 || isGroupPeer(Number(peerId));
+      const isP2POrGroupPeer = Number(peerId) >= 1e15 || isGroupPeer(Number(peerId)) || isChannelPeer(Number(peerId));
       if(!isP2POrGroupPeer) {
         callbacks.push(() => {
           this.rootScope.dispatchEvent('history_append', {storageKey: storage.key, message});

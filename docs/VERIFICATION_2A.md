@@ -1,5 +1,9 @@
 # Phase 2a — Manual Verification Checklist
 
+> Historical verification protocol from April 2026. Unchecked boxes are not a
+> pass record. Use it for regression context; current v1 evidence is recorded
+> by the active baseline/E2E workstream in `.planning/STATE.md`.
+
 **Gate: 2-device manual sanity check before merge. Run on two real devices
 (desktop + mobile, or two desktops) with distinct Nostra identities.**
 

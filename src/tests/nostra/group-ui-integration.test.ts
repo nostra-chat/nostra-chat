@@ -81,14 +81,13 @@ vi.mock('@lib/logger', () => ({
 // ─── Imports ────────────────────────────────────────────────────
 
 import {GroupAPI} from '@lib/nostra/group-api';
-import {getGroupStore} from '@lib/nostra/group-store';
 import rootScope from '@lib/rootScope';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
-const ownPubkey = 'aaaa0000000000000000000000000000000000000000000000000000000000aa';
+const ownPubkey = 'a'.repeat(64);
 const ownSk = new Uint8Array(32);
-const bobPubkey = 'bbbb1111111111111111111111111111111111111111111111111111111111bb';
+const bobPubkey = 'b'.repeat(64);
 const publishFn = vi.fn().mockResolvedValue(undefined);
 
 function makeGroup(overrides: Partial<GroupRecord> = {}): GroupRecord {
@@ -111,7 +110,7 @@ describe('Group UI Integration', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    const store = getGroupStore() as any;
+    const store = (api as any)?.store ?? (new GroupAPI(ownPubkey, ownSk, publishFn) as any).store;
     store._groups.clear();
     api = new GroupAPI(ownPubkey, ownSk, publishFn);
   });
@@ -132,7 +131,7 @@ describe('Group UI Integration', () => {
 
   describe('Bug 2: Leave group removes dialog from chat list', () => {
     it('leaveGroup deletes group from store', async() => {
-      const store = getGroupStore() as any;
+      const store = (api as any).store;
       const group = makeGroup();
       await store.save(group);
 
@@ -166,7 +165,7 @@ describe('Group UI Integration', () => {
     });
 
     it('full leave flow: leaveGroup + removeGroupDialog', async() => {
-      const store = getGroupStore() as any;
+      const store = (api as any).store;
       const group = makeGroup();
       await store.save(group);
 
@@ -209,12 +208,12 @@ describe('Group UI Integration', () => {
       expect(groupId).toBeTruthy();
       expect(publishFn).toHaveBeenCalled();
 
-      const store = getGroupStore() as any;
+      const store = (api as any).store;
       expect(store.save).toHaveBeenCalled();
     });
 
     it('removeMember updates members and broadcasts', async() => {
-      const store = getGroupStore() as any;
+      const store = (api as any).store;
       const group = makeGroup();
       await store.save(group);
 

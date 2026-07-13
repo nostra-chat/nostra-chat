@@ -7,8 +7,8 @@ beforeAll(() => {
   ed.hashes.sha512 = sha512;
 });
 
-async function makeSignedManifest(priv: Uint8Array, version = '0.13.0') {
-  const manifest: any = {schemaVersion: 2, version, gitSha: 'aaa', published: '2026-01-01', swUrl: './sw.js', signingKeyFingerprint: 'ed25519:x', securityRelease: false, securityRollback: false, bundleHashes: {}, changelog: '', alternateSources: {}, rotation: null};
+async function makeSignedManifest(priv: Uint8Array, version = '0.13.0', published = new Date().toISOString()) {
+  const manifest: any = {schemaVersion: 2, version, gitSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', published, swUrl: './sw.js', signingKeyFingerprint: 'ed25519:x', securityRelease: false, securityRollback: false, bundleHashes: {'./sw.js': `sha256-${'0'.repeat(64)}`}, changelog: '', alternateSources: {}, rotation: null};
   const bytes = new TextEncoder().encode(JSON.stringify(manifest));
   const sig = await ed.signAsync(bytes, priv);
   return {json: JSON.stringify(manifest), sig: bytesToBase64(sig)};
@@ -67,5 +67,18 @@ describe('probe', () => {
     }) as any;
     const res = await probe(bytesToBase64(pub), '0.13.0');
     expect(res.outcome).toBe('downgrade-rejected');
+  });
+
+  it('rejects a correctly signed manifest replayed after its freshness window', async () => {
+    const {probe} = await import('@lib/update/probe');
+    const priv = ed.utils.randomSecretKey();
+    const pub = await ed.getPublicKeyAsync(priv);
+    const old = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
+    const m = await makeSignedManifest(priv, '9.9.9', old);
+    global.fetch = vi.fn(async(url: string) => new Response(url.endsWith('.sig') ? m.sig : m.json)) as any;
+
+    const res = await probe(bytesToBase64(pub), '0.13.0');
+
+    expect(res.outcome).toBe('stale-manifest');
   });
 });

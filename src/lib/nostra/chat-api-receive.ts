@@ -31,6 +31,7 @@ export interface ReceiveContext {
   activePeer: string | null;
   deliveryTracker: {
     sendDeliveryReceipt(eventId: string, sender: string): Promise<void>;
+    sendReadReceipt?(eventId: string, sender: string): Promise<void>;
   } | null;
   offlineQueue: {acknowledge(id: string): void} | null;
   onMessage: ((msg: ChatMessage) => void) | null;
@@ -478,6 +479,15 @@ export async function handleRelayMessage(
     ctx.deliveryTracker.sendDeliveryReceipt(chatMessage.id, msg.from).catch((err) => {
       ctx.log.warn('[ChatAPI] delivery receipt failed:', err);
     });
+    // Messages arriving while their conversation is already visible are read
+    // immediately. The chat-open batch sender cannot see future arrivals, so
+    // without this branch the sender remains stuck at "delivered" until the
+    // recipient closes and reopens the chat.
+    if(ctx.activePeer === msg.from && ctx.deliveryTracker.sendReadReceipt) {
+      ctx.deliveryTracker.sendReadReceipt(chatMessage.id, msg.from).catch((err) => {
+        ctx.log.warn('[ChatAPI] read receipt failed:', err);
+      });
+    }
   }
 
   // 10. Notify callback

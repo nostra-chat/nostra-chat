@@ -98,11 +98,11 @@ beforeAll(async() => {
   controlModule = await import('@lib/nostra/group-control-messages');
 });
 
-const OWN_PUBKEY = 'ownpub00000000000000000000000000000000000000000000000000000000ab';
+const OWN_PUBKEY = 'a'.repeat(64);
 const OWN_SK = new Uint8Array(32).fill(1);
-const MEMBER_A = 'membera0000000000000000000000000000000000000000000000000000001';
-const MEMBER_B = 'memberb0000000000000000000000000000000000000000000000000000002';
-const NEW_MEMBER = 'newmem00000000000000000000000000000000000000000000000000000003';
+const MEMBER_A = 'b'.repeat(64);
+const MEMBER_B = 'c'.repeat(64);
+const NEW_MEMBER = 'd'.repeat(64);
 const GROUP_ID = 'abc123def456abc123def456abc123de00';
 
 function makeGroup(overrides: Partial<GroupRecord> = {}): GroupRecord {

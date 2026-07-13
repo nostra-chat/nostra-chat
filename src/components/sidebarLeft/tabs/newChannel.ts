@@ -11,13 +11,10 @@ import {SliderSuperTab} from '@components/slider';
 import AvatarEdit from '@components/avatarEdit';
 import {_i18n} from '@lib/langPack';
 import ButtonCorner from '@components/buttonCorner';
-import appImManager from '@lib/appImManager';
 import {attachClickEvent} from '@helpers/dom/clickEvent';
 import SettingSection from '@components/settingSection';
-import addChatUsers from '@components/addChatUsers';
-import {handleChannelsTooMuch} from '@components/popups/channelsTooMuch';
-import type {AppChatsManager} from '@lib/appManagers/appChatsManager';
 import toggleDisability from '@helpers/dom/toggleDisability';
+import {channelIdToPeerId} from '@lib/nostra/channel-types';
 
 export default class AppNewChannelTab extends SliderSuperTab {
   public static noSame = true;
@@ -70,36 +67,25 @@ export default class AppNewChannelTab extends SliderSuperTab {
 
     this.nextBtn = ButtonCorner({icon: 'arrow_next'});
 
-    attachClickEvent(this.nextBtn, () => {
+    attachClickEvent(this.nextBtn, async() => {
       const title = this.channelNameInputField.value;
       const about = this.channelDescriptionInputField.value;
 
       const toggle = toggleDisability(this.nextBtn, true);
-      const options: Parameters<AppChatsManager['createChannel']>[0] = {
-        title,
-        about,
-        broadcast: true
-      };
-      handleChannelsTooMuch(() => this.managers.appChatsManager.createChannel(options))
-      .then((channelId) => {
-        if(this.uploadAvatar) {
-          this.uploadAvatar().then((inputFile) => {
-            this.managers.appChatsManager.editPhoto(channelId, inputFile);
-          });
-        }
-
-        appImManager.setInnerPeer({peerId: channelId.toPeerId(true)});
-
+      try {
+        const channelAPI = (window as any).__nostraChannelAPI;
+        if(!channelAPI) throw new Error('ChannelAPI is not initialized');
+        const channelId = await channelAPI.createChannel({name: title, about});
+        channelAPI.watch(channelId);
+        const peerId = await channelIdToPeerId(channelId);
+        try { await navigator.clipboard?.writeText(channelId); } catch{}
         appSidebarLeft.removeTabFromHistory(this);
-        addChatUsers({
-          peerId: channelId.toPeerId(true),
-          slider: this.slider,
-          skippable: true
-        });
-      }, (err) => {
+        const appImManager = (await import('@lib/appImManager')).default;
+        appImManager.setInnerPeer({peerId: (peerId as any).toPeerId ? (peerId as any).toPeerId(true) : peerId});
+      } catch(err) {
         console.error('createChannel error', err);
         toggle();
-      });
+      }
     }, {listenerSetter: this.listenerSetter});
 
     this.content.append(this.nextBtn);

@@ -955,16 +955,14 @@ export class GroupAPI {
     try {
       const group = await this.store.get(payload.groupId);
       if(group) {
-        const {ensureGroupChatInjected: ensureMirror} = await import('./nostra-groups-sync');
-        await ensureMirror(payload.groupId, group.peerId);
+        await ensureGroupChatInjected(payload.groupId, group.peerId);
         // Also fire a peer_title_edit hint so subscribers re-render — this
         // is what tweb dispatches for 1:1 contact name changes.
         try {
-          const rs: any = (await import('@lib/rootScope')).default;
           const peerIdAsTweb = (group.peerId as any).toPeerId ?
             (group.peerId as any).toPeerId(true) :
             group.peerId;
-          rs.dispatchEvent('peer_title_edit', {peerId: peerIdAsTweb});
+          rootScope.dispatchEvent('peer_title_edit', {peerId: peerIdAsTweb});
         } catch(err) {
           this.log.warn('[GroupAPI] handleInfoUpdate: peer_title_edit dispatch non-critical:', err);
         }

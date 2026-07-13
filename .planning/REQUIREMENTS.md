@@ -1,7 +1,13 @@
 # Requirements: Nostra.chat
 
 **Defined:** 2026-03-31
+**Last reconciled:** 2026-07-12
 **Core Value:** Private, censorship-resistant messaging that feels as good as Telegram
+
+Checkboxes record implementation evidence in the repository; they do not by
+themselves prove that the current baseline/hardening gate passed. Current
+verification state lives in `.planning/STATE.md`, and reproducible evidence
+must come from the relevant automated or runtime check.
 
 ## v1 Requirements
 
@@ -36,10 +42,10 @@ Requirements for public launch. Each maps to roadmap phases.
 
 ### Channels
 
-- [ ] **CHN-01**: User can create a broadcast channel (NIP-28, kind 40)
-- [ ] **CHN-02**: Channel owner can post messages to channel (kind 42)
-- [ ] **CHN-03**: Users can subscribe to and read channels
-- [ ] **CHN-04**: Channel metadata is updatable by owner (kind 41)
+- [x] **CHN-01**: User can create a broadcast channel (NIP-28, kind 40)
+- [x] **CHN-02**: Channel owner can post messages to channel (kind 42)
+- [x] **CHN-03**: Users can subscribe to and read channels
+- [x] **CHN-04**: Channel metadata is updatable by owner (kind 41)
 
 ### Infrastructure
 
@@ -92,16 +98,19 @@ Deferred to future release. Tracked but not in current roadmap.
 
 ### Features
 
-- **FEAT-01**: Message reactions (emoji)
+- **FEAT-01 — shipped ahead of v2**: Message reactions (emoji)
 - **FEAT-02**: Disappearing messages (auto-delete timer)
-- **FEAT-03**: Message editing and deletion
-- **FEAT-04**: File/document sharing (chunked WebRTC data channel)
-- **FEAT-05**: Custom sticker/emoji packs
+- **FEAT-03 — shipped ahead of v2**: Message editing and deletion
+- **FEAT-04 — partially superseded**: File/document sharing ships through the
+  encrypted Blossom pipeline; WebRTC chunking remains deferred
+- **FEAT-05 — partially shipped**: Nostra emoji pack is available; arbitrary
+  custom pack management remains deferred
 - **FEAT-06**: Message search
 
 ### Platform
 
-- **PLAT-01**: Push notifications via service worker
+- **PLAT-01 — shipped ahead of v2**: Push notifications via service worker and
+  the separately deployed `nostr-webpush-relay`
 - **PLAT-02**: Self-hosted Nostr relay option
 - **PLAT-03**: Native mobile app (Capacitor/Tauri)
 
@@ -140,10 +149,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | GRP-02 | Phase 5 | Complete |
 | GRP-03 | Phase 5 | Complete |
 | GRP-04 | Phase 5 | Complete |
-| CHN-01 | Phase 6 | Pending |
-| CHN-02 | Phase 6 | Pending |
-| CHN-03 | Phase 6 | Pending |
-| CHN-04 | Phase 6 | Pending |
+| CHN-01 | Phase 6 | Verified 2026-07-12 |
+| CHN-02 | Phase 6 | Verified 2026-07-12 |
+| CHN-03 | Phase 6 | Verified 2026-07-12 |
+| CHN-04 | Phase 6 | Verified 2026-07-12 |
 | INF-03 | Phase 3 | Complete |
 | INF-04 | Phase 3 | Complete |
 | INF-06 | Phase 3 | Complete |
@@ -169,4 +178,4 @@ Deferred to future release. Tracked but not in current roadmap.
 
 ---
 *Requirements defined: 2026-03-31*
-*Last updated: 2026-04-02 — added STUB-01 through STUB-05 for Phase 7 MTProto removal*
+*Last updated: 2026-07-12 — reconciled implementation versus current verification and early-shipped v2 items.*

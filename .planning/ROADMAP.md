@@ -1,5 +1,9 @@
 # Roadmap: Nostra.chat
 
+**As of:** 2026-07-12
+**Update rule:** update after a roadmap gate gains current automated or runtime
+verification. Historical plan checkboxes are not completion evidence.
+
 ## Overview
 
 Nostra.chat ships in seven phases. All v1 messaging goes through Nostr relays (with Tor privacy) — no WebRTC in v1. This eliminates TURN server dependency, ICE IP leaks, and NAT traversal issues entirely. WebRTC direct connections + TURN are deferred to v2 for voice/video calls. The order follows hard technical dependencies: trustworthy build → crypto + identity → multi-relay pool → 1:1 messaging → disable Telegram MTProto → groups → channels.
@@ -13,12 +17,12 @@ Nostra.chat ships in seven phases. All v1 messaging goes through Nostr relays (w
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Build Pipeline & Distribution** - Production build working, PWA deployable from any mirror (completed 2026-04-01)
-- [ ] **Phase 2: Crypto Foundation & Identity** - NIP-44 encryption, Nostr npub identity, encrypted key storage
+- [x] **Phase 2: Crypto Foundation & Identity** - NIP-44 encryption, Nostr npub identity, encrypted key storage; implemented, current hardening gate pending
 - [x] **Phase 3: Multi-Relay Pool** - Multi-relay messaging replacing single-relay dependency (completed 2026-04-01)
-- [ ] **Phase 4: 1:1 Messaging E2E** - Complete relay-based 1:1 messaging with NIP-17 DMs and media
-- [ ] **Phase 7: Disable Telegram MTProto & Remove Server Dependency** - Stub MTProto layer, zero Telegram connections, remap connection status to Nostr relays
-- [ ] **Phase 5: Group Messaging** - NIP-17 gift-wrap groups up to 12 members
-- [ ] **Phase 6: Broadcast Channels** - NIP-28 one-to-many broadcast channels
+- [x] **Phase 4: 1:1 Messaging E2E** - Relay-based NIP-17 DMs and media implemented; consolidated E2E gate pending
+- [x] **Phase 7: Disable Telegram MTProto & Remove Server Dependency** - MTProto isolation and Nostra status mapping implemented; baseline rerun pending
+- [x] **Phase 5: Group Messaging** - NIP-17 private groups implemented; consolidated E2E gate pending
+- [x] **Phase 6: Broadcast Channels** - NIP-28 one-to-many broadcast channels
 
 ## Phase Details
 
@@ -35,11 +39,11 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 5 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Test scaffolds + ESLint fixes (clean build, Wave 0 tests)
-- [ ] 01-02-PLAN.md — solid-transition-group implementation + TypeScript checker re-enable
-- [ ] 01-03-PLAN.md — PWA headers (COOP/COEP) + GitHub Pages 404 fallback
-- [ ] 01-04-PLAN.md — GitHub Actions CI/CD: Cloudflare Pages + GitHub Pages deploy
-- [ ] 01-05-PLAN.md — GitHub Actions IPFS deploy + three-mirror checkpoint
+- [x] 01-01-PLAN.md — Test scaffolds + ESLint fixes (clean build, Wave 0 tests)
+- [x] 01-02-PLAN.md — solid-transition-group implementation + TypeScript checker re-enable
+- [x] 01-03-PLAN.md — PWA headers (COOP/COEP) + GitHub Pages 404 fallback
+- [x] 01-04-PLAN.md — GitHub Actions CI/CD: Cloudflare Pages + GitHub Pages deploy
+- [x] 01-05-PLAN.md — GitHub Actions IPFS deploy + three-mirror checkpoint
 
 ### Phase 2: Crypto Foundation & Identity
 **Goal**: Users have Nostr npub identity with encrypted key storage and all NIP-44/NIP-17 cryptographic primitives are available for downstream phases
@@ -54,10 +58,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Crypto core: nostr-tools install, NIP-06 identity, NIP-44 encryption, AES-GCM key storage, identity store
-- [ ] 02-02-PLAN.md — OwnID migration + onboarding redesign (Create/Import paths)
-- [ ] 02-03-PLAN.md — QR identity sharing + QR scanner + contact addition
-- [ ] 02-04-PLAN.md — NIP-05 alias settings + security settings (PIN/passphrase/lock screen)
+- [x] 02-01-PLAN.md — Crypto core: nostr-tools install, NIP-06 identity, NIP-44 encryption, AES-GCM key storage, identity store
+- [x] 02-02-PLAN.md — OwnID migration + onboarding redesign (Create/Import paths)
+- [x] 02-03-PLAN.md — QR identity sharing + QR scanner + contact addition
+- [x] 02-04-PLAN.md — NIP-05 alias settings + security settings (PIN/passphrase/lock screen)
 
 ### Phase 3: Multi-Relay Pool
 **Goal**: Messaging is resilient — no single Nostr relay can silence the app. All message transport goes through the relay pool with Tor privacy.
@@ -73,9 +77,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Pool + transport core: 4+ relays, dual-mode NostrRelay, NIP-65, PrivacyTransport pool wrapper
-- [ ] 03-02-PLAN.md — Tor UX: shield icon, banners, fallback confirmation popup, status popup
-- [ ] 03-03-PLAN.md — Wiring: relay settings CRUD, topbar integration, app init, visual verification
+- [x] 03-01-PLAN.md — Pool + transport core: 4+ relays, dual-mode NostrRelay, NIP-65, PrivacyTransport pool wrapper
+- [x] 03-02-PLAN.md — Tor UX: shield icon, banners, fallback confirmation popup, status popup
+- [x] 03-03-PLAN.md — Wiring: relay settings CRUD, topbar integration, app init, visual verification
 
 ### Phase 4: 1:1 Messaging E2E
 **Goal**: Two users can have a complete 1:1 conversation via Nostr relays with metadata-private encrypted messages and media
@@ -94,7 +98,7 @@ Plans:
 - [x] 04-02-PLAN.md — Media pipeline: AES-256-GCM encryption + Blossom blob storage client
 - [x] 04-03-PLAN.md — Delivery tracking: 4-state indicators + gift-wrapped receipts + message requests
 - [x] 04-04-PLAN.md — UI wiring: display bridge media/delivery + send bridge media + visual verification
-- [ ] 04-05-PLAN.md — Gap fix: EOSE-based getMessages backfill + onboarding timeout protection
+- [x] 04-05-PLAN.md — Gap fix: EOSE-based getMessages backfill + onboarding timeout protection
 - [x] 04-06-PLAN.md — Gap fix: Wire MessageRequests component into chat list UI
 
 ### Phase 7: Disable Telegram MTProto & Remove Server Dependency
@@ -130,7 +134,7 @@ Plans:
 - [x] 05-02-PLAN.md — GroupAPI lifecycle + delivery tracker + display/send bridge group support
 - [x] 05-03-PLAN.md — (Superseded by gap closure plans 04+05) UI components — orphaned
 - [x] 05-04-PLAN.md — Gap fix: initGroupAPI + AppNostraNewGroupTab + wire onNewGroupClick
-- [ ] 05-05-PLAN.md — Gap fix: AppNostraGroupInfoTab + topbar hook + delete orphaned components + visual checkpoint
+- [x] 05-05-PLAN.md — Gap fix: AppNostraGroupInfoTab + topbar hook + delete orphaned components + visual checkpoint
 
 ### Phase 6: Broadcast Channels
 **Goal**: Users can create and subscribe to one-to-many broadcast channels in the Telegram-channel style
@@ -145,15 +149,19 @@ Plans:
 
 ## Progress
 
+The original implementation phases below describe shipped scope. The active
+v1 baseline/hardening workstream in `.planning/STATE.md` must reverify them
+before the milestone is declared stable.
+
 **Execution Order:**
 Phases execute in order: 1 → 2 → 3 → 4 → 7 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Build Pipeline & Distribution | 5/5 | Complete   | 2026-04-01 |
-| 2. Crypto Foundation & Identity | 3/4 | In Progress|  |
+| 2. Crypto Foundation & Identity | 4/4 | Implemented; hardening pending | 2026-04 |
 | 3. Multi-Relay Pool | 3/3 | Complete   | 2026-04-01 |
-| 4. 1:1 Messaging E2E | 4/6 | In Progress|  |
-| 7. Disable Telegram MTProto | 0/3 | Not started | - |
-| 5. Group Messaging | 2/5 | In Progress|  |
-| 6. Broadcast Channels | 0/? | Not started | - |
+| 4. 1:1 Messaging E2E | 6/6 | Implemented; consolidated E2E pending | 2026-04 |
+| 7. Disable Telegram MTProto | 3/3 | Implemented; baseline rerun pending | 2026-04 |
+| 5. Group Messaging | 5/5 | Implemented; consolidated E2E pending | 2026-05 |
+| 6. Broadcast Channels | Incremental implementation | Complete | 2026-07-12 |

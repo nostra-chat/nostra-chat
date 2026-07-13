@@ -15,6 +15,16 @@ function formatUpdateError(res: SignedUpdateResult): string {
       return `network-error fetching ${res.chunk}${res.reason ? `: ${res.reason}` : ''}`;
     case 'invalid-signature':
       return 'invalid-signature: manifest signature does not verify against the installed key';
+    case 'invalid-manifest':
+      return `invalid-manifest${res.reason ? `: ${res.reason}` : ''}`;
+    case 'stale-manifest':
+      return `stale-manifest${res.reason ? `: ${res.reason}` : ''}`;
+    case 'downgrade-rejected':
+      return `downgrade-rejected${res.reason ? `: ${res.reason}` : ''}`;
+    case 'update-timeout':
+      return 'update-timeout: the current version remains active; check the connection and retry';
+    case 'update-in-progress':
+      return 'update-in-progress: another tab is already applying the update';
     case 'rotation-cross-cert-invalid':
       return 'rotation-cross-cert-invalid: new key not cross-signed by the installed key';
     case 'quota-exceeded':

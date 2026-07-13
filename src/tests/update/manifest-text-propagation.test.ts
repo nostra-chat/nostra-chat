@@ -64,17 +64,18 @@ describe('manifestText propagation — SW verification', () => {
     // NOT round-trip through JSON.stringify — mirrors real server output,
     // which is pretty-printed / stable-ordered by the release pipeline.
     const indexHash = await sha256b64(indexHtml);
+    const published = new Date().toISOString();
     const manifestText = [
       '{',
       '  "version": "0.13.0",',
       '  "schemaVersion": 2,',
-      '  "gitSha": "x",',
-      '  "published": "2026-01-01",',
+      '  "gitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",',
+      `  "published": "${published}",`,
       '  "swUrl": "./sw.js",',
       '  "signingKeyFingerprint": "ed25519:x",',
       '  "securityRelease": false,',
       '  "securityRollback": false,',
-      `  "bundleHashes": {"./index.html": "${indexHash}"},`,
+      `  "bundleHashes": {"./index.html": "${indexHash}", "./sw.js": "${indexHash}"},`,
       '  "changelog": "",',
       '  "rotation": null',
       '}'
@@ -86,7 +87,7 @@ describe('manifestText propagation — SW verification', () => {
     const manifestBytes = new TextEncoder().encode(manifestText);
     const sig = bytesToBase64(await ed.signAsync(manifestBytes, priv));
     global.fetch = vi.fn(async(url: string) => {
-      if(url.endsWith('index.html')) return new Response(indexHtml);
+      if(url.endsWith('index.html') || url.endsWith('sw.js')) return new Response(indexHtml);
       throw new Error('unexpected url ' + url);
     }) as any;
     await setActiveVersion('0.12.0', 'ed25519:x');
@@ -121,9 +122,16 @@ describe('manifestText propagation — main-thread postMessage', () => {
       getRegistration: async() => registration
     };
 
-    const manifest = {version: '1.2.3', bundleHashes: {}} as any;
+    const manifest = {
+      schemaVersion: 2,
+      version: '1.2.3',
+      gitSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      published: new Date().toISOString(),
+      swUrl: './sw.js',
+      bundleHashes: {'./sw.js': `sha256-${'0'.repeat(64)}`}
+    } as any;
     const signature = 'sig-b64';
-    const manifestText = '{"version":"1.2.3","bundleHashes":{}}\n'; // trailing newline simulates server
+    const manifestText = JSON.stringify(manifest) + '\n'; // trailing newline simulates server
 
     // Don't await — startUpdateSigned resolves only when the SW replies on
     // MessageChannel.port1. We only care that postMessage was called with

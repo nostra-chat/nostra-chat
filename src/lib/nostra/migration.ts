@@ -193,6 +193,7 @@ export async function migrateOwnIdToNpub(): Promise<MigrationResult> {
         const convKey = getConversationKey(privKeyBytes, msg.to);
         const encrypted = nip44Encrypt(msg.payload, convKey);
         msg.payload = encrypted;
+        msg.payloadEncrypted = true;
         await saveQueuedMessage(msg);
         queueReEncrypted++;
       }

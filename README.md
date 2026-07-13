@@ -41,7 +41,9 @@ see [SECURITY.md](SECURITY.md).
 
 **Nostra.chat** is a 100% client-side Progressive Web App for decentralized messaging, forked from [Telegram Web K](https://github.com/morethanwords/tweb). It replaces the Telegram backend with peer-to-peer encrypted chat over [Nostr](https://nostr.com/) relays and integrates [Tor](https://www.torproject.org/) via WASM for network-level privacy.
 
-No servers. No accounts. No install. Just cryptographic keys and a browser.
+No central application server. No accounts. No native install. Just
+cryptographic keys, independent relays, optional supporting services, and a
+browser.
 
 ### How it works
 
@@ -72,9 +74,9 @@ See [`docs/UPDATE-SYSTEM.md`](docs/UPDATE-SYSTEM.md) for the operator runbook an
 **Messaging**
 - 1:1 encrypted text messaging with real-time delivery over Nostr relays
 - Group chats up to 12 members using NIP-17 multi-recipient gift-wrap — relay operators cannot determine group membership
-- Photo and video sharing via [Blossom](https://github.com/hzrd149/blossom) encrypted blob storage (AES-256-GCM)
+- Encrypted photo and file sharing via [Blossom](https://github.com/hzrd149/blossom) blob storage (AES-256-GCM); broader video/voice interoperability remains under verification
 - Message deletion (local and remote via [NIP-09](https://github.com/nostr-protocol/nips/blob/master/09.md) kind 5)
-- In-chat message search
+- Replies, edits, and emoji reactions over the Nostra transport
 - Message requests for unknown senders — strangers cannot message you directly
 
 **Delivery & status**
@@ -124,10 +126,10 @@ A feature-by-feature comparison with other privacy-focused messengers and the ma
 | **Group chats** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Media / file sharing** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Voice / video calls** | ❌ | ✅ | ⚠️ | ✅ | ✅ | ✅ | ✅ |
-| **Message editing** | ⏳ [¹¹] | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Message editing** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **Bot platform** | ⏳ [¹¹] | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | **Scheduled messages** | ⏳ [¹¹] | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| **Delete messages for everyone** | ⏳ [¹¹] | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| **Delete messages for everyone** | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
 | **Auto-delete / disappearing messages** | ⏳ [¹¹] | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
 | **Secret notifications by default** | ✅ [¹⁵] | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **Multiplatform (iOS, Android, Windows, Linux, macOS)** | ✅ [¹²] | ✅ | ✅ | ⚠️ [¹³] | ✅ | ⚠️ [¹⁴] | ✅ |
@@ -248,7 +250,7 @@ docker build -f ./.docker/Dockerfile_production -t nostra-chat:latest .
 
 ```bash
 pnpm test                     # all tests (Vitest)
-pnpm test:nostra:quick        # critical P2P tests (~160 tests in <2s)
+pnpm test:nostra:quick        # critical P2P test selection
 pnpm test:nostra              # full P2P test suite
 pnpm lint                     # ESLint
 ```
@@ -291,7 +293,7 @@ Example: `http://localhost:8080/?debug=1`
 - [x] Group messaging — NIP-17 multi-recipient groups with admin controls
 - [x] Background push notifications — self-hosted Nostr → Web Push relay ([nostr-webpush-relay](https://github.com/nostra-chat/nostr-webpush-relay)), NIP-98 authenticated, default preview hides content
 - [ ] Broadcast channels — NIP-28 one-to-many channels
-- [ ] Tor UI improvements — toggle, circuit dashboard, latency indicators
+- [x] Tor UI — modes, circuit/status dashboard, and relay latency indicators
 - [ ] In-browser mini-relay with store-and-forward capability
 - [ ] P2P mesh — WebRTC DataChannel between contacts, tunneled through Tor
 - [ ] Trust-minimized PWA updates — user-controlled updates with threshold auditor signatures and reproducible builds ([design](docs/TRUST-MINIMIZED-UPDATES.md))

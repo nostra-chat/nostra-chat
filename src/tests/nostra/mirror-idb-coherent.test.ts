@@ -246,6 +246,37 @@ describe('FIND-e49755c1 — mirror/IDB coherence', () => {
     expect(row.deliveryState).toBe('delivered');
   });
 
+  it('sends delivery and read receipts when a message arrives in the active chat', async() => {
+    store.rows.clear();
+    const now = Math.floor(Date.now() / 1000);
+    const sendDeliveryReceipt = vi.fn(async() => {});
+    const sendReadReceipt = vi.fn(async() => {});
+    const msg: any = {
+      id: 'rumor_active_chat_receipt',
+      from: PEER_PUBKEY,
+      content: JSON.stringify({id: `chat-${now}-receipt`, content: 'already visible'}),
+      timestamp: now,
+      tags: [],
+      rumorKind: 14
+    };
+    const ctx: any = {
+      ownId: OWN_PUBKEY,
+      history: [],
+      activePeer: PEER_PUBKEY,
+      deliveryTracker: {sendDeliveryReceipt, sendReadReceipt},
+      offlineQueue: null,
+      onMessage: null,
+      onEdit: null,
+      log: Object.assign(() => {}, {warn: () => {}, error: () => {}})
+    };
+
+    await handleRelayMessage(msg, ctx);
+    await vi.waitFor(() => {
+      expect(sendDeliveryReceipt).toHaveBeenCalledWith(`chat-${now}-receipt`, PEER_PUBKEY);
+      expect(sendReadReceipt).toHaveBeenCalledWith(`chat-${now}-receipt`, PEER_PUBKEY);
+    });
+  });
+
   it('race-safe merge: partial save after full save preserves mid via message-store merge', async() => {
     store.rows.clear();
     // Simulate the order: VMT's full save lands first, then ChatAPI's stale

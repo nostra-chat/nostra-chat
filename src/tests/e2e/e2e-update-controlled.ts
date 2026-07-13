@@ -24,10 +24,17 @@ async function gotoApp(page: any) {
   await page.waitForTimeout(15000);
 }
 
+async function checkIntegrity(page: any) {
+  return page.evaluate(async() => {
+    const {verifyManifestsAcrossSources} = await import('/src/lib/update/manifest-verifier.ts');
+    return verifyManifestsAcrossSources();
+  });
+}
+
 const validManifest = (over: any = {}) => ({
-  schemaVersion: 1, version: '99.0.0', gitSha: 'abc', published: '2026-05-10T12:00:00Z',
+  schemaVersion: 2, version: '99.0.0', gitSha: 'a'.repeat(40), published: new Date().toISOString(),
   swUrl: './sw-xyz.js',
-  bundleHashes: {'./sw-xyz.js': 'sha256-aaa', './index.html': 'sha256-bbb'},
+  bundleHashes: {'./sw-xyz.js': `sha256-${'a'.repeat(64)}`, './index.html': `sha256-${'b'.repeat(64)}`},
   changelog: '### Test\n- hello', alternateSources: {},
   ...over
 });
@@ -57,7 +64,7 @@ const validManifest = (over: any = {}) => ({
       await browser.close();
     });
 
-    await test('upgrade-available: popup appears when all 3 sources agree on newer version', async() => {
+    await test('cross-source agreement is recorded but never bypasses signed consent', async() => {
       const browser = await chromium.launch(launchOptions);
       const ctx = await browser.newContext();
       await rewriteManifestSources(ctx, {
@@ -71,12 +78,10 @@ const validManifest = (over: any = {}) => ({
 
       const page = await ctx.newPage();
       await gotoApp(page);
-      // Popup should appear since version 99.0.0 > current app version
-      try {
-        await page.waitForSelector('.popup-update-available', {timeout: 30000});
-      } catch(e) {
-        throw new Error('update popup did not appear for newer version');
-      }
+      const integrity = await checkIntegrity(page);
+      if(integrity.verdict !== 'verified') throw new Error(`expected verified verdict, got ${integrity.verdict}`);
+      const hasPopup = await page.getByText(/Update available|Aggiornamento disponibile/i, {exact: true}).count();
+      if(hasPopup > 0) throw new Error('unsigned cross-source agreement must not open consent popup');
       await browser.close();
     });
 
@@ -88,18 +93,17 @@ const validManifest = (over: any = {}) => ({
         github: 'http://localhost:7802/update-manifest.json',
         ipfs: 'http://localhost:7803/update-manifest.json'
       });
-      manifestServer.setManifest(7801, validManifest({gitSha: 'good'}));
-      manifestServer.setManifest(7802, validManifest({gitSha: 'EVIL'}));
-      manifestServer.setManifest(7803, validManifest({gitSha: 'good'}));
+      manifestServer.setManifest(7801, validManifest({gitSha: 'a'.repeat(40)}));
+      manifestServer.setManifest(7802, validManifest({gitSha: 'b'.repeat(40)}));
+      manifestServer.setManifest(7803, validManifest({gitSha: 'a'.repeat(40)}));
 
       const page = await ctx.newPage();
       await gotoApp(page);
       // Conflict verdict: popup may show with disabled Update button OR no popup at all
       // depending on exact controller behavior. We verify that integrity was logged
       // via localStorage.
-      await page.waitForTimeout(10000);
-      const lastResult = await page.evaluate(() => localStorage.getItem('nostra.update.lastIntegrityResult'));
-      if(lastResult !== 'conflict') throw new Error(`expected conflict verdict, got ${lastResult}`);
+      const integrity = await checkIntegrity(page);
+      if(integrity.verdict !== 'conflict') throw new Error(`expected conflict verdict, got ${integrity.verdict}`);
       await browser.close();
     });
 
@@ -115,12 +119,11 @@ const validManifest = (over: any = {}) => ({
 
       const page = await ctx.newPage();
       await gotoApp(page);
-      await page.waitForTimeout(10000);
       const hasPopup = await page.locator('.popup-update-available').count();
       if(hasPopup > 0) throw new Error('popup should be hidden on insufficient verdict');
-      const lastResult = await page.evaluate(() => localStorage.getItem('nostra.update.lastIntegrityResult'));
-      if(lastResult !== 'insufficient' && lastResult !== 'offline') {
-        throw new Error(`expected insufficient/offline verdict, got ${lastResult}`);
+      const integrity = await checkIntegrity(page);
+      if(integrity.verdict !== 'insufficient' && integrity.verdict !== 'offline') {
+        throw new Error(`expected insufficient/offline verdict, got ${integrity.verdict}`);
       }
       await browser.close();
     });

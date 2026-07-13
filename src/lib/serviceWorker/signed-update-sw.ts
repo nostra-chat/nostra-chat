@@ -1,6 +1,7 @@
 import {verifyDetachedSignature} from '@lib/update/signing/verify';
 import {verifyCrossCert} from '@lib/update/signing/trusted-keys';
 import {pendingCacheName, atomicSwap, getActiveVersion} from './shell-cache';
+import {validateManifestFreshness, validateUpdateManifest} from '@lib/update/manifest-validation';
 
 export interface Manifest {
   schemaVersion: number;
@@ -18,6 +19,9 @@ export interface Manifest {
 export type ApprovedOutcome =
   | 'applied'
   | 'invalid-signature'
+  | 'invalid-manifest'
+  | 'stale-manifest'
+  | 'downgrade-rejected'
   | 'rotation-cross-cert-invalid'
   | 'chunk-mismatch'
   | 'network-error'
@@ -40,6 +44,15 @@ async function sha256b64(bytes: ArrayBuffer | Uint8Array): Promise<string> {
   return 'sha256-' + hex;
 }
 
+function compareVersions(a: string, b: string): number {
+  const pa = a.split(/[+-]/, 1)[0].split('.').map(Number);
+  const pb = b.split(/[+-]/, 1)[0].split('.').map(Number);
+  for(let i = 0; i < 3; i++) {
+    if(pa[i] !== pb[i]) return pa[i] - pb[i];
+  }
+  return 0;
+}
+
 export async function handleUpdateApproved(
   manifest: Manifest,
   signatureB64: string,
@@ -53,9 +66,20 @@ export async function handleUpdateApproved(
   const sigOk = await verifyDetachedSignature(manifestBytes, signatureB64, trustedPubkeyB64);
   if(!sigOk) return {outcome: 'invalid-signature'};
 
+  const validation = validateUpdateManifest(manifest);
+  if(!validation.ok) return {outcome: 'invalid-manifest', reason: validation.reason};
+  if(manifest.schemaVersion !== 2) return {outcome: 'invalid-manifest', reason: 'signed updates require schemaVersion 2'};
+  const freshness = validateManifestFreshness(manifest.published);
+  if(!freshness.ok) return {outcome: 'stale-manifest', reason: freshness.reason};
+
   if(manifest.rotation) {
     const crossOk = await verifyCrossCert(manifest.rotation, trustedPubkeyB64);
     if(!crossOk) return {outcome: 'rotation-cross-cert-invalid'};
+  }
+
+  const active = await getActiveVersion();
+  if(active && compareVersions(manifest.version, active.version) < 0 && !manifest.securityRollback) {
+    return {outcome: 'downgrade-rejected', reason: `${manifest.version} < ${active.version}`};
   }
 
   const pendingName = pendingCacheName(manifest.version);
@@ -108,7 +132,6 @@ export async function handleUpdateApproved(
     }
   }
 
-  const active = await getActiveVersion();
   const newFingerprint = manifest.rotation?.newFingerprint || manifest.signingKeyFingerprint;
   const newInstalledPubkey = manifest.rotation?.newPubkey || active?.installedPubkey;
   try {

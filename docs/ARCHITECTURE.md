@@ -1,5 +1,14 @@
 # ARCHITECTURE.md — Nostra.chat deep notes
 
+**Authority:** durable architecture and test-harness behavior.
+**Last reviewed:** 2026-07-12. Feature completion belongs in
+`.planning/STATE.md`; chronology belongs in plans and verification records.
+
+Current security controls and explicitly deferred risks are tracked in
+[`SECURITY-HARDENING.md`](./SECURITY-HARDENING.md).
+The controlled-update threat model and recovery procedure are in
+[`PWA-UPDATES.md`](./PWA-UPDATES.md).
+
 Companion to `CLAUDE.md` in the repo root. Read `CLAUDE.md` first for core rules, commands, and the middleware rules table. This file contains deeper architecture notes that are only relevant when you're actively working on the corresponding subsystem.
 
 ## Table of Contents

@@ -218,20 +218,11 @@ async function main() {
     // After delivery, the sending status icon should have been replaced with
     // the 'checks' glyph by the onboarding listener. We detect this by querying
     // the glyph char (icons are rendered as tgico-class + unicode textContent).
-    const iconIsChecks = await pageA.evaluate((marker: string) => {
-      const bubbles = document.querySelectorAll<HTMLElement>('.bubble.is-out');
-      for(const b of bubbles) {
-        if(!b.textContent?.includes(marker)) continue;
-        const icon = b.querySelector<HTMLElement>('.time-sending-status');
-        if(!icon) return false;
-        // The updated icon is inserted by the listener via Icon('checks'). Verify
-        // by checking the glyph char differs from check's glyph or by checking
-        // that the icon is the only time-sending-status in the bubble with
-        // is-read class already applied.
-        return b.classList.contains('is-read') && !!icon;
-      }
-      return false;
-    }, text);
+    // Use the same atomic DOM snapshot that established the read state. A
+    // second query raced bubble reconciliation in headless Chromium and could
+    // report a false negative even though `iconClass` above proved the icon was
+    // present on the read bubble.
+    const iconIsChecks = bubbleState.isRead && !!bubbleState.iconClass;
     report('ICON_PRESENT_AFTER_READ', iconIsChecks, `iconPresent=${iconIsChecks}`);
   } catch(err) {
     console.error('E2E test error:', err);

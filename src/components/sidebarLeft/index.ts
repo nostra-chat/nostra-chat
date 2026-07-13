@@ -1070,6 +1070,26 @@ export class AppSidebarLeft extends SidebarSlider {
       });
     };
 
+    const onJoinChannelClick = () => {
+      closeTabsBefore(async() => {
+        const channelId = window.prompt('NIP-28 channel ID (64 hex characters)')?.trim().toLowerCase();
+        if(!channelId) return;
+        try {
+          const channelAPI = (window as any).__nostraChannelAPI;
+          if(!channelAPI) throw new Error('ChannelAPI is not initialized');
+          await channelAPI.subscribe(channelId);
+          channelAPI.watch(channelId);
+          const {channelIdToPeerId} = await import('@lib/nostra/channel-types');
+          const peerId = await channelIdToPeerId(channelId);
+          const appImManager = (await import('@lib/appImManager')).default;
+          appImManager.setInnerPeer({peerId: (peerId as any).toPeerId ? (peerId as any).toPeerId(true) : peerId});
+        } catch(err) {
+          console.error('joinChannel error', err);
+          window.alert(err instanceof Error ? err.message : String(err));
+        }
+      });
+    };
+
     return [{
       icon: 'newchannel',
       text: singular ? 'Channel' : 'NewChannel',
@@ -1078,6 +1098,10 @@ export class AppSidebarLeft extends SidebarSlider {
           this.createTab(AppNewChannelTab).open();
         });
       }
+    }, {
+      icon: 'newchannel',
+      text: 'JoinByPeekChannelTitle',
+      onClick: onJoinChannelClick
     }, {
       icon: 'newgroup',
       text: singular ? 'Group' : 'NewGroup',

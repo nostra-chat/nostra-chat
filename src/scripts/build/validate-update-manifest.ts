@@ -5,8 +5,10 @@
  */
 
 import {readFileSync} from 'fs';
+import {createHash} from 'crypto';
 import {join, relative} from 'path';
 import {walkFiles, DIST_EXCLUDE_PATTERNS} from './fs-utils';
+import {validateUpdateManifest} from '../../lib/update/manifest-validation';
 
 const PKG = JSON.parse(readFileSync('package.json', 'utf8'));
 
@@ -19,6 +21,9 @@ const manifestPath = process.argv[2];
 if(!manifestPath) die('usage: validate-update-manifest.ts <path-to-manifest.json>');
 
 const m = JSON.parse(readFileSync(manifestPath, 'utf8'));
+
+const shape = validateUpdateManifest(m);
+if(!shape.ok) die(shape.reason || 'invalid manifest');
 
 for(const k of ['schemaVersion', 'version', 'gitSha', 'published', 'swUrl', 'bundleHashes', 'changelog']) {
   if(!(k in m)) die(`missing required field: ${k}`);
@@ -63,13 +68,17 @@ if(missing.length > 0) {
   die(`files in dist/ not covered by bundleHashes:\n${missing.map(f => '  - ' + f).join('\n')}`);
 }
 
-// NOTE: Ship 1 only checks hash FORMAT. The validator does not re-hash files to
-// verify stored hashes match content — this closes when Ship 2 lands and the
-// manifest becomes a live security gate. If the emitter is trusted at CI time,
-// format-only check catches typos and truncation; tampering detection requires
-// a re-hash pass that should be added alongside the client-side consumption.
 for(const [k, v] of Object.entries(m.bundleHashes as Record<string, string>)) {
   if(!/^sha256-[a-f0-9]{64}$/.test(v)) die(`invalid hash format for ${k}: ${v}`);
+  const filePath = join(distDir, k.slice(2));
+  let bytes: Uint8Array;
+  try {
+    bytes = readFileSync(filePath) as unknown as Uint8Array;
+  } catch(err) {
+    die(`manifest entry does not resolve to a dist file: ${k} (${String(err)})`);
+  }
+  const actual = 'sha256-' + createHash('sha256').update(bytes).digest('hex');
+  if(actual !== v) die(`hash mismatch for ${k}: expected=${v} actual=${actual}`);
 }
 
 if(!m.changelog || m.changelog.trim().length === 0) {

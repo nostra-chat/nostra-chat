@@ -8,10 +8,13 @@ type SourceName = 'cdn' | 'github-pages' | 'ipfs';
 const validManifest = (overrides: Partial<Manifest> = {}): Manifest => ({
   schemaVersion: 1,
   version: '0.8.0',
-  gitSha: 'abc123',
+  gitSha: 'abc1230',
   published: '2026-05-10T12:00:00Z',
   swUrl: './sw-xyz.js',
-  bundleHashes: {'./sw-xyz.js': 'sha256-aaa', './index.html': 'sha256-bbb'},
+  bundleHashes: {
+    './sw-xyz.js': `sha256-${'a'.repeat(64)}`,
+    './index.html': `sha256-${'b'.repeat(64)}`
+  },
   changelog: 'changes',
   ...overrides
 });

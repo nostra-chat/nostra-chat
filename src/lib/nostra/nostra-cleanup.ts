@@ -21,6 +21,8 @@ const NOSTRA_DB_NAMES = [
   'nostra-message-requests',
   'nostra-virtual-peers',
   'nostra-groups',
+  'nostra-channels',
+  'nostra-offline-queue',
   'nostra-reactions',
   'NostraPool',
   'Nostra.chat',

@@ -1,5 +1,9 @@
 # Phase 2b.2a — 2-Device Manual Verification
 
+> Historical verification protocol from April 2026. Unchecked boxes and known
+> issues below describe that phase, not the current worktree. Current v1
+> evidence is recorded by the active workstream in `.planning/STATE.md`.
+
 This checklist validates the 3 FIND fixes + lifecycle coverage land correctly. Baseline v2b1 emit is **deferred to 2b.2b** (see Known Issues). Run on 2 real devices OR 2 isolated browser profiles on the same machine.
 
 ## Setup
