@@ -4,34 +4,71 @@ Last updated: 2026-04-24
 Open bugs: 2 (live) · Regression-watch: 1 (2b.3 fix cold-start flaking in baseline-emit) · Fixed: 6+2 (Phase 2b.1) · Fixed in 2b.2a: 3 · Fixed in 2b.2b: 3 · Fixed in 2b.3: 2 · Fixed in 2b.4: 1 · Fixed in 2b.5: 3
 
 ## Open (sorted by occurrences desc)
+### FIND-46ca4c46 — INV-console-clean
+- **Status**: open
+- **Tier**: cheap
+- **Occurrences**: 23
+- **First seen**: 2026-06-09 20:20:29
+- **Last seen**: 2026-06-09 20:57:28
+- **Seed**: 48
+- **Assertion**: "Unallowlisted console error: [warning] [VirtualMTProto] getGroupHistory: rebuilt orphan group record {groupId: d43f68ca045845ed94be0a77a365aff8, peerId: -4774525818042865, members: 2}"
+- **Replay**: `pnpm fuzz --replay=FIND-46ca4c46`
+- **Minimal trace** (1 actions):
+  1. `sendText({"from":"userB","text":"y "})`
+- **Artifacts**: [`docs/fuzz-reports/FIND-46ca4c46/`](../fuzz-reports/FIND-46ca4c46/)
 
 ### FIND-1d3adc13 — POST-edit-content-updated
-- **Status**: open — cold-start DOM-update flake, surfaced during Phase 2b.5 baseline-emit attempt
+- **Status**: open
 - **Tier**: postcondition
 - **Occurrences**: 2
 - **First seen**: 2026-04-24 15:56:13
 - **Last seen**: 2026-04-24 16:07:48
 - **Seed**: 44
-- **Assertion**: `"edited bubble mid=1777046154304277 content not updated to \"f.M/\""`
+- **Assertion**: "edited bubble mid=1777046154304277 content not updated to \"f.M/\""
 - **Replay**: `pnpm fuzz --replay=FIND-1d3adc13`
 - **Minimal trace** (2 actions):
   1. `sendText({"from":"userB","text":")z~#"})`
   2. `editRandomOwnBubble({"user":"userA","newText":"f.M/"})`
-- **Note**: Phase 2b.5 defensively bumped `POST-edit-content-updated` polling window from 3s to 10s to align with warmup bubble/reaction timeouts. Further investigation (does the VMT local `message_edit` dispatch reach a not-yet-mounted bubbles.ts listener?) deferred to Phase 2b.6 — carry-forward during baseline-emit attempts.
 - **Artifacts**: [`docs/fuzz-reports/FIND-1d3adc13/`](../fuzz-reports/FIND-1d3adc13/)
 
-## Regression-watch (2b.3 fix cold-start flaking in 2b.5 baseline-emit)
+### FIND-e9a47e45 — POST_react_peer_sees_emoji
+- **Status**: open
+- **Tier**: postcondition
+- **Occurrences**: 1
+- **First seen**: 2026-06-09 20:27:42
+- **Last seen**: 2026-06-09 20:27:42
+- **Seed**: 53
+- **Assertion**: "peer userB never saw emoji ❤️ on bubble 1781036842845901"
+- **Replay**: `pnpm fuzz --replay=FIND-e9a47e45`
+- **Minimal trace** (1 actions):
+  1. `reactToRandomBubble({"user":"userA","fromTarget":"peer","emoji":"❤️"})`
+- **Artifacts**: [`docs/fuzz-reports/FIND-e9a47e45/`](../fuzz-reports/FIND-e9a47e45/)
 
-Phase 2b.5 verified FIND-4e18d35d does NOT reproduce on a single-action replay against current main, but it still fires as a cold-start flake on iteration 4 of the baseline-emit run (fresh browser contexts, pre-warm-up relay subscription on userA's kind-7 filter). Phase 2b.5 added an independent-steps refactor to `warmupHandshake` + IDB-based recovery for step-2 priming when step-1 DOM render is deferred; baseline-emit attempts still fire the finding, so carry-forward to Phase 2b.6 for deeper investigation (likely path: verify `chatAPI.initGlobalSubscription()` kind-7 filter is active before returning control to the harness).
+### FIND-e74fcd1d — POST-sendInGroup-bubble-on-peer
+- **Status**: open
+- **Tier**: postcondition
+- **Occurrences**: 1
+- **First seen**: 2026-06-09 20:32:07
+- **Last seen**: 2026-06-09 20:32:07
+- **Seed**: 56
+- **Assertion**: "sendInGroup: bubble \"{h\" never appeared on peer userB member of group"
+- **Replay**: `pnpm fuzz --replay=FIND-e74fcd1d`
+- **Minimal trace** (1 actions):
+  1. `sendInGroup({"from":"userA","text":"{h"})`
+- **Artifacts**: [`docs/fuzz-reports/FIND-e74fcd1d/`](../fuzz-reports/FIND-e74fcd1d/)
 
-- **FIND-4e18d35d** — `INV-reaction-bilateral` — fired repeatedly on iter-4 `reactViaUI` at seed=46 in Phase 2b.5 baseline-emit attempts (v2 + v3). Single-action replay on current main passes. Hypothesis: A's kind-7 subscription is not verifiably active at the time B publishes the first kind-7 of the iteration, and the 5s receive-side buffer in `nostra-reactions-receive.ts` only guards against target-not-yet-ingested races, not against the event never arriving at all.
-
-## Phase 2b.4 findings closed via fuzz-side adjustment (not production fixes)
-
-These were transient artifacts of a warmup/action configuration that was itself invalid — no production code change. Listed here so they are not re-added to Open on future runs.
-
-- `POST-sendText-bubble-appears` (text "e") — single iter-1 cold-start occurrence before the groups warmup landed. Not reproduced in iter 2–4.
-- `INV-group-bilateral-membership` (signature `4f52549b`) — fired on warmup-residue group that B never received due to cold-start relay sub. Grace window bumped from 5s to 30s (using `group.createdAt`) in invariant check; no recurrence after fix.
+### FIND-cf41caf4 — POST-sendInGroup-bubble-on-peer
+- **Status**: open
+- **Tier**: postcondition
+- **Occurrences**: 1
+- **First seen**: 2026-06-09 20:39:14
+- **Last seen**: 2026-06-09 20:39:14
+- **Seed**: 61
+- **Assertion**: "sendInGroup: bubble \"prototype\" never appeared on peer userB member of group"
+- **Replay**: `pnpm fuzz --replay=FIND-cf41caf4`
+- **Minimal trace** (1 actions):
+  1. `sendInGroup({"from":"userA","text":"prototype"})`
+- **Artifacts**: [`docs/fuzz-reports/FIND-cf41caf4/`](../fuzz-reports/FIND-cf41caf4/)
 
 ## Fixed
 
