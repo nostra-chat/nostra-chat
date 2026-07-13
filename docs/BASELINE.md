@@ -19,7 +19,7 @@ Long browser coverage and its environment boundaries are tracked separately in
 | `pnpm build` | PASS | 2,104 modules; manifest v0.25.3 covers 4,241 files |
 | update unit/integration suite | PASS | 19 files, 92 passed and 1 explicit skip |
 | critical browser suite | PASS | self-starting local server/relay flows documented in `E2E.md` |
-| `.github/workflows/ci.yml` | syntax PASS | parsed as YAML; workflow runtime awaits first PR/manual run |
+| `.github/workflows/ci.yml` | runtime gate active | installs Chromium for Explorer browser tests before running the local-equivalent checks |
 
 ## Baseline corrections made
 
