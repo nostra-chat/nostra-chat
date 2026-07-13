@@ -35,7 +35,7 @@ export async function encryptMedia(file: ArrayBuffer): Promise<EncryptedMedia> {
   const encrypted = await crypto.subtle.encrypt(
     {name: 'AES-GCM', iv},
     cryptoKey,
-    file
+    new Uint8Array(file)
   );
 
   // Export raw key bytes (32 bytes for AES-256)
@@ -71,7 +71,7 @@ export async function decryptMedia(
   return crypto.subtle.decrypt(
     {name: 'AES-GCM', iv},
     cryptoKey,
-    encrypted
+    new Uint8Array(encrypted)
   );
 }
 
@@ -80,7 +80,7 @@ export async function decryptMedia(
  * Used for Blossom blob addressing (BUD-02).
  */
 export async function sha256Hex(data: ArrayBuffer): Promise<string> {
-  const hash = await crypto.subtle.digest('SHA-256', data);
+  const hash = await crypto.subtle.digest('SHA-256', new Uint8Array(data));
   return bytesToHex(new Uint8Array(hash));
 }
 
