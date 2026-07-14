@@ -23,19 +23,19 @@ export interface UpdateConsentProps {
 }
 
 const S = {
-  popup: 'max-width:32rem;width:100%;padding:1.5rem;background:var(--body-background-color,#2a2a2a);color:var(--primary-text-color,#fff);border-radius:0.75rem;box-shadow:0 8px 32px rgba(0,0,0,0.4)',
+  popup: 'box-sizing:border-box;width:min(100%,32rem);max-height:calc(100dvh - 1.5rem);overflow-y:auto;padding:clamp(1rem,4vw,1.5rem);background:var(--body-background-color,#2a2a2a);color:var(--primary-text-color,#fff);border-radius:0.75rem;box-shadow:0 8px 32px rgba(0,0,0,0.4)',
   h2: 'margin:0 0 1rem 0;font-size:1.25rem;font-weight:600',
-  details: 'display:grid;grid-template-columns:auto 1fr;gap:0.5rem 1rem;margin-bottom:1rem',
+  details: 'display:grid;grid-template-columns:minmax(7.5rem,auto) minmax(0,1fr);gap:0.5rem 1rem;margin-bottom:1rem',
   dt: 'color:var(--secondary-text-color,#999);font-size:0.9rem;margin:0',
-  dd: 'margin:0;font-size:0.9rem;word-break:break-all',
-  code: 'font-family:ui-monospace,monospace;font-size:0.85rem;padding:0.1rem 0.3rem;background:rgba(255,255,255,0.08);border-radius:0.25rem',
+  dd: 'min-width:0;margin:0;font-size:0.9rem;overflow-wrap:anywhere',
+  code: 'display:inline;max-width:100%;font-family:ui-monospace,monospace;font-size:0.85rem;padding:0.1rem 0.3rem;background:rgba(255,255,255,0.08);border-radius:0.25rem;overflow-wrap:anywhere',
   link: 'color:var(--primary-color,#8774e1);text-decoration:none',
-  ok: 'color:var(--green-color,#5cc453);margin-left:0.5rem',
+  ok: 'display:inline-block;color:var(--green-color,#5cc453);margin:0.3rem 0 0 0.5rem',
   warn: 'color:var(--warning-color,#ff9500);font-size:0.9rem',
   error: 'color:var(--danger-color,#ff5555);margin:1rem 0;font-size:0.9rem',
   changelogSummary: 'cursor:pointer;color:var(--secondary-text-color,#999);font-size:0.9rem',
   changelogPre: 'white-space:pre-wrap;max-height:10rem;overflow-y:auto;margin:0.5rem 0 0 0;padding:0.75rem;background:rgba(255,255,255,0.05);border-radius:0.5rem;font-size:0.85rem',
-  actions: 'display:flex;gap:0.75rem;justify-content:flex-end;margin-top:1.5rem',
+  actions: 'display:flex;min-width:0;gap:0.75rem;justify-content:flex-end;margin-top:1.5rem',
   btn: 'padding:0.6rem 1.25rem;border:none;border-radius:0.5rem;font-size:0.95rem;cursor:pointer;background:transparent;color:var(--primary-text-color,#fff)',
   btnPrimary: 'padding:0.6rem 1.25rem;border:none;border-radius:0.5rem;font-size:0.95rem;cursor:pointer;background:var(--primary-color,#8774e1);color:#fff;font-weight:600',
   progressWrap: 'margin:1.25rem 0 0.25rem;padding:1rem 1.1rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:0.65rem',
@@ -49,7 +49,7 @@ const S = {
   progressMeta: 'display:flex;justify-content:space-between;align-items:center;margin-top:0.55rem;font-size:0.78rem;color:var(--secondary-text-color,#9d9d9d);font-variant-numeric:tabular-nums'
 };
 
-const SHIMMER_KEYFRAMES = '@keyframes nostra-update-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}@keyframes nostra-update-pulse{0%,100%{opacity:0.55}50%{opacity:1}}';
+const SHIMMER_KEYFRAMES = '@keyframes nostra-update-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}@keyframes nostra-update-pulse{0%,100%{opacity:0.55}50%{opacity:1}}@media(max-width:30rem){.nostra-update-details{grid-template-columns:minmax(0,1fr)!important;gap:0.2rem!important}.nostra-update-details dt:not(:first-child){margin-top:0.55rem!important}.nostra-update-actions{display:grid!important;grid-template-columns:1fr 1fr}.nostra-update-actions button{min-width:0;padding-inline:0.75rem!important}}';
 
 let shimmerInjected = false;
 function injectShimmerStyle() {
@@ -99,9 +99,9 @@ export function UpdateConsent(props: UpdateConsentProps) {
   }
 
   return (
-    <div style={S.popup}>
-      <h2 style={S.h2}>{I18n.format('Update.Consent.Title', true)}</h2>
-      <dl style={S.details}>
+    <div style={S.popup} role='dialog' aria-modal='true' aria-labelledby='nostra-update-consent-title'>
+      <h2 id='nostra-update-consent-title' style={S.h2}>{I18n.format('Update.Consent.Title', true)}</h2>
+      <dl class='nostra-update-details' style={S.details}>
         <dt style={S.dt}>{I18n.format('Update.Consent.FieldVersion', true)}</dt>
         <dd style={S.dd}>{props.currentVersion} → {props.newManifest.version}</dd>
         <dt style={S.dt}>{I18n.format('Update.Consent.FieldCommit', true)}</dt>
@@ -150,9 +150,9 @@ export function UpdateConsent(props: UpdateConsentProps) {
       <Show when={error()}>
         <p style={S.error}>{error()}</p>
       </Show>
-      <div style={S.actions}>
-        <button style={S.btn} disabled={busy()} onClick={() => props.onDecline()}>{I18n.format('Update.Consent.Ignore', true)}</button>
-        <button style={S.btnPrimary} disabled={busy()} onClick={accept}>{busy() ? I18n.format('Update.Consent.Applying', true) : I18n.format('Update.Consent.Accept', true)}</button>
+      <div class='nostra-update-actions' style={S.actions}>
+        <button type='button' style={S.btn} disabled={busy()} onClick={() => props.onDecline()}>{I18n.format('Update.Consent.Ignore', true)}</button>
+        <button type='button' style={S.btnPrimary} disabled={busy()} onClick={accept}>{busy() ? I18n.format('Update.Consent.Applying', true) : I18n.format('Update.Consent.Accept', true)}</button>
       </div>
     </div>
   );

@@ -29,7 +29,7 @@ const FAKE_VERSION = '99.0.0';
 
 async function main(): Promise<void> {
   const browser = await chromium.launch(launchOptions);
-  const ctx = await browser.newContext({viewport: {width: 1280, height: 800}});
+  const ctx = await browser.newContext({viewport: {width: 360, height: 740}});
   const page = await ctx.newPage();
 
   const consoleErrors: string[] = [];
@@ -110,6 +110,20 @@ async function main(): Promise<void> {
     else pass('Ignora button rendered');
     if(await accettaBtn.count() === 0) fail('Accetta button missing');
     else pass('Accetta button rendered');
+
+    const popupAudit = await page.evaluate(() => {
+      const dialog = document.querySelector('[role="dialog"]');
+      const buttons = Array.from(dialog?.querySelectorAll('button') || []);
+      const rects = [dialog, ...buttons].filter(Boolean).map((element) => element!.getBoundingClientRect());
+      return {
+        hasRawKey: dialog?.textContent?.includes('Update.Consent.') ?? true,
+        insideViewport: rects.every((rect) => rect.left >= 0 && rect.right <= innerWidth)
+      };
+    });
+    if(popupAudit.hasRawKey) fail('raw Update.Consent localization key rendered');
+    else pass('popup localization keys resolved');
+    if(!popupAudit.insideViewport) fail('popup or action button overflows the mobile viewport');
+    else pass('popup and actions fit the mobile viewport');
 
     // Click Ignora → declineUpdate runs.
     await ignoraBtn.first().click();

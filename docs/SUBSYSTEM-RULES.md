@@ -83,6 +83,7 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 ## UI Components
 
 - The active "Add Contact" dialog is in `src/components/sidebarLeft/tabs/contacts.ts` (imperative DOM), NOT `src/components/nostra/AddContact.tsx` (Solid.js — unused).
+- Nostra-only localization keys are bundled in `src/lang.ts`. Increment `langPackLocalVersion.example.ts` when adding them, and never let a remote `langPackStringDeleted` tombstone overwrite their bundled fallback; real remote translations still take precedence.
 - `bubbles.ts` is 11000+ lines. `appMessagesManager.ts` is 8500+ lines. Changes to these files risk cascading side effects.
 - All `notDirect` flags were removed from `contextMenu.ts` — all chats are Nostra, there are no Telegram DMs. The type field, invocation logic, and all 10 button properties were deleted.
 - Hamburger profile entry (`buildNostraProfileMenuContent` in `sidebarLeft/index.ts`): the async storage-read path must generate a dicebear avatar from the stored npub *before* calling `fetchOwnKind0`, otherwise fresh-onboarding (no cache, no kind 0 picture) leaves `avatar.src=""` until the user opens the profile tab.

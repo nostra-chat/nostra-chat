@@ -50,7 +50,7 @@ export function previewUpdateProgress(opts: {total?: number; durationMs?: number
   const total = opts.total ?? 24;
   const durationMs = opts.durationMs ?? 4000;
   const host = document.createElement('div');
-  host.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center';
+  host.style.cssText = 'box-sizing:border-box;position:fixed;inset:0;padding:max(0.75rem,env(safe-area-inset-top)) max(0.75rem,env(safe-area-inset-right)) max(0.75rem,env(safe-area-inset-bottom)) max(0.75rem,env(safe-area-inset-left));overflow-y:auto;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center';
   document.body.appendChild(host);
   const [progress, setProgress] = createSignal<UpdateProgress | null>(null);
   const dispose = render(() => (
@@ -84,7 +84,7 @@ export function previewUpdateProgress(opts: {total?: number; durationMs?: number
 export async function showUpdateConsentPopup(manifest: any, signature: string, manifestText?: string) {
   const active = await getActiveVersion();
   const host = document.createElement('div');
-  host.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center';
+  host.style.cssText = 'box-sizing:border-box;position:fixed;inset:0;padding:max(0.75rem,env(safe-area-inset-top)) max(0.75rem,env(safe-area-inset-right)) max(0.75rem,env(safe-area-inset-bottom)) max(0.75rem,env(safe-area-inset-left));overflow-y:auto;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center';
   document.body.appendChild(host);
   const [progress, setProgress] = createSignal<UpdateProgress | null>(null);
   const dispose = render(() => (

@@ -23,6 +23,7 @@ import {createSignal} from 'solid-js';
 import commonStateStorage from '@lib/commonStateStorage';
 import Icon from '@components/icon';
 import currencyStarIcon from '@components/currencyStarIcon';
+import {mergeLocalAndRemoteLangStrings} from './lang-pack-merge';
 
 export const langPack: {[actionType: string]: LangPackKey} = {
   'messageActionChatCreate': 'ActionCreateGroup',
@@ -237,7 +238,8 @@ namespace I18n {
         formatLocalStrings(l.default as any, strings);
       });
 
-      strings = strings.concat(...[langPack1.strings, langPack2.strings].filter(Boolean));
+      const remoteStrings = [langPack1.strings, langPack2.strings].filter(Boolean).flat();
+      strings = mergeLocalAndRemoteLangStrings(strings, remoteStrings);
 
       langPack1.strings = strings;
       langPack1.countries = countries;
