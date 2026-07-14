@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.2](https://github.com/nostra-chat/nostra-chat/compare/v0.26.1...v0.26.2) (2026-07-14)
+
+
+### Performance
+
+* accelerate verified PWA updates ([2de63b3](https://github.com/nostra-chat/nostra-chat/commit/2de63b3ce8984a23ac67e48c350baa4386c9c8b3))
+
 ## [0.26.1](https://github.com/nostra-chat/nostra-chat/compare/v0.26.0...v0.26.1) (2026-07-13)
 
 
