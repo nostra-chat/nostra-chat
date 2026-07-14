@@ -266,10 +266,12 @@ export async function ensureMigrated(): Promise<void> {
     const active = await getActiveVersion();
     if(active) return;
     const keys = await caches.keys();
-    const shellCaches = keys.filter((k) => k.startsWith('shell-v') && !k.endsWith('-pending'));
+    const shellCaches = keys
+    .filter((k) => k.startsWith('shell-v') && !k.endsWith('-pending'))
+    .map((cacheName) => ({cacheName, version: cacheName.slice('shell-v'.length).split('--', 1)[0]}));
     if(shellCaches.length === 0) return;
-    const latest = shellCaches.map((k) => k.slice('shell-v'.length)).sort().pop();
-    if(latest) await setActiveVersion(latest, 'ed25519:migrated');
+    const latest = shellCaches.sort((a, b) => a.version.localeCompare(b.version, undefined, {numeric: true})).pop();
+    if(latest) await setActiveVersion(latest.version, 'ed25519:migrated', undefined, latest.cacheName);
   } catch(e) {
     console.warn('[update] migration check failed', e);
   }

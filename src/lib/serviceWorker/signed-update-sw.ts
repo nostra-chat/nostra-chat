@@ -1,7 +1,15 @@
 import {verifyDetachedSignature} from '@lib/update/signing/verify';
 import {verifyCrossCert} from '@lib/update/signing/trusted-keys';
-import {pendingCacheName, atomicSwap, getActiveVersion} from './shell-cache';
+import {activeShellCacheName, commitPreparedShell, getActiveVersion, preparedCacheName} from './shell-cache';
 import {validateManifestFreshness, validateUpdateManifest} from '@lib/update/manifest-validation';
+import {
+  createProgressReporter,
+  manifestAssetUrl,
+  responseFromVerifiedBytes,
+  runBoundedWorkers,
+  sha256Hex,
+  SIGNED_UPDATE_CONCURRENCY
+} from './update-asset-utils';
 
 export interface Manifest {
   schemaVersion: number;
@@ -36,14 +44,6 @@ export interface ApprovedResult {
   actual?: string;
 }
 
-async function sha256b64(bytes: ArrayBuffer | Uint8Array): Promise<string> {
-  const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  const d = await crypto.subtle.digest('SHA-256', buf as any);
-  let hex = '';
-  for(const b of new Uint8Array(d)) hex += b.toString(16).padStart(2, '0');
-  return 'sha256-' + hex;
-}
-
 function compareVersions(a: string, b: string): number {
   const pa = a.split(/[+-]/, 1)[0].split('.').map(Number);
   const pb = b.split(/[+-]/, 1)[0].split('.').map(Number);
@@ -58,87 +58,154 @@ export async function handleUpdateApproved(
   signatureB64: string,
   trustedPubkeyB64: string,
   onProgress?: (done: number, total: number) => void,
-  manifestText?: string
+  manifestText?: string,
+  options: {signal?: AbortSignal} = {}
 ): Promise<ApprovedResult> {
   // Verify signature over the ORIGINAL bytes fetched from the server, not over
   // a re-serialized object (JSON.stringify key order differs from server output).
-  const manifestBytes = new TextEncoder().encode(manifestText ?? JSON.stringify(manifest));
+  const exactManifestText = manifestText ?? JSON.stringify(manifest);
+  const manifestBytes = new TextEncoder().encode(exactManifestText);
   const sigOk = await verifyDetachedSignature(manifestBytes, signatureB64, trustedPubkeyB64);
   if(!sigOk) return {outcome: 'invalid-signature'};
 
-  const validation = validateUpdateManifest(manifest);
+  let approvedManifest: Manifest;
+  try {
+    approvedManifest = JSON.parse(exactManifestText) as Manifest;
+  } catch(err) {
+    return {outcome: 'invalid-manifest', reason: `signed manifest JSON is invalid: ${String(err)}`};
+  }
+
+  const validation = validateUpdateManifest(approvedManifest);
   if(!validation.ok) return {outcome: 'invalid-manifest', reason: validation.reason};
-  if(manifest.schemaVersion !== 2) return {outcome: 'invalid-manifest', reason: 'signed updates require schemaVersion 2'};
-  const freshness = validateManifestFreshness(manifest.published);
+  if(approvedManifest.schemaVersion !== 2) return {outcome: 'invalid-manifest', reason: 'signed updates require schemaVersion 2'};
+  const freshness = validateManifestFreshness(approvedManifest.published);
   if(!freshness.ok) return {outcome: 'stale-manifest', reason: freshness.reason};
 
-  if(manifest.rotation) {
-    const crossOk = await verifyCrossCert(manifest.rotation, trustedPubkeyB64);
+  if(approvedManifest.rotation) {
+    const crossOk = await verifyCrossCert(approvedManifest.rotation, trustedPubkeyB64);
     if(!crossOk) return {outcome: 'rotation-cross-cert-invalid'};
   }
 
   const active = await getActiveVersion();
-  if(active && compareVersions(manifest.version, active.version) < 0 && !manifest.securityRollback) {
-    return {outcome: 'downgrade-rejected', reason: `${manifest.version} < ${active.version}`};
+  const versionComparison = active ? compareVersions(approvedManifest.version, active.version) : 1;
+  if(active && versionComparison === 0) {
+    return {outcome: 'downgrade-rejected', reason: `${approvedManifest.version} is already active`};
+  }
+  if(active && versionComparison < 0 && !approvedManifest.securityRollback) {
+    return {outcome: 'downgrade-rejected', reason: `${approvedManifest.version} < ${active.version}`};
   }
 
-  const pendingName = pendingCacheName(manifest.version);
-  let pending: Cache;
+  const manifestDigest = await sha256Hex(manifestBytes);
+  const targetName = preparedCacheName(approvedManifest.version, manifestDigest);
+  const abortController = new AbortController();
+  const abortFromCaller = () => abortController.abort(options.signal?.reason);
+  if(options.signal?.aborted) abortFromCaller();
+  else options.signal?.addEventListener('abort', abortFromCaller, {once: true});
+
+  let target: Cache;
   try {
-    pending = await caches.open(pendingName);
+    await caches.delete(targetName);
+    target = await caches.open(targetName);
   } catch(e) {
+    options.signal?.removeEventListener('abort', abortFromCaller);
     return {outcome: 'quota-exceeded', reason: String(e)};
   }
 
-  const entries = Object.entries(manifest.bundleHashes);
-  let done = 0;
-  for(const [path, expectedHash] of entries) {
+  let activeCache: Cache | null = null;
+  if(active) {
     try {
-      // Manifest paths can contain URL-reserved characters. `#` is especially
-      // problematic — fetch treats it as a fragment separator and strips it.
-      // Pre-encode reserved chars before resolving against the SW location.
-      const encodedPath = path.replace(/#/g, '%23').replace(/\?/g, '%3F');
-      const url = new URL(encodedPath, self.location.href).href;
-      const res = await fetch(url, {cache: 'no-cache'});
-      if(!res.ok) {
-        await caches.delete(pendingName);
-        return {outcome: 'network-error', chunk: path, reason: `HTTP ${res.status}`};
-      }
-      const ab = await res.arrayBuffer();
-      const actual = await sha256b64(ab);
-      if(actual !== expectedHash) {
-        await caches.delete(pendingName);
-        console.error('[update-sw] chunk-mismatch', {chunk: path, expected: expectedHash, actual, size: ab.byteLength, fetched: done, total: entries.length});
-        return {outcome: 'chunk-mismatch', chunk: path, expected: expectedHash, actual};
-      }
-      // Preserve Content-Type from the original response. Constructing
-      // `new Response(ab)` with no init drops all headers — the cached entry
-      // is then served on next load with empty Content-Type, and the browser's
-      // strict MIME check rejects ES module scripts ("Failed to load module
-      // script: Expected a JavaScript-or-Wasm module script but the server
-      // responded with a MIME type of """). Mirrors the install-time path,
-      // which uses `unwrapRedirected(res)` for the same reason.
-      await pending.put(path, new Response(ab, {
-        status: res.status,
-        statusText: res.statusText,
-        headers: res.headers
-      }));
-      done++;
-      onProgress?.(done, entries.length);
-    } catch(e) {
-      await caches.delete(pendingName);
-      console.error('[update-sw] network-error', {chunk: path, error: String(e), fetched: done, total: entries.length});
-      return {outcome: 'network-error', chunk: path, reason: String(e)};
+      activeCache = await caches.open(activeShellCacheName(active));
+    } catch{
+      // Reuse is an optimization only. A missing/corrupt active cache must not
+      // weaken verification; fall back to downloading and hashing every entry.
     }
   }
+  const entries = Object.entries(approvedManifest.bundleHashes);
+  const baseUrl = (self as any as ServiceWorkerGlobalScope).registration?.scope || self.location.href;
+  const reporter = createProgressReporter(onProgress);
+  let done = 0;
+  let failure: ApprovedResult | null = null;
 
-  const newFingerprint = manifest.rotation?.newFingerprint || manifest.signingKeyFingerprint;
-  const newInstalledPubkey = manifest.rotation?.newPubkey || active?.installedPubkey;
+  const fail = (result: ApprovedResult) => {
+    if(failure) return;
+    failure = result;
+    abortController.abort(result.reason || result.outcome);
+  };
+
+  await runBoundedWorkers(entries.length, SIGNED_UPDATE_CONCURRENCY, async(index) => {
+    if(failure || abortController.signal.aborted) return;
+    const [path, expectedHash] = entries[index];
+    const url = manifestAssetUrl(path, baseUrl);
+    try {
+      let verifiedResponse: Response | null = null;
+      if(activeCache) {
+        try {
+          const cached = await activeCache.match(url);
+          if(cached) {
+            const cachedBytes = await cached.arrayBuffer();
+            if(await sha256Hex(cachedBytes) === expectedHash) {
+              verifiedResponse = responseFromVerifiedBytes(cachedBytes, cached);
+            }
+          }
+        } catch{}
+      }
+
+      if(!verifiedResponse) {
+        const res = await fetch(url, {cache: 'no-cache', signal: abortController.signal});
+        if(!res.ok) {
+          fail({outcome: 'network-error', chunk: path, reason: `HTTP ${res.status}`});
+          return;
+        }
+        const bytes = await res.arrayBuffer();
+        const actual = await sha256Hex(bytes);
+        if(actual !== expectedHash) {
+          console.error('[update-sw] chunk-mismatch', {chunk: path, expected: expectedHash, actual, size: bytes.byteLength, fetched: done, total: entries.length});
+          fail({outcome: 'chunk-mismatch', chunk: path, expected: expectedHash, actual});
+          return;
+        }
+        verifiedResponse = responseFromVerifiedBytes(bytes, res);
+      }
+
+      if(failure || abortController.signal.aborted) return;
+      await target.put(url, verifiedResponse);
+      done++;
+      reporter.report(done, entries.length);
+    } catch(e) {
+      if(failure) return;
+      const isQuota = e instanceof DOMException && e.name === 'QuotaExceededError';
+      const result: ApprovedResult = isQuota ?
+        {outcome: 'quota-exceeded', chunk: path, reason: String(e)} :
+        {outcome: 'network-error', chunk: path, reason: String(e)};
+      console.error('[update-sw] network-error', {chunk: path, error: String(e), fetched: done, total: entries.length});
+      fail(result);
+    }
+  }, () => !!failure || abortController.signal.aborted);
+
+  options.signal?.removeEventListener('abort', abortFromCaller);
+  if(!failure && abortController.signal.aborted) {
+    failure = {outcome: 'network-error', reason: 'update cancelled'};
+  }
+  if(failure) {
+    reporter.cancel();
+    await caches.delete(targetName);
+    return failure;
+  }
+
+  const newFingerprint = approvedManifest.rotation?.newFingerprint || approvedManifest.signingKeyFingerprint;
+  const newInstalledPubkey = approvedManifest.rotation?.newPubkey || active?.installedPubkey;
   try {
-    await atomicSwap(active?.version ?? '', manifest.version, newFingerprint, newInstalledPubkey);
+    await commitPreparedShell(
+      approvedManifest.version,
+      newFingerprint,
+      newInstalledPubkey,
+      targetName,
+      {manifestText: exactManifestText, signature: signatureB64, approvedByPubkey: trustedPubkeyB64, manifestDigest}
+    );
   } catch(e) {
-    await caches.delete(pendingName);
+    reporter.cancel();
+    await caches.delete(targetName);
     return {outcome: 'swap-failed', reason: String(e)};
   }
+  reporter.finish(done, entries.length);
   return {outcome: 'applied'};
 }

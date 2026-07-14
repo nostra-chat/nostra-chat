@@ -141,6 +141,9 @@ export interface SignedUpdateOptions {
   onProgress?: (done: number, total: number) => void;
 }
 
+export const UPDATE_INACTIVITY_TIMEOUT_MS = 120_000;
+export const UPDATE_CANCEL_GRACE_MS = 10_000;
+
 async function promoteApprovedServiceWorker(manifest: Manifest): Promise<void> {
   localStorage.setItem('nostra.update.pendingFinalization', '1');
   localStorage.setItem('nostra.update.pendingManifest', JSON.stringify(manifest));
@@ -184,8 +187,14 @@ async function startUpdateSignedUnlocked(
   manifestText?: string,
   opts: SignedUpdateOptions = {}
 ): Promise<SignedUpdateResult> {
-  const validation = validateUpdateManifest(manifest);
-  if(!validation.ok || manifest.schemaVersion !== 2) {
+  let approvedManifest = manifest;
+  if(manifestText) {
+    try { approvedManifest = JSON.parse(manifestText); } catch(err) {
+      return {ok: false, outcome: 'invalid-manifest', reason: `signed manifest JSON is invalid: ${String(err)}`};
+    }
+  }
+  const validation = validateUpdateManifest(approvedManifest);
+  if(!validation.ok || approvedManifest.schemaVersion !== 2) {
     return {ok: false, outcome: 'invalid-manifest', reason: validation.reason || 'signed updates require schemaVersion 2'};
   }
   const reg = await navigator.serviceWorker.getRegistration();
@@ -193,28 +202,60 @@ async function startUpdateSignedUnlocked(
 
   return new Promise((resolve) => {
     const channel = new MessageChannel();
-    const timer = setTimeout(() => {
+    let inactivityTimer: ReturnType<typeof setTimeout>;
+    let cancelTimer: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
+    let settled = false;
+
+    const finish = (result: SignedUpdateResult) => {
+      if(settled) return;
+      settled = true;
+      clearTimeout(inactivityTimer);
+      if(cancelTimer !== undefined) clearTimeout(cancelTimer);
       channel.port1.close();
-      resolve({ok: false, outcome: 'update-timeout', reason: 'service worker did not finish within 120 seconds'});
-    }, 120_000);
+      resolve(result);
+    };
+    const timeoutResult = (): SignedUpdateResult => ({
+      ok: false,
+      outcome: 'update-timeout',
+      reason: 'service worker stopped reporting progress for 120 seconds'
+    });
+    const armInactivityTimer = () => {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(() => {
+        timedOut = true;
+        try {
+          channel.port1.postMessage({type: 'UPDATE_CANCEL'});
+          cancelTimer = setTimeout(() => finish(timeoutResult()), UPDATE_CANCEL_GRACE_MS);
+        } catch{
+          finish(timeoutResult());
+        }
+      }, UPDATE_INACTIVITY_TIMEOUT_MS);
+    };
+
+    armInactivityTimer();
     channel.port1.onmessage = async(ev) => {
       if(ev.data?.type === 'UPDATE_PROGRESS') {
+        armInactivityTimer();
         opts.onProgress?.(ev.data.done, ev.data.total);
         return;
       }
       if(ev.data?.type === 'UPDATE_RESULT') {
-        clearTimeout(timer);
-        channel.port1.close();
+        clearTimeout(inactivityTimer);
+        if(timedOut) {
+          finish(timeoutResult());
+          return;
+        }
         const d = ev.data;
         if(d.outcome === 'applied') {
           try {
-            await promoteApprovedServiceWorker(manifest);
+            await promoteApprovedServiceWorker(approvedManifest);
           } catch(err) {
-            resolve({ok: false, outcome: 'register-failed', reason: String(err)});
+            finish({ok: false, outcome: 'register-failed', reason: String(err)});
             return;
           }
         }
-        resolve({
+        finish({
           ok: d.outcome === 'applied',
           outcome: d.outcome,
           reason: d.reason,
@@ -224,7 +265,11 @@ async function startUpdateSignedUnlocked(
         });
       }
     };
-    reg.active!.postMessage({type: 'UPDATE_APPROVED', manifest, signature, manifestText}, [channel.port2]);
+    try {
+      reg.active!.postMessage({type: 'UPDATE_APPROVED', manifest: approvedManifest, signature, manifestText}, [channel.port2]);
+    } catch(err) {
+      finish({ok: false, outcome: 'update-dispatch-failed', reason: String(err)});
+    }
   });
 }
 

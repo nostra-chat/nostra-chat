@@ -4,13 +4,15 @@ import * as ed from '@noble/ed25519';
 import {sha512} from '@noble/hashes/sha2.js';
 import {bytesToBase64} from '@lib/update/signing/verify';
 import {handleUpdateApproved} from '@lib/serviceWorker/signed-update-sw';
-import {setActiveVersion, getActiveVersion} from '@lib/serviceWorker/shell-cache';
+import {activeShellCacheName, setActiveVersion, getActiveVersion} from '@lib/serviceWorker/shell-cache';
+import {manifestAssetUrl, SIGNED_UPDATE_CONCURRENCY} from '@lib/serviceWorker/update-asset-utils';
 
 beforeAll(() => {
   ed.hashes.sha512 = sha512;
 });
 
 const store = new Map<string, Map<string, Response>>();
+const cacheKey = (r: any) => new URL(typeof r === 'string' ? r : r.url, globalThis.location?.href || 'https://localhost/').href;
 beforeEach(() => {
   store.clear();
   (globalThis as any).caches = {
@@ -18,9 +20,9 @@ beforeEach(() => {
       if(!store.has(name)) store.set(name, new Map());
       const m = store.get(name)!;
       return {
-        async put(r: any, res: Response) { m.set(typeof r === 'string' ? r : r.url, res.clone()); },
-        async match(r: any) { return m.get(typeof r === 'string' ? r : r.url); },
-        async delete(r: any) { return m.delete(typeof r === 'string' ? r : r.url); },
+        async put(r: any, res: Response) { m.set(cacheKey(r), res.clone()); },
+        async match(r: any) { return m.get(cacheKey(r)); },
+        async delete(r: any) { return m.delete(cacheKey(r)); },
         async keys() { return Array.from(m.keys()).map((u) => new Request(u.startsWith('http') ? u : 'https://localhost' + u)); }
       } as any;
     },
@@ -144,27 +146,119 @@ describe('handleUpdateApproved', () => {
       throw new Error('unexpected url ' + url);
     }) as any;
     await setActiveVersion('0.12.0', 'ed25519:x');
-    // Snoop on the pending cache: capture the Response objects the SW writes
-    // BEFORE atomicSwap drains the cache. This is the exact write site where
-    // the bug lived (`new Response(ab)` stripped Content-Type).
-    const captured = new Map<string, Response>();
-    const origCachesOpen = (globalThis as any).caches.open.bind((globalThis as any).caches);
-    (globalThis as any).caches.open = async(name: string) => {
-      const c = await origCachesOpen(name);
-      if(name.endsWith('-pending')) {
-        const origPut = c.put.bind(c);
-        c.put = async(r: any, res: Response) => {
-          captured.set(typeof r === 'string' ? r : r.url, res.clone());
-          return origPut(r, res);
-        };
-      }
-      return c;
-    };
     const res = await handleUpdateApproved(manifest, sig, bytesToBase64(pub));
     expect(res.outcome).toBe('applied');
-    const cached = captured.get('./index-D4FOSvD8.js');
+    const active = await getActiveVersion();
+    const activeCache = await (globalThis as any).caches.open(activeShellCacheName(active!));
+    const cached = await activeCache.match(manifestAssetUrl('./index-D4FOSvD8.js', self.location.href));
     expect(cached).toBeDefined();
     expect(cached!.headers.get('content-type')).toBe('application/javascript');
+  });
+
+  it('rehashes the active cache and downloads only missing or divergent chunks', async() => {
+    const priv = ed.utils.randomSecretKey();
+    const pub = await ed.getPublicKeyAsync(priv);
+    const correctA = new TextEncoder().encode('stable-a');
+    const correctB = new TextEncoder().encode('fresh-b');
+    const correctC = new TextEncoder().encode('fresh-c');
+    const swJs = new TextEncoder().encode('worker');
+    const manifest: any = {
+      schemaVersion: 2, version: '0.14.0', gitSha: 'b'.repeat(40), published: new Date().toISOString(),
+      swUrl: './sw.js', signingKeyFingerprint: 'ed25519:x', securityRelease: false, securityRollback: false,
+      bundleHashes: {
+        './a.js': await sha256b64(correctA),
+        './b.js': await sha256b64(correctB),
+        './c.js': await sha256b64(correctC),
+        './sw.js': await sha256b64(swJs)
+      },
+      changelog: '', alternateSources: {}, rotation: null
+    };
+    const text = JSON.stringify(manifest);
+    const sig = bytesToBase64(await ed.signAsync(new TextEncoder().encode(text), priv));
+    await setActiveVersion('0.13.0', 'ed25519:x');
+    const oldCache = await (globalThis as any).caches.open('shell-v0.13.0');
+    await oldCache.put(manifestAssetUrl('./a.js', self.location.href), new Response(correctA));
+    await oldCache.put(manifestAssetUrl('./b.js', self.location.href), new Response('corrupt'));
+    const fetched: string[] = [];
+    global.fetch = vi.fn(async(url: string) => {
+      fetched.push(url);
+      if(url.endsWith('/b.js')) return new Response(correctB);
+      if(url.endsWith('/c.js')) return new Response(correctC);
+      if(url.endsWith('/sw.js')) return new Response(swJs);
+      throw new Error(`stable cached asset was fetched: ${url}`);
+    }) as any;
+
+    const result = await handleUpdateApproved(manifest, sig, bytesToBase64(pub), undefined, text);
+
+    expect(result.outcome).toBe('applied');
+    expect(fetched.some((url) => url.endsWith('/a.js'))).toBe(false);
+    expect(fetched.filter((url) => /\/(b|c|sw)\.js$/.test(url))).toHaveLength(3);
+  });
+
+  it('downloads signed chunks concurrently without exceeding the configured limit', async() => {
+    const priv = ed.utils.randomSecretKey();
+    const pub = await ed.getPublicKeyAsync(priv);
+    const bytes = new TextEncoder().encode('same-content');
+    const hash = await sha256b64(bytes);
+    const bundleHashes: Record<string, string> = {'./sw.js': hash};
+    for(let i = 0; i < 23; i++) bundleHashes[`./chunk-${i}.js`] = hash;
+    const manifest: any = {
+      schemaVersion: 2, version: '0.15.0', gitSha: 'c'.repeat(40), published: new Date().toISOString(),
+      swUrl: './sw.js', signingKeyFingerprint: 'ed25519:x', securityRelease: false, securityRollback: false,
+      bundleHashes, changelog: '', alternateSources: {}, rotation: null
+    };
+    const text = JSON.stringify(manifest);
+    const sig = bytesToBase64(await ed.signAsync(new TextEncoder().encode(text), priv));
+    await setActiveVersion('0.14.0', 'ed25519:x');
+    let inFlight = 0;
+    let maxInFlight = 0;
+    global.fetch = vi.fn(async() => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight--;
+      return new Response(bytes);
+    }) as any;
+
+    const result = await handleUpdateApproved(manifest, sig, bytesToBase64(pub), undefined, text);
+
+    expect(result.outcome).toBe('applied');
+    expect(maxInFlight).toBeGreaterThan(1);
+    expect(maxInFlight).toBeLessThanOrEqual(SIGNED_UPDATE_CONCURRENCY);
+  });
+
+  it('drains in-flight work before deleting a failed target cache', async() => {
+    const priv = ed.utils.randomSecretKey();
+    const pub = await ed.getPublicKeyAsync(priv);
+    const good = new TextEncoder().encode('good');
+    const expected = await sha256b64(good);
+    const bundleHashes: Record<string, string> = {'./bad.js': expected, './sw.js': expected};
+    for(let i = 0; i < 10; i++) bundleHashes[`./slow-${i}.js`] = expected;
+    const manifest: any = {
+      schemaVersion: 2, version: '0.16.0', gitSha: 'd'.repeat(40), published: new Date().toISOString(),
+      swUrl: './sw.js', signingKeyFingerprint: 'ed25519:x', securityRelease: false, securityRollback: false,
+      bundleHashes, changelog: '', alternateSources: {}, rotation: null
+    };
+    const text = JSON.stringify(manifest);
+    const sig = bytesToBase64(await ed.signAsync(new TextEncoder().encode(text), priv));
+    await setActiveVersion('0.15.0', 'ed25519:x');
+    global.fetch = vi.fn(async(url: string, init?: RequestInit) => {
+      if(url.endsWith('/bad.js')) return new Response('wrong');
+      return new Promise<Response>((resolve, reject) => {
+        const timer = setTimeout(() => resolve(new Response(good)), 100);
+        init?.signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(new DOMException('Aborted', 'AbortError'));
+        }, {once: true});
+      });
+    }) as any;
+
+    const result = await handleUpdateApproved(manifest, sig, bytesToBase64(pub), undefined, text);
+
+    expect(result.outcome).toBe('chunk-mismatch');
+    expect((await getActiveVersion())?.version).toBe('0.15.0');
+    expect([...store.keys()].some((name) => name.startsWith('shell-v0.16.0--'))).toBe(false);
+    expect(store.has('shell-v0.15.0')).toBe(true);
   });
 
   it('rejects if signature is bad (defense in depth)', async() => {

@@ -143,6 +143,8 @@ describe('manifestText propagation — main-thread postMessage', () => {
     expect(captured[0].type).toBe('UPDATE_APPROVED');
     expect(captured[0].manifestText).toBe(manifestText);
     expect(captured[0].signature).toBe(signature);
-    expect(captured[0].manifest).toBe(manifest);
+    // The dispatched object is parsed back from the exact signed bytes so an
+    // unsigned caller object cannot disagree with the verified manifest.
+    expect(captured[0].manifest).toStrictEqual(manifest);
   });
 });

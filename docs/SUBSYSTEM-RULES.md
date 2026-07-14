@@ -51,7 +51,9 @@ Storing a user in Worker's `appUsersManager.users[]` is NOT enough — call `thi
 
 - `SKIP_PRECACHE_PATTERNS` (in `src/lib/serviceWorker/index.service.ts`) filters paths out of the install-time fetch loop so first-install finishes in ~3-4s instead of ~27s. Emoji PNGs (3788 files, 22MB) are the current entry. Skipped paths still appear in `bundleHashes` — they're just lazy-loaded via the fetch handler on first use.
 - **Manifest path format trap**: `update-manifest.json` paths ship with a leading `./` prefix (release-pipeline quirk, not Vite). Any regex against bundle paths MUST normalize via `p.replace(/^\.?\//, '')` first — use the `normalizeManifestPath()` helper next to the filter. A no-op filter shipped undetected in 0.14.1 because Vite local builds don't emit the manifest; writing unit tests against the live manifest (or a fixture of it) is the right safety net.
-- The install handler is tolerant of per-path fetch failures (catches URL-reserved chars like `#` in changelog filenames). It throws only when `successCount === 0`.
+- First-install precache throws if any non-skipped load-bearing path remains missing after retries.
+- A consent-approved signed upgrade does not run the first-install network precache. Its install handler verifies the persisted exact manifest/signature, expected SW URL, and every byte in the prepared cache; any inconsistency fails closed with no network fallback.
+- Signed update preparation uses 8 bounded workers. It re-hashes cached bytes before reuse, downloads only missing/changed bytes, drains in-flight work before cleanup, and activates the complete digest-addressed cache with one IDB pointer commit.
 
 ## Message Receive Pipeline
 

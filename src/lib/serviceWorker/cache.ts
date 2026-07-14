@@ -48,12 +48,12 @@ export async function requestCache(event: FetchEvent) {
   }
 }
 
-import {getActiveVersion} from './shell-cache';
+import {activeShellCacheName, getActiveVersion} from './shell-cache';
 
 async function currentShellCacheName(): Promise<string> {
   const active = await getActiveVersion();
   if(!active) throw new Error('no active version');
-  return `shell-v${active.version}`;
+  return activeShellCacheName(active);
 }
 
 // A Response obtained via a fetch that followed an HTTP redirect carries

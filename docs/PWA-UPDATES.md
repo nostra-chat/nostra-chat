@@ -1,7 +1,7 @@
 # PWA update security and recovery
 
 **Authority:** security model and recovery procedure for controlled PWA updates.
-**Last reviewed:** 2026-07-12.
+**Last reviewed:** 2026-07-13.
 
 ## Trust boundaries and threat model
 
@@ -25,8 +25,10 @@ release signing key remains outside what an in-origin updater can contain.
    the active Service Worker, not only in the page.
 3. Every bundle path is relative, traversal-free, bounded, same-origin, and
    covered by a SHA-256 digest. The release validator re-hashes every real file.
-4. Every artifact is downloaded into a versioned pending cache and verified
-   before the active-version pointer changes.
+4. Every artifact is placed into a manifest-digest-addressed prepared cache and
+   verified before the active-version pointer changes. Bytes may be reused from
+   the previous cache only after their SHA-256 digest is recomputed and matches
+   the newly signed manifest.
 5. A normal signed downgrade is rejected again inside the Service Worker.
    An intentional security rollback must be explicitly marked in the signed
    manifest.
@@ -40,6 +42,10 @@ release signing key remains outside what an in-origin updater can contain.
    swap.
 9. Failure deletes the pending cache where possible and leaves the last active
    shell available. It never falls back to running a hash-mismatched response.
+10. The approved worker install re-verifies the persisted exact manifest,
+    signature, worker URL, and every prepared-cache byte locally. It does not
+    refetch the app shell from the network. The browser still necessarily
+    fetches the registered Service Worker script itself once.
 
 ## Release artifact path
 
@@ -53,7 +59,18 @@ The client probe downloads the exact manifest text and detached signature. A
 verified update is offered through the consent popup. Acceptance sends both the
 parsed object and original bytes to the active Service Worker, which repeats
 signature, schema, path, downgrade, rotation, and artifact checks before the
-cache swap. The page then registers/promotes the manifest's verified worker.
+cache commit. Verification runs with a bounded worker pool. Matching bytes from
+the active shell are re-hashed and copied into the prepared cache; only missing
+or changed bytes are downloaded. The prepared cache is already complete, so a
+single IndexedDB active-pointer commit replaces the old copy-based swap. The
+page then registers/promotes the manifest's verified worker, whose install step
+revalidates that same approved cache without downloading the shell again.
+
+Progress messages are coalesced to at most one every 100 ms. The page's
+two-minute watchdog measures inactivity rather than total elapsed time: each
+progress message resets it. On inactivity the page asks the worker to cancel,
+retains the exclusive update lock during a ten-second cleanup grace period, and
+then reports a timeout.
 
 ## Recovery
 
@@ -76,9 +93,11 @@ cache swap. The page then registers/promotes the manifest's verified worker.
 
 Unit/integration coverage includes valid and invalid signatures, exact manifest
 byte propagation, hash mismatch, downgrade rejection, key rotation certificate,
-safe/reserved paths, cache swap, MIME preservation, consent state, snooze,
-registration URL, boot ordering, and multi-tab lock contention. Production
-`pnpm build` validates the real release paths and hashes.
+safe/reserved paths, prepared-cache commit, verified reuse, bounded concurrency,
+in-flight failure draining, MIME preservation, approved install without network
+refetch, inactivity cancellation, consent state, snooze, registration URL, boot
+ordering, and multi-tab lock contention. Production `pnpm build` validates the
+real release paths and hashes.
 
 Long browser E2E remains the authority for controller-change timing, browser
 quota behavior, interrupted downloads, cache eviction, and differences among

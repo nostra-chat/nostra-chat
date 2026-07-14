@@ -69,9 +69,9 @@ Clients probe the manifest + signature from multiple sources (`MANIFEST_SOURCES`
 
 | Namespace | Key / Cache | Purpose |
 |-----------|-------------|---------|
-| IndexedDB | `nostra-update-state` → `active` → `current` | `{version, keyFingerprint, installedPubkey, at}` — active trust anchor |
+| IndexedDB | `nostra-update-state` → `active` → `current` | Active version/key, exact approved manifest+signature, and active cache name |
 | CacheStorage | `shell-v<version>` | The currently-served app-shell |
-| CacheStorage | `shell-v<version>-pending` | In-flight update target (atomic swap source) |
+| CacheStorage | `shell-v<version>--<manifest-digest>` | Prepared signed-update shell; inactive until the IDB pointer commit |
 | localStorage | `nostra.update.snoozedVersion`, `.snoozedUntil` | Per-version 24h snooze |
 | localStorage | `nostra.update.declineCount.<version>` | Declines; triggers staleness banner at 7 |
 | localStorage | `nostra.update.lastProbe` | Throttle (12h) |
@@ -84,7 +84,7 @@ Clients probe the manifest + signature from multiple sources (`MANIFEST_SOURCES`
 
 A user visiting `nostra.chat` with no SW installed:
 1. Browser fetches the index + chunks over HTTPS+HSTS (the TOFU window).
-2. SW installs, reads `update-manifest.json`, precaches every asset, SHA-256-verifies each.
+2. SW installs, reads `update-manifest.json`, and precaches the load-bearing shell in parallel. Large emoji assets are lazy on first install.
 3. The `FirstInstallInfo` banner appears once, showing the baked key fingerprint.
 
 ### Probe → popup → accept
@@ -93,11 +93,13 @@ A user visiting `nostra.chat` with no SW installed:
 2. `probe()` fetches manifest + `.sig` from N sources with `cache: 'no-cache'`.
 3. Ed25519 signature verified against the baked/installed pubkey.
 4. Consensus across sources for `{version, bundleHashes, swUrl}`.
-5. If new version: red dot on hamburger, `update_available` event dispatched.
+5. If new version: red dot on hamburger, `update_available_signed` event dispatched.
 6. User clicks hamburger update button → `UpdateConsent` popup opens.
 7. User accepts → main thread posts `UPDATE_APPROVED` to SW.
-8. SW downloads chunks to `shell-v<new>-pending`, verifies each hash, and performs atomic swap on all-match.
-9. User reloads → new version served from cache.
+8. SW prepares `shell-v<new>--<manifest-digest>` with a bounded pool of 8 workers. It re-hashes and reuses matching active-cache bytes; only missing or changed chunks are downloaded and hashed.
+9. On all-match, one IDB pointer commit activates the already-complete cache; no full cache-to-cache copy occurs.
+10. The browser fetches the registered SW script once. Its install handler re-verifies the exact approved manifest, signature, worker URL, and prepared-cache bytes locally without refetching the shell.
+11. User reloads → new version served from the approved cache.
 
 ### Decline
 
@@ -111,6 +113,7 @@ A user visiting `nostra.chat` with no SW installed:
 | Invalid signature | Probe fails silently (console warn only). No popup. Attacker cannot even announce. |
 | Chunk hash mismatch during download | Pending cache discarded. Popup: "Update cancelled — integrity check failed." Active cache intact. |
 | Network drop | Same as chunk mismatch — atomic all-or-nothing. |
+| No progress for 2 minutes | Page sends `UPDATE_CANCEL`, keeps the cross-tab lock for a 10s cleanup grace period, then reports timeout. |
 | Quota exceeded | Popup: "Insufficient storage." Old cache intact. |
 | Cache-miss on app-shell at runtime | SW returns a 503 HTML recovery page with a [Reinstall] button that wipes caches and unregisters. |
 | Downgrade attempt (new version < active without `securityRollback`) | Probe returns `downgrade-rejected`. No popup. |
@@ -122,6 +125,8 @@ A user visiting `nostra.chat` with no SW installed:
 - App-shell fetches served ONLY from cache (navigation + `.js/.css/.wasm/.html/...`) — except `/update-manifest.json*` which always hits network for probe.
 - Any unsigned or wrong-key-signed manifest is dropped silently.
 - Any chunk mismatch aborts swap; active cache unchanged.
+- Cached bytes are untrusted until re-hashed against the newly signed manifest.
+- The prepared cache becomes active only after all workers have drained and all hashes match.
 - Monotonic version: newVersion must be > activeVersion (unless `securityRollback: true`).
 
 ## Recovery UX
@@ -137,6 +142,9 @@ Unit + integration (Vitest):
 - `src/tests/update/update-state.test.ts`
 - `src/tests/update/shell-cache.test.ts`
 - `src/tests/update/signed-update-sw.test.ts`
+- `src/tests/update/approved-shell-install.test.ts`
+- `src/tests/update/update-asset-utils.test.ts`
+- `src/tests/update/update-flow.test.ts`
 
 E2E (Playwright):
 - `src/tests/e2e/e2e-update-consent-flow.ts`
@@ -160,7 +168,11 @@ pnpm build
 
 Discovered the hard way during smoke testing of v0.12.0. Each invariant exists for a reason; check the listed file before changing.
 
-- **`cache.addAll(paths)` for SW install precache** (`src/lib/serviceWorker/index.service.ts`). 4000+ files cannot be fetched serially within the browser's 30s install budget. NEVER refactor to a `for...of fetch+verify` loop.
+- **First-install precache is parallel and excludes emoji assets** (`src/lib/serviceWorker/index.service.ts`). Signed upgrades use a bounded pool of 8 and verify all manifest entries. Never restore a serial 4000+ file loop.
+- **Approved SW install is cache-only and fail-closed** (`approved-shell-install.ts`). Once an approval record exists, verify its exact manifest/signature, expected worker URL, and every cache byte; never fall back to shell network downloads.
+- **Cache reuse always re-hashes bytes** (`signed-update-sw.ts`). CacheStorage is not a trust boundary. Reuse is allowed only when the byte digest matches the new signed manifest.
+- **Prepared cache names include the manifest digest** and activation is one IDB pointer commit (`shell-cache.ts`). Do not copy thousands of entries into a second cache during activation.
+- **Progress is throttled; timeout means inactivity** (`update-asset-utils.ts`, `update-flow.ts`). On timeout request cancellation and keep the Web Lock through the cleanup grace period.
 - **Sig verify uses raw `manifestText` bytes, not `JSON.stringify(parsed)`** (`src/lib/serviceWorker/signed-update-sw.ts`). postMessage / structured-clone reorders object keys → re-serialized JSON has different bytes than what the server emitted → signature fails. The probe returns `manifestText` and threads it through dispatch → popup → `acceptUpdate` → SW handler.
 - **`setActiveVersion` runs in `install`, not `activate`** (`src/lib/serviceWorker/index.service.ts`). Some browser configurations recycle the worker scope between events, dropping `self.__INSTALL_*` globals. Persist directly to IDB during install.
 - **Update-flow SW deps are STATIC imports** (`signed-update-sw`, `shell-cache`, `trusted-keys`). Vite chunk splits make `await import('./foo')` inside SW unreliable — chunk fails to load → `swap-failed` with no useful error.

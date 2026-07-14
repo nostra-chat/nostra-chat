@@ -2,10 +2,19 @@ const DB_NAME = 'nostra-update-state';
 const DB_VERSION = 1;
 const STORE = 'active';
 
-interface ActiveVersion {
+export interface ApprovedShellRecord {
+  manifestText: string;
+  signature: string;
+  approvedByPubkey: string;
+  manifestDigest: string;
+}
+
+export interface ActiveVersion {
   version: string;
   keyFingerprint: string;
   installedPubkey?: string;
+  cacheName?: string;
+  approval?: ApprovedShellRecord;
   at: number;
 }
 
@@ -29,6 +38,15 @@ export function pendingCacheName(version: string): string {
   return `shell-v${version}-pending`;
 }
 
+export function preparedCacheName(version: string, manifestDigest: string): string {
+  const digest = manifestDigest.replace(/^sha256-/, '');
+  return `shell-v${version}--${digest}`;
+}
+
+export function activeShellCacheName(active: ActiveVersion): string {
+  return active.cacheName || shellCacheName(active.version);
+}
+
 export async function getActiveVersion(): Promise<ActiveVersion | null> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -39,28 +57,37 @@ export async function getActiveVersion(): Promise<ActiveVersion | null> {
   });
 }
 
-export async function setActiveVersion(version: string, keyFingerprint: string, installedPubkey?: string): Promise<void> {
+export async function setActiveVersion(
+  version: string,
+  keyFingerprint: string,
+  installedPubkey?: string,
+  cacheName = shellCacheName(version),
+  approval?: ApprovedShellRecord
+): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite');
-    const rec: ActiveVersion = {version, keyFingerprint, installedPubkey, at: Date.now()};
+    const rec: ActiveVersion = {version, keyFingerprint, installedPubkey, cacheName, approval, at: Date.now()};
     tx.objectStore(STORE).put(rec, 'current');
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
 }
 
-export async function atomicSwap(oldVersion: string, newVersion: string, keyFingerprint: string, installedPubkey?: string): Promise<void> {
-  const newCache = await caches.open(shellCacheName(newVersion));
-  const pendingCache = await caches.open(pendingCacheName(newVersion));
-  const keys = await pendingCache.keys();
-  for(const req of keys) {
-    const res = await pendingCache.match(req);
-    if(res) await newCache.put(req, res);
+export async function commitPreparedShell(
+  newVersion: string,
+  keyFingerprint: string,
+  installedPubkey: string | undefined,
+  cacheName: string,
+  approval: ApprovedShellRecord
+): Promise<void> {
+  if(!(await caches.has(cacheName))) throw new Error(`prepared cache missing: ${cacheName}`);
+  const previous = await getActiveVersion();
+  await setActiveVersion(newVersion, keyFingerprint, installedPubkey, cacheName, approval);
+  const previousCacheName = previous ? activeShellCacheName(previous) : '';
+  if(previousCacheName && previousCacheName !== cacheName) {
+    try { await caches.delete(previousCacheName); } catch{}
   }
-  await setActiveVersion(newVersion, keyFingerprint, installedPubkey);
-  await caches.delete(pendingCacheName(newVersion));
-  if(oldVersion !== newVersion) await caches.delete(shellCacheName(oldVersion));
 }
 
 export async function gcOrphans(): Promise<void> {
@@ -69,7 +96,7 @@ export async function gcOrphans(): Promise<void> {
   const names = await caches.keys();
   for(const n of names) {
     if(!n.startsWith('shell-v')) continue;
-    if(n === shellCacheName(active.version)) continue;
+    if(n === activeShellCacheName(active)) continue;
     await caches.delete(n);
   }
 }

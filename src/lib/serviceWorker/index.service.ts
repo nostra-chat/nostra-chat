@@ -27,6 +27,7 @@ import DeferredIsUsingPasscode from '@lib/passcode/deferredIsUsingPasscode';
 import {onBackgroundsFetch} from '@lib/serviceWorker/backgrounds';
 import {watchMtprotoOnDev} from '@lib/serviceWorker/watchMtprotoOnDev';
 import {watchCacheStoragesLifetime} from './clearOldCache';
+import {reuseApprovedShellForInstall} from './approved-shell-install';
 import '@lib/serviceWorker/nostra-push';
 import {requestCacheStrict, unwrapRedirected} from './cache';
 import {setActiveVersion, gcOrphans, getActiveVersion} from './shell-cache';
@@ -384,6 +385,10 @@ ctx.addEventListener('install', (event) => {
   log('installing');
   event.waitUntil((async() => {
     try {
+      if(await reuseApprovedShellForInstall(self.location.href)) {
+        log('install: reused and reverified approved shell without network refetch');
+        return;
+      }
       const manifestRes = await fetch('/update-manifest.json', {cache: 'no-cache'});
       if(!manifestRes.ok) throw new Error(`manifest fetch ${manifestRes.status}`);
       const manifest = await manifestRes.json();
@@ -483,6 +488,7 @@ ctx.addEventListener('message', (event) => {
   }
 });
 
+let approvedUpdateInFlight = false;
 ctx.addEventListener('message', (event) => {
   if((event as any).data?.type !== 'UPDATE_APPROVED') return;
   const port = (event as any).ports[0] as MessagePort | undefined;
@@ -490,6 +496,18 @@ ctx.addEventListener('message', (event) => {
   // may be terminated before UPDATE_RESULT posts back, leaving the popup
   // stuck on "Applying..." forever.
   (event as ExtendableMessageEvent).waitUntil((async() => {
+    if(approvedUpdateInFlight) {
+      port?.postMessage({type: 'UPDATE_RESULT', outcome: 'update-in-progress', reason: 'another update is already being verified'});
+      return;
+    }
+    approvedUpdateInFlight = true;
+    const abortController = new AbortController();
+    if(port) {
+      port.onmessage = (messageEvent) => {
+        if(messageEvent.data?.type === 'UPDATE_CANCEL') abortController.abort('page inactivity timeout');
+      };
+      port.start();
+    }
     try {
       const active = await getActiveVersion();
       const pubkey = active?.installedPubkey || getBakedPubkey();
@@ -498,11 +516,15 @@ ctx.addEventListener('message', (event) => {
         (event as any).data.signature,
         pubkey,
         (done: number, total: number) => port?.postMessage({type: 'UPDATE_PROGRESS', done, total}),
-        (event as any).data.manifestText
+        (event as any).data.manifestText,
+        {signal: abortController.signal}
       );
       port?.postMessage({type: 'UPDATE_RESULT', outcome: res.outcome, reason: res.reason, chunk: res.chunk, expected: res.expected, actual: res.actual});
     } catch(e) {
       port?.postMessage({type: 'UPDATE_RESULT', outcome: 'swap-failed', reason: String(e)});
+    } finally {
+      approvedUpdateInFlight = false;
+      if(port) port.onmessage = null;
     }
   })());
 });

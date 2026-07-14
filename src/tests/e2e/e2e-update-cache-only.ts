@@ -22,7 +22,11 @@ async function main() {
   try {
     // First load: SW installs, precaches
     await page.goto(APP_URL);
-    await page.waitForTimeout(5000);
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    // This project intentionally does not call clients.claim(); the first page
+    // becomes controlled on the next navigation.
+    await page.reload();
+    await page.waitForFunction(() => !!navigator.serviceWorker.controller);
 
     const swReady = await page.evaluate(() => !!navigator.serviceWorker.controller);
     if(!swReady) {
