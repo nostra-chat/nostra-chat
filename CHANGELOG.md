@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.3](https://github.com/nostra-chat/nostra-chat/compare/v0.26.2...v0.26.3) (2026-07-14)
+
+
+### Bug Fixes
+
+* improve update consent popup on mobile ([dba119e](https://github.com/nostra-chat/nostra-chat/commit/dba119e5d2529e45fc4a84bfa4b61ec992a43672))
+
 ## [0.26.2](https://github.com/nostra-chat/nostra-chat/compare/v0.26.1...v0.26.2) (2026-07-14)
 
 
