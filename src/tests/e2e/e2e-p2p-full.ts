@@ -221,8 +221,9 @@ async function testDisplayNames() {
       console.log('  FAIL diagnostics: User A relay:', JSON.stringify(relayA));
     }
 
-    // A2: Add contact WITHOUT nickname -> verify fallback shows npub-style string
-    console.log('  A2: Add contact without nickname (fallback to npub)');
+    // A2: Without a local nickname, kind-0 metadata may already provide the
+    // remote display name. The npub is the fallback only while it is absent.
+    console.log('  A2: Add contact without nickname (metadata name or npub fallback)');
     // User B adds User A with empty nickname
     await addContactAndOpenChat(pageB, npubA, '');
     await pageB.waitForTimeout(1000);
@@ -243,8 +244,9 @@ async function testDisplayNames() {
       }
       return false;
     });
-    record('A2 — fallback shows npub-style string (not "P2P XXXXXX")', hasFallback && !hasP2PLabel,
-      hasFallback ? 'npub shown' : hasP2PLabel ? 'got P2P label instead' : 'neither found');
+    const hasMetadataName = await pageB.evaluate(() => document.body.textContent?.includes('Alice') ?? false);
+    record('A2 — metadata name or npub fallback is shown (not "P2P XXXXXX")', (hasMetadataName || hasFallback) && !hasP2PLabel,
+      hasMetadataName ? 'metadata name shown' : hasFallback ? 'npub shown' : hasP2PLabel ? 'got P2P label instead' : 'neither found');
   } finally {
     await ctxA.close();
     await ctxB.close();
@@ -287,10 +289,11 @@ async function testMessageCheckmarks() {
     // Wait for send to settle
     await pageA.waitForTimeout(30000);
 
-    // Inspect the last outgoing bubble
+    // Inspect the bubble for this message. A greeting service bubble can be
+    // appended after message history and is not a delivery-state candidate.
     const bubbleState = await pageA.evaluate(() => {
       const bubbles = document.querySelectorAll('.bubble');
-      const last = bubbles[bubbles.length - 1] as HTMLElement | undefined;
+      const last = Array.from(bubbles).find((bubble) => bubble.textContent?.includes('Checkmark test')) as HTMLElement | undefined;
       if(!last) return null;
       return {
         isOut: last.classList.contains('is-out'),

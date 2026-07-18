@@ -636,6 +636,22 @@ describe('NostraMTProtoServer', () => {
         expect(peerPubkey).toBe(PEER_PUBKEY);
       });
 
+      it('dispatches history_delete locally so the sender bubble disappears immediately', async() => {
+        const {default: rootScope} = await import('@lib/rootScope');
+        const dispatchSpy = vi.spyOn(rootScope, 'dispatchEventSingle');
+
+        await server.handleMethod('messages.deleteMessages', {
+          id: [MID],
+          revoke: true
+        });
+
+        expect(dispatchSpy).toHaveBeenCalledWith('history_delete', {
+          peerId: PEER_ID,
+          msgs: new Set([MID])
+        });
+        dispatchSpy.mockRestore();
+      });
+
       it('does NOT publish when revoke is false (Local-only delete)', async () => {
         await server.handleMethod('messages.deleteMessages', {
           id: [MID],

@@ -27,7 +27,6 @@ export interface PendingFlushManager {
 
 export function createPendingFlush(): PendingFlushManager {
   const pendingMessages = new Map<number, any[]>();
-  const flushedForChat = new WeakSet<object>();
   let intervalId: ReturnType<typeof setInterval> | null = null;
 
   const flushedMids = new Set<string>();
@@ -35,6 +34,20 @@ export function createPendingFlush(): PendingFlushManager {
   const flush = (numericPeerId: number) => {
     const pending = pendingMessages.get(numericPeerId);
     if(!pending?.length) return;
+
+    // Never consume a queued append until the matching chat has completed
+    // its setPeer transition and bubbles.ts has loaded the bottom slice. The
+    // appImManager switches chat.peerId before the Bubbles listener is ready;
+    // dispatching in that window loses history_append while marking the mid as
+    // flushed, so the message remains in IDB but is invisible until reload.
+    const im = MOUNT_CLASS_TO.appImManager;
+    const chat = im?.chat as any;
+    if(!chat || +chat.peerId !== numericPeerId) return;
+    if(chat.setPeerPromise) return;
+    if('bubbles' in chat) {
+      const bubbles = chat.bubbles;
+      if(!bubbles || bubbles.scrollable?.loadedAll?.bottom !== true) return;
+    }
 
     for(const msg of pending) {
       const mid = msg.mid || msg.id;
@@ -55,11 +68,7 @@ export function createPendingFlush(): PendingFlushManager {
       } catch(e: any) { console.debug('[PendingFlush]', e?.message); }
     }
 
-    // Clear pending only if chat is active for this peer
-    const im = MOUNT_CLASS_TO.appImManager;
-    if(im?.chat && +(im.chat as any).peerId === numericPeerId) {
-      pendingMessages.delete(numericPeerId);
-    }
+    pendingMessages.delete(numericPeerId);
   };
 
   const attachListener = (onPeerOpened?: (peerId: number) => void) => {

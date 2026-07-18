@@ -48,6 +48,10 @@ export async function bootHarness(opts: HarnessOptions = {}): Promise<{
   const userB = await createUser(browser, 'userB', 'Bob-Fuzz', relay, opts);
 
   await linkContacts(userA, userB);
+  await Promise.all([
+    waitForMessageSubscription(userA, 15000),
+    waitForMessageSubscription(userB, 15000)
+  ]);
   await warmupHandshake(userA, userB);
   await warmupGroupsHandshake(userA, userB);
   log(`boot done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
@@ -207,6 +211,30 @@ async function linkContacts(a: UserHandle, b: UserHandle): Promise<void> {
   b.remotePeerId = await injectContact(b, a);
 }
 
+/**
+ * Wait until the production kind-1059 subscription has received EOSE.
+ * Onboarding starts initGlobalSubscription() in the background, so merely
+ * waiting for the sidebar or ChatAPI singleton does not prove the receiver
+ * is live. Sending before this barrier makes the first bilateral action a
+ * race between relay publication and subscription setup.
+ */
+async function waitForMessageSubscription(user: UserHandle, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while(Date.now() < deadline) {
+    const ready = await user.page.evaluate(async() => {
+      const pool = (window as any).__nostraChatAPI?.relayPool;
+      if(!pool || typeof pool.whenSubscribed !== 'function') return false;
+      return pool.whenSubscribed(1000);
+    });
+    if(ready) {
+      log(`${user.id}: message subscription live`);
+      return;
+    }
+    await user.page.waitForTimeout(200);
+  }
+  throw new Error(`${user.id}: message subscription did not become live within ${timeoutMs}ms`);
+}
+
 async function injectContact(self: UserHandle, other: UserHandle): Promise<number> {
   // Delegate to the canonical addP2PContact helper. It handles pubkey decoding,
   // peerId derivation (SHA-256 → VIRTUAL_PEER_BASE + % VIRTUAL_PEER_RANGE),
@@ -244,7 +272,10 @@ async function warmupHandshake(a: UserHandle, b: UserHandle): Promise<void> {
   // real fuzz action was reactViaUI (FIND-4e18d35d regression-watch, firing
   // repeatedly in Phase 2b.5 baseline-emit runs).
   log('warmup: A→B text → B→A react → A→B delete → drain');
-  const warmupText = `__warmup_${Date.now()}__`;
+  // Keep the sentinel free of Markdown markers. A previous `__warmup__`
+  // value rendered without its underscores, so the DOM assertion reported a
+  // missing bubble even though delivery and rendering had succeeded.
+  const warmupText = `Warmup-${Date.now()}`;
   let mid: string | null = null;
 
   try {
@@ -307,21 +338,13 @@ async function warmupHandshake(a: UserHandle, b: UserHandle): Promise<void> {
 }
 
 /**
- * Deterministic group handshake: A creates a 2-member group (A + B), sends
- * one text into it, then B (non-admin) leaves. Surfaces cold-start races on
- * the group control/message pipeline so the first real fuzz action isn't
- * the first exercise of the group code path. Non-fatal on failure —
- * consistent with warmupHandshake policy.
- *
- * Why B leaves, not A: A is admin. If A left, B would process group_leave
- * and remove A from members[], BUT adminPubkey would still point to the
- * departed admin — an orphan admin state that fails
- * INV-group-admin-is-member. The auto-admin-transfer behaviour is a
- * design decision that belongs to a future phase, not the warmup. See
- * FUZZ-FINDINGS.md "admin-orphan on admin leave" for the tracked finding.
+ * Deterministic group handshake: A creates a 2-member group (A + B) and sends
+ * one text into it. The group remains available as the initial valid state for
+ * single-action group replays; leaving during warmup made sendInGroup choose a
+ * stale admin-only record and turned peer-delivery checks into false positives.
  */
 async function warmupGroupsHandshake(a: UserHandle, b: UserHandle): Promise<void> {
-  log('warmup/groups: A creates group → A sends → B leaves');
+  log('warmup/groups: A creates group → A sends');
   const warmupText = `__warmupG_${Date.now()}__`;
   try {
     const groupId = await a.page.evaluate(async (otherHex: string) => {
@@ -338,13 +361,6 @@ async function warmupGroupsHandshake(a: UserHandle, b: UserHandle): Promise<void
     }, {gid: groupId, txt: warmupText});
     await a.page.waitForTimeout(500);
     log('warmup/groups: step 2 (send) fired');
-
-    // B (non-admin) leaves — avoids admin-orphan state on A.
-    await b.page.evaluate(async (gid: string) => {
-      const {getGroupAPI} = await import('/src/lib/nostra/group-api.ts');
-      await getGroupAPI().leaveGroup(gid);
-    }, groupId);
-    log('warmup/groups: step 3 (leave) ack');
   } catch(err) {
     log(`warmup/groups: non-fatal error — ${err instanceof Error ? err.message : String(err)}`);
   }

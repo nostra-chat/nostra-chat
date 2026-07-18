@@ -145,7 +145,22 @@ export const POST_react_emoji_appears: Postcondition = {
       if(ok) return {ok: true};
       await sender.page.waitForTimeout(200);
     }
-    return {ok: false, message: `reaction ${emoji} not visible on mid=${mid}`};
+    const evidence = await sender.page.evaluate(async({m, e}: any) => {
+      const bubble = document.querySelector(`.bubbles-inner .bubble[data-mid="${m}"]`) as HTMLElement | null;
+      const rows = await (window as any).__nostraReactionsStore?.getAll?.() ?? [];
+      let messageRow: any = null;
+      try {
+        const {getMessageStore} = await import('/src/lib/nostra/message-store.ts');
+        messageRow = await getMessageStore().getByMid(Number(m));
+      } catch{}
+      return {
+        currentPeerId: (window as any).appImManager?.chat?.peerId,
+        bubble: bubble ? {classes: bubble.className, text: bubble.textContent} : null,
+        messageRow: messageRow ? {eventId: messageRow.eventId, peerId: messageRow.twebPeerId, sender: messageRow.senderPubkey} : null,
+        matchingReactions: rows.filter((row: any) => row.targetMid === Number(m) || row.emoji === e)
+      };
+    }, {m: mid, e: emoji});
+    return {ok: false, message: `reaction ${emoji} not visible on mid=${mid}`, evidence};
   }
 };
 

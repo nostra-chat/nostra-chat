@@ -222,7 +222,34 @@ export async function handleRelayMessage(
   if(deleteNotif) {
     const store = getMessageStore();
     const conversationId = store.getConversationId(ctx.ownId, msg.from);
-    await store.deleteMessages(conversationId, deleteNotif.eventIds);
+    // A peer may only revoke messages they authored. Without this check a
+    // crafted gift-wrap could name one of our outgoing event IDs and erase it
+    // from local history. Resolve before deleting both for author validation
+    // and to retain the mids needed for immediate bubble removal.
+    const authorised: StoredMessage[] = [];
+    for(const eventId of deleteNotif.eventIds) {
+      const row = await store.getByEventId(eventId).catch((): null => null);
+      if(!row || row.conversationId !== conversationId || row.senderPubkey !== msg.from) continue;
+      authorised.push(row);
+    }
+    const authorisedIds = authorised.map((row) => row.eventId);
+    if(authorisedIds.length) {
+      await store.deleteMessages(conversationId, authorisedIds);
+
+      // IDB deletion alone leaves an already-mounted bubble visible until a
+      // reload. Dispatch the native tweb deletion event, grouped by peer, so
+      // bubbles and Worker history are updated in the same turn.
+      const midsByPeer = new Map<number, Set<number>>();
+      for(const row of authorised) {
+        if(row.mid == null || row.twebPeerId == null) continue;
+        const mids = midsByPeer.get(row.twebPeerId) ?? new Set<number>();
+        mids.add(row.mid);
+        midsByPeer.set(row.twebPeerId, mids);
+      }
+      for(const [peerId, mids] of midsByPeer) {
+        rootScope.dispatchEventSingle('history_delete', {peerId: peerId as any, msgs: mids});
+      }
+    }
     return {action: 'deleted', conversationId};
   }
 

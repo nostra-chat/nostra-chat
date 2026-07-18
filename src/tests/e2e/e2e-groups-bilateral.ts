@@ -23,6 +23,7 @@ const GROUP_NAME = 'E2E Groups Bilateral';
 const MSG_TEXT = `hello-group-${Date.now()}`;
 const SENDER_WAIT_MS = 3000;
 const RECEIVER_WAIT_MS = 5000;
+const REACTION = '❤️';
 
 async function waitForGroupOn(page: any, groupId: string, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
@@ -60,6 +61,27 @@ async function waitForBubbleWithText(page: any, peerId: number, text: string, ti
       return {ok: false, count: bubbles.length};
     }, [text, allowOutgoing]);
     if(found?.ok) return true;
+    await page.waitForTimeout(200);
+  }
+  return false;
+}
+
+async function getBubbleMidByText(page: any, text: string): Promise<number> {
+  return page.evaluate((needle: string) => {
+    const bubbles = Array.from(document.querySelectorAll('.bubbles-inner .bubble[data-mid]')) as HTMLElement[];
+    const bubble = bubbles.find((item) => (item.textContent || '').includes(needle));
+    return Number(bubble?.dataset.mid || 0);
+  }, text);
+}
+
+async function waitForReaction(page: any, mid: number, emoji: string, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while(Date.now() < deadline) {
+    const seen = await page.evaluate(({targetMid, targetEmoji}: any) => {
+      const bubble = document.querySelector(`.bubbles-inner .bubble[data-mid="${targetMid}"]`);
+      return !!bubble?.querySelector('.reactions') && (bubble.textContent || '').includes(targetEmoji);
+    }, {targetMid: mid, targetEmoji: emoji});
+    if(seen) return true;
     await page.waitForTimeout(200);
   }
   return false;
@@ -118,6 +140,30 @@ async function main() {
         throw new Error(`FAIL — B (receiver) never rendered bubble "${MSG_TEXT}" within ${RECEIVER_WAIT_MS}ms.`);
       }
       console.log('[e2e-groups] PASS — B sees peer bubble');
+
+      // Step 6 — B reacts to A's group message. The local optimistic path and
+      // the control-message broadcast must update both members' bubbles.
+      const bMid = await getBubbleMidByText(B.page, MSG_TEXT);
+      if(!bMid) throw new Error('FAIL — could not resolve B group bubble mid for reaction');
+      await B.page.evaluate(async({targetMid, emoji}: any) => {
+        const rs = (window as any).rootScope;
+        const activePeerId = (window as any).appImManager?.chat?.peerId;
+        await rs.managers.appReactionsManager.sendReaction({
+          message: {peerId: activePeerId, mid: targetMid},
+          reaction: {_: 'reactionEmoji', emoticon: emoji}
+        });
+      }, {targetMid: bMid, emoji: REACTION});
+
+      if(!await waitForReaction(B.page, bMid, REACTION, 5000)) {
+        throw new Error('FAIL — B did not render its own group reaction');
+      }
+      console.log('[e2e-groups] PASS — B sees own group reaction');
+
+      const aMid = await getBubbleMidByText(A.page, MSG_TEXT);
+      if(!aMid || !await waitForReaction(A.page, aMid, REACTION, 10000)) {
+        throw new Error('FAIL — A did not receive B group reaction');
+      }
+      console.log('[e2e-groups] PASS — A sees peer group reaction');
     }
 
     console.log('[e2e-groups] ALL PASS');

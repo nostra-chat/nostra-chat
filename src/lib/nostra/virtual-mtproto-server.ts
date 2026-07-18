@@ -2199,18 +2199,33 @@ export class NostraMTProtoServer {
     const mids: number[] = params?.id || [];
     const revoke: boolean = !!params?.revoke;
 
+    // Resolve rows before deleting them. Besides revoke publication, the
+    // retained peerId/mid pairs drive a main-thread history_delete dispatch;
+    // relying only on the Worker's updateDeleteMessages leaves a stale bubble
+    // mounted when that update is deduplicated or arrives after the VMT row is
+    // already gone.
+    const rows: any[] = [];
+    if(mids.length) {
+      const store = getMessageStore();
+      for(const mid of mids) {
+        let row = null;
+        try {
+          row = await store.getByMid(mid);
+        } catch{}
+        if(row) rows.push(row);
+      }
+    }
+
     // For "Also delete for {peer}" we collect the rumor eventId + recipient
     // pubkey for each mid BEFORE the local deletion clears the row. The
     // collection is per-peer so peers different from the active conversation
     // (rare; only happens if the caller batches across chats) each get their
     // own gift-wrapped delete-notification.
     const perPeer = new Map<string, string[]>();
-    if(revoke && mids.length && this.chatAPI) {
+    if(revoke && rows.length && this.chatAPI) {
       try {
-        const store = getMessageStore();
-        for(const mid of mids) {
-          const row = await store.getByMid(mid).catch((): null => null);
-          if(!row?.eventId) continue;
+        for(const row of rows) {
+          if(!row.eventId) continue;
           const peerPubkey = await getPubkey(Math.abs(row.twebPeerId)).catch((): null => null);
           if(!peerPubkey) continue;
           const arr = perPeer.get(peerPubkey) ?? [];
@@ -2227,11 +2242,33 @@ export class NostraMTProtoServer {
       try {
         const store = getMessageStore();
         for(const mid of mids) {
-          await store.deleteByMid(mid).catch((e) => console.debug('[VirtualMTProto] deleteByMid failed:', e?.message));
+          try {
+            await store.deleteByMid(mid);
+          } catch(e: any) {
+            console.debug('[VirtualMTProto] deleteByMid failed:', e?.message);
+          }
         }
         console.log(LOG_PREFIX, 'deleteMessages: deleted', mids.length, 'from store');
       } catch(err) {
         console.warn(LOG_PREFIX, 'deleteMessages error:', err);
+      }
+    }
+
+    if(rows.length) {
+      try {
+        const rs: any = (await import('@lib/rootScope')).default;
+        const midsByPeer = new Map<number, Set<number>>();
+        for(const row of rows) {
+          if(row.mid == null || row.twebPeerId == null) continue;
+          const peerMids = midsByPeer.get(row.twebPeerId) ?? new Set<number>();
+          peerMids.add(row.mid);
+          midsByPeer.set(row.twebPeerId, peerMids);
+        }
+        for(const [peerId, peerMids] of midsByPeer) {
+          rs.dispatchEventSingle?.('history_delete', {peerId, msgs: peerMids});
+        }
+      } catch(err: any) {
+        console.debug(LOG_PREFIX, 'deleteMessages: local history_delete failed:', err?.message);
       }
     }
 

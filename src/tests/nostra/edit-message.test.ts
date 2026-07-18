@@ -3,6 +3,7 @@ import {describe, it, expect, beforeEach, afterAll, vi} from 'vitest';
 import {isEditMessage, isReplyMessage, handleRelayMessage, ReceiveContext, IncomingEdit} from '@lib/nostra/chat-api-receive';
 import {getMessageStore} from '@lib/nostra/message-store';
 import type {DecryptedMessage} from '@lib/nostra/nostr-relay';
+import rootScope from '@lib/rootScope';
 
 vi.mock('@lib/nostra/message-requests', () => ({
   getMessageRequestStore: () => ({
@@ -12,9 +13,12 @@ vi.mock('@lib/nostra/message-requests', () => ({
   })
 }));
 
+const {dispatchEventSingle} = vi.hoisted(() => ({dispatchEventSingle: vi.fn()}));
+
 vi.mock('@lib/rootScope', () => ({
   default: {
-    dispatchEvent: vi.fn()
+    dispatchEvent: vi.fn(),
+    dispatchEventSingle
   }
 }));
 
@@ -248,5 +252,63 @@ describe('handleRelayMessage — edit handling', () => {
     expect(first.action).toBe('edited');
     expect(second.action).toBe('skipped');
     expect((second as any).reason).toBe('edit_already_applied');
+  });
+});
+
+describe('handleRelayMessage — delete notification', () => {
+  beforeEach(async() => {
+    dispatchEventSingle.mockClear();
+    const store = getMessageStore();
+    const convId = store.getConversationId(OWN_PUB, SENDER_PUB);
+    await store.deleteMessages(convId);
+  });
+
+  it('removes the authorised bubble immediately and refuses deletion of our message', async() => {
+    const historyDeleteSpy = vi.spyOn(rootScope, 'dispatchEventSingle');
+    const store = getMessageStore();
+    const conversationId = store.getConversationId(OWN_PUB, SENDER_PUB);
+    const peerEventId = '1'.repeat(64);
+    const ownEventId = '2'.repeat(64);
+    await store.saveMessage({
+      eventId: peerEventId,
+      conversationId,
+      senderPubkey: SENDER_PUB,
+      content: 'peer message',
+      type: 'text',
+      timestamp: EDIT_TIMESTAMP - 10,
+      deliveryState: 'delivered',
+      mid: 101,
+      twebPeerId: 9001
+    });
+    await store.saveMessage({
+      eventId: ownEventId,
+      conversationId,
+      senderPubkey: OWN_PUB,
+      content: 'own message',
+      type: 'text',
+      timestamp: EDIT_TIMESTAMP - 5,
+      deliveryState: 'sent',
+      mid: 102,
+      twebPeerId: 9001
+    });
+    expect((await store.getByEventId(peerEventId))?.twebPeerId).toBe(9001);
+
+    const result = await handleRelayMessage({
+      id: '3'.repeat(64),
+      from: SENDER_PUB,
+      content: JSON.stringify({type: 'delete-notification', eventIds: [peerEventId, ownEventId]}),
+      timestamp: EDIT_TIMESTAMP,
+      rumorKind: 14,
+      tags: [['p', OWN_PUB]]
+    }, makeCtx());
+
+    expect(result.action).toBe('deleted');
+    expect(await store.getByEventId(peerEventId)).toBeNull();
+    expect(await store.getByEventId(ownEventId)).not.toBeNull();
+    expect(historyDeleteSpy).toHaveBeenCalledWith('history_delete', {
+      peerId: 9001,
+      msgs: new Set([101])
+    });
+    historyDeleteSpy.mockRestore();
   });
 });

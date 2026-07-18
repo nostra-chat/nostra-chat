@@ -60,6 +60,7 @@ describe('nostra-pending-flush', () => {
 
   describe('flush', () => {
     it('dispatches history_append for each pending message', () => {
+      mockChat = {peerId: PEER_ID};
       manager.enqueue(PEER_ID, makeMsg(1));
       manager.enqueue(PEER_ID, makeMsg(2));
       manager.flush(PEER_ID);
@@ -87,8 +88,33 @@ describe('nostra-pending-flush', () => {
       mockChat = {peerId: 999999};
       manager.enqueue(PEER_ID, makeMsg(1));
       manager.flush(PEER_ID);
-      // Still has pending because different chat is active
+      // Still has pending because different chat is active, and must not mark
+      // the message as flushed before the matching bubble listener exists.
       expect(manager.getPendingCount(PEER_ID)).toBe(1);
+      expect(mockDispatchEvent).not.toHaveBeenCalled();
+    });
+
+    it('keeps pending throughout setPeer and flushes once bubbles are ready', () => {
+      mockChat = {
+        peerId: PEER_ID,
+        setPeerPromise: Promise.resolve(),
+        bubbles: {scrollable: {loadedAll: {bottom: false}}}
+      };
+      manager.enqueue(PEER_ID, makeMsg(1));
+
+      manager.flush(PEER_ID);
+      expect(manager.getPendingCount(PEER_ID)).toBe(1);
+      expect(mockDispatchEvent).not.toHaveBeenCalled();
+
+      mockChat.setPeerPromise = null;
+      manager.flush(PEER_ID);
+      expect(manager.getPendingCount(PEER_ID)).toBe(1);
+      expect(mockDispatchEvent).not.toHaveBeenCalled();
+
+      mockChat.bubbles.scrollable.loadedAll.bottom = true;
+      manager.flush(PEER_ID);
+      expect(manager.getPendingCount(PEER_ID)).toBe(0);
+      expect(mockDispatchEvent).toHaveBeenCalledTimes(1);
     });
   });
 

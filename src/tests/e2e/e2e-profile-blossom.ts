@@ -67,8 +67,25 @@ async function clickHamburger(page) {
 
   // Real Playwright click — more reliable than raw mouse events with
   // Solid.js event delegation and the button-menu-toggle handler.
-  await page.locator('.sidebar-header .btn-menu-toggle').first().click();
-  await page.waitForTimeout(600);
+  // Wide layouts render the actionable tools button in #folders-sidebar and
+  // deliberately collapse the duplicate button in the main search header.
+  const toggles = page.locator('.sidebar-tools-button:visible');
+  const count = await toggles.count();
+  for(let i = 0; i < count; i++) {
+    const toggle = toggles.nth(i);
+    const isTopmost = await toggle.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const topmost = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return topmost === element || element.contains(topmost);
+    });
+    if(isTopmost) {
+      await toggle.click();
+      await page.waitForTimeout(600);
+      return;
+    }
+  }
+
+  throw new Error('no unobstructed sidebar tools button found');
 }
 
 /** Click the first visible btn-menu-item in the sidebar hamburger menu. */
@@ -114,8 +131,7 @@ async function test1_menuEntryRenders() {
 
   // Use a real playwright click instead of raw mouse events — more
   // reliable with Solid.js event delegation and button-menu-toggle logic.
-  await page.locator('.sidebar-header .btn-menu-toggle').first().click();
-  await page.waitForTimeout(600);
+  await clickHamburger(page);
 
   // Poll for the menu to actually open
   let result: {hasAvatar: boolean; text: string} | null = null;
