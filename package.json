@@ -1,6 +1,6 @@
 {
   "name": "nostra-chat",
-  "version": "0.26.3",
+  "version": "0.26.4",
   "description": "",
   "main": "index.js",
   "scripts": {
