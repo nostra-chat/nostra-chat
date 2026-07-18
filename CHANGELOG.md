@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.4](https://github.com/nostra-chat/nostra-chat/compare/v0.26.3...v0.26.4) (2026-07-18)
+
+
+### Bug Fixes
+
+* keep message bubbles coherent across delivery events ([3d4a2df](https://github.com/nostra-chat/nostra-chat/commit/3d4a2df72f943f98aa718dcdfd837661a00c01f6))
+
 ## [0.26.3](https://github.com/nostra-chat/nostra-chat/compare/v0.26.2...v0.26.3) (2026-07-14)
 
 
